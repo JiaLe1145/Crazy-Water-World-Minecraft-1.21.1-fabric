@@ -1,0 +1,715 @@
+package dev.nbw.round;
+
+import dev.nbw.NBW;
+import dev.nbw.cfg.ConfigModels;
+import dev.nbw.cfg.ConfigService;
+import dev.nbw.domain.SpawnGeometry;
+import dev.nbw.domain.round.Phase;
+import dev.nbw.domain.round.PlayerSession;
+import dev.nbw.domain.round.RoundConfig;
+import dev.nbw.domain.round.RoundEvent;
+import dev.nbw.domain.round.RoundMachine;
+import dev.nbw.domain.round.Transitions;
+import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
+import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
+import net.minecraft.entity.Entity;
+import net.minecraft.entity.player.PlayerInventory;
+import net.minecraft.item.ItemStack;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.world.ServerWorld;
+import net.minecraft.text.Text;
+import net.minecraft.util.math.Box;
+import net.minecraft.world.GameMode;
+
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+
+/**
+ * 回合骨架的服务端适配层（04 §1：domain 出阶段，这里出副作用）。
+ *
+ * 三条纪律：
+ * 1. 玩法判定只在 domain，本类只搬运事实与执行表现，因此规则可以纯单测覆盖；
+ * 2. 玩家集合一律**多来源采集 + UUID 去重**（05 C23：真实玩家在 world.getPlayers()、Carpet 假玩家在实体分区，
+ *    PlayerManager 只保证真实玩家），只取一个来源会出现"假人测试全绿、线上漏人"；
+ * 3. 阶段是唯一改权限的入口（04 §2 不变式 4），PVP / 建造 / 物品栏由 {@link Phase} 决定；
+ *    任何表现层异常都不得拖垮对局（04 §6 降级要求）。
+ */
+public final class RoundManager {
+
+	/** 全图扫描用的保守包围盒：只在阶段切换/命令时调用，绝不在 tick 热路径。 */
+	private static final Box WORLD_WIDE = new Box(-1.0E7, -64.0, -1.0E7, 1.0E7, 320.0, 1.0E7);
+
+	private static RoundMachine machine = new RoundMachine(RoundConfig.standard());
+	private static MinecraftServer server;
+	private static ConfigModels.Arena arena;
+	private static ConfigModels.Format format;
+	private static ConfigModels.Lobby lobby;
+	private static String arenaId = "default_sea";
+	private static String formatId = "standard_12min";
+
+	/** READY 时算好的每队出生锚点（下标 = teamIndex）。 */
+	private static final List<Anchor> anchors = new ArrayList<>();
+	/** 上一局参战者 UUID：RETURN 阶段要靠他们做清理与残留复检（那时 domain 会话已经清空）。 */
+	private static final Set<UUID> lastParticipants = new LinkedHashSet<>();
+	/**
+	 * 生命周期事件的落位延后到下一 tick：1.21.1 的 fabric-networking-api-v1 **没有 AFTER_JOIN**（实测），
+	 * 而原版在 JOIN/AFTER_RESPAWN 之后还会按存档或世界出生点落位，直接在我们的事件里传送会被它盖掉。
+	 */
+	private static final Set<UUID> pendingPlacement = new LinkedHashSet<>();
+	private static int placementStallTicks;
+
+	/** 出生锚点：方块坐标 + 朝向圈心的 yaw。 */
+	public record Anchor(int x, int y, int z, float yaw) {
+	}
+
+	private RoundManager() {
+	}
+
+	// ---------------------------------------------------------------- 事件注册
+
+	public static void register() {
+		ServerLifecycleEvents.SERVER_STARTED.register(s -> {
+			server = s;
+			// 大厅/海域配置要在开服时就位，否则玩家连进服都无处安置（实测踩过：lobby==null 时 placeInLobby 直接返回）
+			String err = loadConfigs(null, null);
+			if (err != null) {
+				NBW.LOGGER.warn("[round] 开服配置载入未完成（玩家会留在原地，/cww start 会再试一次）：{}", err);
+			}
+		});
+		ServerLifecycleEvents.SERVER_STOPPING.register(s -> server = null);
+		ServerTickEvents.END_SERVER_TICK.register(RoundManager::onEndTick);
+		ServerPlayConnectionEvents.JOIN.register((handler, sender, srv) -> onJoin(handler.getPlayer()));
+		ServerPlayConnectionEvents.DISCONNECT.register((handler, srv) -> {
+			ServerPlayerEntity player = handler.getPlayer();
+			NBW.LOGGER.info("[round] DISCONNECT {} (uuid={}, phase={}, seat={})",
+					player.getNameForScoreboard(), player.getUuid(), machine.phase(),
+					machine.session(player.getUuid()) != null);
+			machine.onDisconnect(player.getUuid());
+		});
+		ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, newPlayer, alive) -> onRespawn(newPlayer));
+		ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
+			if (entity instanceof ServerPlayerEntity player) {
+				PlayerSession s = machine.session(player.getUuid());
+				NBW.LOGGER.info("[round] DEATH {} (uuid={}, phase={}, session={}, team={}, eliminated={})",
+						player.getNameForScoreboard(), player.getUuid(), machine.phase(), s != null,
+						s == null ? "-" : s.teamIndex(), s != null && s.isEliminated());
+				machine.onDeath(player.getUuid());
+			}
+		});
+		// 05 C18：死亡/伤害一律用 ServerLivingEntityEvents，不用已废弃的 ServerPlayerEvents.ALLOW_DEATH
+		ServerLivingEntityEvents.ALLOW_DAMAGE.register((entity, source, amount) ->
+				allowPlayerVsPlayer(entity, source == null ? null : source.getAttacker()));
+		NBW.LOGGER.info("[round] registered: {} transition edges, spec={}x{}",
+				Transitions.edgeCount(), machine.config().teamCount(), machine.config().teamSize());
+	}
+
+	/** 大厅与非 PLAY 阶段禁止玩家互殴（04 §3 阶段内权限集中）。 */
+	private static boolean allowPlayerVsPlayer(Entity target, Entity attacker) {
+		if (!(target instanceof ServerPlayerEntity) || !(attacker instanceof ServerPlayerEntity)) {
+			return true;
+		}
+		if (machine.phase().allowsPvp()) {
+			return true;
+		}
+		NBW.LOGGER.info("[round] pvp blocked in phase {}: {} -> {}", machine.phase(),
+				attacker.getNameForScoreboard(), target.getNameForScoreboard());
+		return false;
+	}
+
+	// ---------------------------------------------------------------- tick 与副作用
+
+	private static void onEndTick(MinecraftServer srv) {
+		machine.tick();
+		for (RoundMachine.Transition t : machine.drainPendingEffects()) {
+			try {
+				onPhaseEnter(t);
+			} catch (RuntimeException e) {
+				NBW.LOGGER.error("[round] phase side effect failed for match={} -> {}", t.matchIndex(), t.to(), e);
+			}
+		}
+		drainPendingPlacements();
+		if (machine.phase() == Phase.PLAY) {
+			sweepDeaths();
+		}
+		broadcastCountdown();
+	}
+
+	/**
+	 * 死亡与在场的 tick 兜底。只用 PlayerManager 列表与各世界 getPlayers()（都是现成列表），
+	 * 绝不在 tick 里做全图包围盒扫描（04 §12 性能预算）。
+	 *
+	 * 为什么需要：实测 Carpet 假玩家既不触发 AFTER_DEATH 也不触发 DISCONNECT（vanilla 那边有
+	 * "lost connection: Killed"，我们的事件却是静的），真实玩家两个事件都正常。事件仍是主路径
+	 * （05 C18），这里补的是"事件漏报导致席位一直占着/淘汰不生效"这一类静默故障。
+	 */
+	private static void sweepDeaths() {
+		if (server == null) {
+			return;
+		}
+		Set<UUID> present = new HashSet<>();
+		for (ServerPlayerEntity p : server.getPlayerManager().getPlayerList()) {
+			present.add(p.getUuid());
+		}
+		for (ServerWorld world : server.getWorlds()) {
+			for (ServerPlayerEntity p : world.getPlayers()) {
+				present.add(p.getUuid());
+			}
+		}
+		for (PlayerSession s : machine.sessions().values()) {
+			if (s.teamIndex() < 0 || s.isEliminated()) {
+				continue;
+			}
+			ServerPlayerEntity p = server.getPlayerManager().getPlayer(s.id());
+			if (p != null && (p.isRemoved() || !p.isAlive())) {
+				NBW.LOGGER.info("[round] sweep: {} 实体在场但不存活，按淘汰处理", s.name());
+				machine.onDeath(s.id());
+				continue;
+			}
+			if (p == null && !present.contains(s.id()) && !s.isDisconnected()) {
+				// 没抓到 DISCONNECT：按掉线开席位倒计时，避免"人早没了还占着活席"
+				NBW.LOGGER.warn("[round] sweep: {} 不在场且未收到 DISCONNECT，按掉线开席位倒计时", s.name());
+				machine.onDisconnect(s.id());
+			}
+		}
+	}
+
+	/** 延后落位的排队项：等实体真正进了世界再传送，才不会被原版的出生点落位覆盖。 */
+	private static void drainPendingPlacements() {
+		if (pendingPlacement.isEmpty()) {
+			return;
+		}
+		List<ServerPlayerEntity> players = collect(pendingPlacement);
+		if (players.isEmpty() && ++placementStallTicks > 40) {
+			NBW.LOGGER.warn("[round] 丢弃 {} 个等不到实体的落位请求（玩家可能已离线）", pendingPlacement.size());
+			pendingPlacement.clear();
+			placementStallTicks = 0;
+			return;
+		}
+		for (ServerPlayerEntity p : players) {
+			try {
+				placeByPhase(p);
+			} catch (RuntimeException e) {
+				NBW.LOGGER.error("[round] placement failed for {}", p.getNameForScoreboard(), e);
+			}
+			pendingPlacement.remove(p.getUuid());
+			placementStallTicks = 0;
+		}
+	}
+
+	private static void onPhaseEnter(RoundMachine.Transition t) {
+		NBW.LOGGER.info("[AUDIT] match={} {} --{}--> {} @tick{}", t.matchIndex(), t.from(), t.event(), t.to(), t.totalTick());
+		switch (t.to()) {
+			case ENROLL -> {
+				anchors.clear();
+				lastParticipants.clear();
+				announce("§b第 " + t.matchIndex() + " 局开始分队（" + seconds(machine.config().enrollTicks())
+						+ "s），/cww join [队伍号] 自主选队");
+			}
+			case READY -> {
+				buildAnchors();
+				int moved = teleportParticipants();
+				announce("§e进入对局（" + moved + " 人已传送），" + seconds(machine.config().readyTicks()) + " 秒后开局");
+			}
+			case PLAY -> {
+				setParticipantsGameMode(GameMode.SURVIVAL);
+				announce("§c对局开始！最后存活队获胜");
+			}
+			case SETTLE -> {
+				RoundMachine.Result r = machine.lastResult();
+				if (r != null) {
+					announce("§a本局结束：" + (r.isDraw() ? "平局（未分出唯一存活队）" : r.winnerName() + " 获胜")
+							+ "｜原因 " + r.cause() + "｜时长 " + r.durationSeconds() + "s｜存活 "
+							+ r.survivors() + "/" + r.participants());
+				}
+				setParticipantsGameMode(GameMode.ADVENTURE);
+			}
+			case RETURN -> {
+				cleanupParticipants();
+				returnToLobby();
+				auditResidue();
+			}
+			case LOBBY -> {
+				List<String> recheck = machine.residueReport();
+				if (recheck.isEmpty()) {
+					NBW.LOGGER.info("[S10] lobby-recheck=CLEAN matchesPlayed={} queued={}",
+							machine.matchIndex(), machine.queuedCount());
+				} else {
+					NBW.LOGGER.error("[S10] lobby-recheck=FAIL {}", recheck);
+				}
+				if (t.from() == Phase.RETURN) {
+					announce("§a已回大厅，局内状态已清理；/cww join 报名下一局");
+				} else {
+					// 中止路径（ENROLL/READY/PLAY 直接回 LOBBY）同样必须走一遍清理，否则残留会带进下一局
+					cleanupParticipants();
+					returnToLobby();
+					auditResidue();
+					announce("§7本局已中止（原因 " + t.event() + "），局内状态已清理");
+				}
+			}
+			default -> {
+			}
+		}
+	}
+
+	/** 最后 10 秒每秒播报；走全局广播，不做玩家集合扫描（tick 热路径要便宜）。 */
+	private static void broadcastCountdown() {
+		Phase p = machine.phase();
+		if (p == Phase.LOBBY || server == null) {
+			return;
+		}
+		int remain = machine.config().ticksIn(p) - machine.tickInPhase();
+		if (remain > 0 && remain < 10_000 && remain % 20 == 0 && remain / 20 <= 10) {
+			announce("§e[cww] " + p + " 剩余 " + (remain / 20) + "s");
+		}
+	}
+
+	private static int seconds(int ticks) {
+		return ticks / 20;
+	}
+
+	// ---------------------------------------------------------------- 玩家集合（05 C23）
+
+	private static Set<UUID> currentParticipants() {
+		Set<UUID> out = new LinkedHashSet<>();
+		for (PlayerSession s : machine.sessions().values()) {
+			if (s.teamIndex() >= 0) {
+				out.add(s.id());
+			}
+		}
+		return out;
+	}
+
+	/** 合并三个来源的在线玩家：PlayerManager、world.getPlayers()、实体分区。 */
+	private static List<ServerPlayerEntity> onlinePlayers() {
+		List<ServerPlayerEntity> out = new ArrayList<>();
+		if (server == null) {
+			return out;
+		}
+		Set<UUID> seen = new HashSet<>();
+		for (ServerPlayerEntity p : server.getPlayerManager().getPlayerList()) {
+			if (seen.add(p.getUuid())) {
+				out.add(p);
+			}
+		}
+		for (ServerWorld world : server.getWorlds()) {
+			for (ServerPlayerEntity p : world.getPlayers()) {
+				if (seen.add(p.getUuid())) {
+					out.add(p);
+				}
+			}
+			for (ServerPlayerEntity p : world.getEntitiesByClass(ServerPlayerEntity.class, WORLD_WIDE, x -> true)) {
+				if (seen.add(p.getUuid())) {
+					out.add(p);
+				}
+			}
+		}
+		return out;
+	}
+
+	/**
+	 * 按 UUID 找参战者。缺失是常态（离线），但必须记下来：
+	 * "传送了 3/4 人"这种证据比"看起来没报错"有用得多。
+	 */
+	private static List<ServerPlayerEntity> collect(Set<UUID> wanted) {
+		List<ServerPlayerEntity> out = new ArrayList<>();
+		Set<UUID> found = new HashSet<>();
+		for (ServerPlayerEntity p : onlinePlayers()) {
+			if (wanted.contains(p.getUuid()) && found.add(p.getUuid())) {
+				out.add(p);
+			}
+		}
+		int missing = wanted.size() - found.size();
+		if (missing > 0) {
+			NBW.LOGGER.warn("[round] {} 名参战者查无实体（离线或未被任何来源收录）", missing);
+		}
+		return out;
+	}
+
+	// ---------------------------------------------------------------- 阶段副作用实现
+
+	private static void onJoin(ServerPlayerEntity player) {
+		NBW.LOGGER.info("[round] JOIN fired for {} (uuid={}, phase={})",
+				player.getNameForScoreboard(), player.getUuid(), machine.phase());
+		machine.onReconnect(player.getUuid(), player.getNameForScoreboard());
+		pendingPlacement.add(player.getUuid());
+		player.sendMessage(Text.literal("§a[cww] 大厅｜阶段 " + machine.phase()
+				+ (machine.phase().allowsEnrollment() ? "｜/cww join 报名本局" : "｜本局进行中，可报名下一局")), false);
+	}
+
+	/**
+	 * 复活迁移（05 C21 / R13）：实体对象被替换，会话按 UUID 存在 domain 所以身份不丢；
+	 * 但游戏模式与锚点要重新下发，否则复活点回到世界出生地、权限也错。
+	 * M3 起营养/水分/武器身份等附件也要在这里迁移。
+	 */
+	private static void onRespawn(ServerPlayerEntity newPlayer) {
+		NBW.LOGGER.info("[C21] respawn: old={} uuid={} phase={}",
+				newPlayer.getNameForScoreboard(), newPlayer.getUuid(), machine.phase());
+		pendingPlacement.add(newPlayer.getUuid());
+	}
+
+	/** 按"当时的阶段 + 席位"决定这名玩家该待在哪里；生命周期事件都延后一 tick 走这里。 */
+	private static void placeByPhase(ServerPlayerEntity player) {
+		PlayerSession s = machine.session(player.getUuid());
+		if (machine.phase().matchActive() && s != null && s.teamIndex() >= 0) {
+			teleportToAnchor(player, s.teamIndex());
+			player.changeGameMode(machine.phase().allowsPvp() ? GameMode.SURVIVAL : GameMode.ADVENTURE);
+			NBW.LOGGER.info("[round] placed {} at team {} anchor (phase={})",
+					player.getNameForScoreboard(), s.teamIndex(), machine.phase());
+		} else {
+			placeInLobby(player);
+			NBW.LOGGER.info("[round] {} placed in lobby (phase={}, hasSeat={})",
+					player.getNameForScoreboard(), machine.phase(), s != null);
+		}
+	}
+
+	private static void buildAnchors() {
+		anchors.clear();
+		if (arena == null) {
+			NBW.LOGGER.error("[round] buildAnchors 但 arena 未加载");
+			return;
+		}
+		ConfigModels.Arena.Sea sea = arena.sea;
+		int teamCount = machine.config().teamCount();
+		List<SpawnGeometry.Spot> auto = SpawnGeometry.equidistant(sea.centerX, sea.centerZ, sea.radius, teamCount,
+				SpawnGeometry.DEFAULT_RADIUS_FACTOR);
+		List<ConfigModels.Arena.Spawns.TeamSpawn> defined =
+				arena.spawns == null || arena.spawns.teams == null ? List.of() : arena.spawns.teams;
+		for (int i = 0; i < teamCount; i++) {
+			ConfigModels.Arena.Spawns.TeamSpawn manual = null;
+			for (ConfigModels.Arena.Spawns.TeamSpawn t : defined) {
+				if (t.teamIndex == i) {
+					manual = t;
+				}
+			}
+			if (manual != null) {
+				// 03 §3.3：teams 与 auto 并存时以手写点为准
+				anchors.add(new Anchor(manual.x, manual.y, manual.z, yawToward(manual.x, manual.z, sea.centerX, sea.centerZ)));
+			} else {
+				SpawnGeometry.Spot spot = auto.get(i);
+				anchors.add(new Anchor(spot.x(), sea.waterLevel + 1, spot.z(), spot.yaw()));
+			}
+		}
+		int separation = SpawnGeometry.minSeparation(toSpots());
+		int minRequired = arena.spawns != null && arena.spawns.auto != null ? arena.spawns.auto.minSeparation : 60;
+		if (separation > 0 && separation < minRequired) {
+			NBW.LOGGER.warn("[round] 出生点最小间距 {} < 配置要求 {}，可能出现两队贴脸", separation, minRequired);
+		}
+		NBW.LOGGER.info("[round] anchors built: {} 队，最小间距 {}（要求 >= {}）", anchors.size(), separation, minRequired);
+	}
+
+	private static List<SpawnGeometry.Spot> toSpots() {
+		List<SpawnGeometry.Spot> spots = new ArrayList<>();
+		for (Anchor a : anchors) {
+			spots.add(new SpawnGeometry.Spot(spots.size(), a.x(), a.z(), a.yaw(), 0));
+		}
+		return spots;
+	}
+
+	private static float yawToward(int x, int z, int cx, int cz) {
+		return (float) Math.toDegrees(Math.atan2(x - cx, cz - z));
+	}
+
+	private static void teleportToAnchor(ServerPlayerEntity player, int teamIndex) {
+		if (teamIndex < 0 || teamIndex >= anchors.size()) {
+			return;
+		}
+		Anchor a = anchors.get(teamIndex);
+		ServerWorld world = arenaWorld();
+		if (world == null) {
+			return;
+		}
+		// 权威传送（05 C25）；真人手感与橡皮筋需真人验证
+		player.teleport(world, a.x() + 0.5, a.y(), a.z() + 0.5, a.yaw(), 0f);
+	}
+
+	private static int teleportParticipants() {
+		Set<UUID> ids = currentParticipants();
+		lastParticipants.addAll(ids);
+		int moved = 0;
+		for (ServerPlayerEntity p : collect(ids)) {
+			PlayerSession s = machine.session(p.getUuid());
+			if (s != null && s.teamIndex() >= 0) {
+				teleportToAnchor(p, s.teamIndex());
+				p.changeGameMode(GameMode.ADVENTURE); // READY 冻结输入（01 §2）
+				Anchor a = s.teamIndex() < anchors.size() ? anchors.get(s.teamIndex()) : null;
+				NBW.LOGGER.info("[round] moved {} team={} -> anchor={} nowAt=({},{},{})",
+						p.getNameForScoreboard(), s.teamIndex(),
+						a == null ? "none" : (a.x() + "," + a.y() + "," + a.z()),
+						Math.round(p.getX() * 100) / 100.0, Math.round(p.getY() * 100) / 100.0,
+						Math.round(p.getZ() * 100) / 100.0);
+				moved++;
+			}
+		}
+		NBW.LOGGER.info("[round] teleported {} / {} participants into arena {}", moved, ids.size(), arenaId);
+		return moved;
+	}
+
+	private static void setParticipantsGameMode(GameMode mode) {
+		Set<UUID> ids = currentParticipants().isEmpty() ? new LinkedHashSet<>(lastParticipants) : currentParticipants();
+		List<ServerPlayerEntity> players = collect(ids);
+		for (ServerPlayerEntity p : players) {
+			p.changeGameMode(mode);
+		}
+		NBW.LOGGER.info("[round] game mode {} applied to {} / {} participants", mode, players.size(), ids.size());
+	}
+
+	private static void placeInLobby(ServerPlayerEntity player) {
+		boolean fly = lobby != null && lobby.rules != null && lobby.rules.flyAllowed;
+		player.changeGameMode(fly ? GameMode.CREATIVE : GameMode.ADVENTURE);
+		if (lobby == null || lobby.spawn == null) {
+			return;
+		}
+		ConfigModels.Lobby.Point spawn = lobby.spawn;
+		ServerWorld world = lobbyWorld();
+		if (world == null) {
+			return;
+		}
+		player.teleport(world, spawn.x + 0.5, spawn.y, spawn.z + 0.5, spawn.yaw, spawn.pitch);
+	}
+
+	private static void returnToLobby() {
+		List<ServerPlayerEntity> players = collect(lastParticipants);
+		for (ServerPlayerEntity p : players) {
+			placeInLobby(p);
+		}
+		NBW.LOGGER.info("[round] returned {} / {} participants to lobby", players.size(), lastParticipants.size());
+	}
+
+	/** A13 局后清理（01 §2）：界面、物品栏、效果归零；建造权限由阶段（非 PLAY）关闭。 */
+	private static void cleanupParticipants() {
+		int cleared = 0;
+		for (ServerPlayerEntity p : collect(lastParticipants)) {
+			p.closeHandledScreen();
+			PlayerInventory inv = p.getInventory();
+			for (int i = 0; i < inv.size(); i++) {
+				inv.setStack(i, ItemStack.EMPTY);
+			}
+			inv.markDirty();
+			p.playerScreenHandler.onContentChanged(inv);
+			p.clearStatusEffects();
+			cleared++;
+		}
+		NBW.LOGGER.info("[round] cleanup executed for {} participants (inventory + effects)", cleared);
+	}
+
+	/** S10 断言：domain 侧与 MC 侧都查，日志给出可核对的证据（不通过就 FAIL，不静默）。 */
+	private static void auditResidue() {
+		List<String> issues = new ArrayList<>(machine.residueReport());
+		for (ServerPlayerEntity p : collect(lastParticipants)) {
+			if (!p.getInventory().isEmpty()) {
+				issues.add(p.getNameForScoreboard() + " 物品栏非空");
+			}
+			if (!p.getStatusEffects().isEmpty()) {
+				issues.add(p.getNameForScoreboard() + " 残留效果 " + p.getStatusEffects().size() + " 个");
+			}
+			if (p.interactionManager.getGameMode() != GameMode.ADVENTURE) {
+				issues.add(p.getNameForScoreboard() + " 游戏模式残留 " + p.interactionManager.getGameMode());
+			}
+			int hidden = 0;
+			var ender = p.getEnderChestInventory();
+			for (int i = 0; i < ender.size(); i++) {
+				if (!ender.getStack(i).isEmpty()) {
+					hidden++;
+				}
+			}
+			if (hidden > 0) {
+				// M1 局内还没有可拾取物品；等有 loot 之后这条必须升级成"清空"而不是"告警"
+				issues.add(p.getNameForScoreboard() + " 末影箱藏有 " + hidden + " 件物品（局内物品泄漏面）");
+			}
+		}
+		if (issues.isEmpty()) {
+			NBW.LOGGER.info("[S10] residue=CLEAN phase={} matchesPlayed={} participantsChecked={}",
+					machine.phase(), machine.matchIndex(), lastParticipants.size());
+		} else {
+			NBW.LOGGER.error("[S10] residue=FAIL matches={} issues={}", machine.matchIndex(), issues);
+		}
+		lastParticipants.clear();
+	}
+
+	// ---------------------------------------------------------------- 配置与命令入口
+
+	public static Path worldRoot() {
+		return net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().resolve("world").toAbsolutePath();
+	}
+
+	public static Phase phase() {
+		return machine.phase();
+	}
+
+	public static RoundConfig config() {
+		return machine.config();
+	}
+
+	public static boolean matchRunning() {
+		Phase p = machine.phase();
+		return p == Phase.ENROLL || p.matchActive();
+	}
+
+	public static String state() {
+		return machine.dump() + "arena=" + arenaId + " format=" + formatId
+				+ " lobby=" + (lobby == null ? "未加载" : "已加载")
+				+ " anchors=" + anchors.size() + " lastParticipants=" + lastParticipants.size()
+				+ " online=" + onlinePlayers().size();
+	}
+
+	public static String auditLog(int limit) {
+		List<RoundMachine.Transition> all = machine.audit();
+		int from = Math.max(0, all.size() - limit);
+		StringBuilder sb = new StringBuilder();
+		for (RoundMachine.Transition t : all.subList(from, all.size())) {
+			sb.append(t.matchIndex()).append(' ').append(t.from()).append(" --").append(t.event()).append("--> ")
+					.append(t.to()).append(" @tick").append(t.totalTick()).append('\n');
+		}
+		for (String n : machine.auditNotes()) {
+			sb.append("note: ").append(n).append('\n');
+		}
+		return sb.toString();
+	}
+
+	/** 载入 arena + format + lobby 并完整校验；成功返回 null，失败返回可读原因（03 §6.2：拒绝加载、不自动纠正）。 */
+	public static String loadConfigs(String fidArg, String aidArg) {
+		Path root = worldRoot();
+		String fid = fidArg == null ? formatId : fidArg;
+		String aid = aidArg == null ? arenaId : aidArg;
+		if (!ConfigService.isSafeName(fid) || !ConfigService.isSafeName(aid)) {
+			return "id 不合法（只允许 [a-z0-9_]{1,32}）";
+		}
+		ConfigModels.Format f;
+		try {
+			f = ConfigService.loadFormat(root, fid);
+		} catch (Exception e) {
+			return "format '" + fid + "' 读取失败：" + e.getMessage();
+		}
+		if (f == null) {
+			return "format '" + fid + "' 内容为空";
+		}
+		ConfigService.Loaded arenaLoaded = ConfigService.loadArena(root, aid, true);
+		if (!arenaLoaded.ok()) {
+			return "arena '" + aid + "' 被拒绝（不自动纠正）：" + String.join(" | ", arenaLoaded.errors());
+		}
+		ConfigService.LobbyLoaded lobbyLoaded = ConfigService.loadLobby(root, true);
+		if (!lobbyLoaded.ok()) {
+			return "lobby 被拒绝（不自动纠正）：" + String.join(" | ", lobbyLoaded.errors());
+		}
+		List<String> stageErrors = ConfigService.toZone(arenaLoaded.arena(), f).validateStages();
+		if (!stageErrors.isEmpty()) {
+			return "format '" + fid + "' 圈阶段被拒绝：" + String.join(" | ", stageErrors);
+		}
+		arena = arenaLoaded.arena();
+		format = f;
+		lobby = lobbyLoaded.lobby();
+		arenaId = aid;
+		formatId = fid;
+		machine.setConfig(RoundConfig.fromFormat(f.teams, f.teamSize, f.minPlayers,
+				f.duration == null || f.duration.targetTotal <= 0 ? 720 : f.duration.targetTotal));
+		NBW.LOGGER.info("[round] configs loaded: arena={} format={} spec={}x{} min={} lobby=({},{},{})",
+				aid, fid, f.teams, f.teamSize, f.minPlayers,
+				lobby.spawn == null ? "?" : lobby.spawn.x, lobby.spawn == null ? "?" : lobby.spawn.y,
+				lobby.spawn == null ? "?" : lobby.spawn.z);
+		return null;
+	}
+
+	/** /cww start：装配置 → 校验人数下限 → LOBBY --START--> ENROLL。返回 null 表示已开局。 */
+	public static String start(String fid, String aid) {
+		if (machine.phase() != Phase.LOBBY) {
+			return "已有对局/报名在进行中（阶段 " + machine.phase() + "），先 /cww stop 或 /cww abort";
+		}
+		String err = loadConfigs(fid, aid);
+		if (err != null) {
+			return err;
+		}
+		if (!machine.enrollmentReached()) {
+			return "报名 " + machine.queuedCount() + " 人 < 下限 " + machine.config().minPlayers()
+					+ "；用 /cww join 报名或 /cww force <玩家> <队伍> 拉人";
+		}
+		if (!machine.fire(RoundEvent.START)) {
+			return "开局被状态机拒绝（阶段 " + machine.phase() + "）";
+		}
+		return null;
+	}
+
+	public static String stop() {
+		return fire(RoundEvent.ADMIN_STOP);
+	}
+
+	public static String abort() {
+		return fire(RoundEvent.ADMIN_ABORT);
+	}
+
+	private static String fire(RoundEvent event) {
+		if (!machine.fire(event)) {
+			return "阶段 " + machine.phase() + " 不接受 " + event + "（转移表见 04 §3）";
+		}
+		return null;
+	}
+
+	/** /cww join [team]：报名 + 可选直接选队（01 §2 自主分队）。 */
+	public static String join(ServerPlayerEntity player, Integer team) {
+		String err = machine.queue(player.getUuid(), player.getNameForScoreboard());
+		if (err != null) {
+			return err;
+		}
+		return team == null ? null : machine.assignTeam(player.getUuid(), team);
+	}
+
+	public static String quit(ServerPlayerEntity player) {
+		return machine.unqueue(player.getUuid());
+	}
+
+	/** /cww force <player> <team>：管理员把玩家拉进对局并分队（仅 LOBBY/ENROLL）。 */
+	public static String force(String playerName, int team) {
+		ServerPlayerEntity target = null;
+		for (ServerPlayerEntity p : onlinePlayers()) {
+			if (p.getNameForScoreboard().equalsIgnoreCase(playerName)) {
+				target = p;
+				break;
+			}
+		}
+		if (target == null) {
+			return "找不到玩家 " + playerName + "（真实玩家与假玩家都查过，见 05 C23）";
+		}
+		String err = machine.queue(target.getUuid(), target.getNameForScoreboard());
+		if (err != null) {
+			return err;
+		}
+		return machine.assignTeam(target.getUuid(), team);
+	}
+
+	/** 03 §6.2：对局进行中禁止替换正在使用的 arena。 */
+	public static String arenaSwapBlocker() {
+		return matchRunning() ? "对局进行中（阶段 " + machine.phase() + "）禁止替换正在使用的 arena" : null;
+	}
+
+	private static ServerWorld arenaWorld() {
+		if (server == null) {
+			return null;
+		}
+		String dim = arena == null || arena.dimension == null || arena.dimension.isEmpty()
+				? "minecraft:overworld" : arena.dimension;
+		if (!"minecraft:overworld".equals(dim)) {
+			NBW.LOGGER.warn("[round] M1 只支持 overworld；arena 维度 {} 已按 overworld 处理", dim);
+		}
+		return server.getOverworld();
+	}
+
+	private static ServerWorld lobbyWorld() {
+		return server == null ? null : server.getOverworld();
+	}
+
+	private static void announce(String message) {
+		if (server == null) {
+			return;
+		}
+		server.sendMessage(Text.literal(message));
+		NBW.LOGGER.info("[round] broadcast: {}", message.replaceAll("§.", ""));
+	}
+}

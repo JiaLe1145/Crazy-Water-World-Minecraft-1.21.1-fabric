@@ -19,6 +19,15 @@ repositories {
 
 loom {
 	// M0 阶段先单 sourceset；客户端渲染代码落地后再开 common/client 分离。
+
+	runs {
+		client {
+			// 实测发现：dev 客户端与 dev 服务端共用 run/ 时，客户端重新处理模组会撞上
+			// 服务端已加载的 run/.fabric/processedMods/*.jar 文件锁（FileSystemException）。
+			// 两者并行开发必须分开运行目录。
+			runDir = "run-client"
+		}
+	}
 }
 
 dependencies {
@@ -30,6 +39,20 @@ dependencies {
 	// Sable：M0 验证的核心依赖。用本地 jar（Modrinth CDN 14KB/s，不进构建缓存重复拉取）。
 	// veil 与 forge-config-api-port 已 embedded 在 sable jar 内，imguimc 为 optional，均不单独引入。
 	modImplementation files("libs/sable-fabric-1.21.1-2.0.6.jar")
+
+	// domain/cfg 层不依赖 Minecraft，用普通 JUnit 做回归（07 §6.1 第 1 层）
+	compileOnly 'com.google.code.gson:gson:2.11.0'
+	testImplementation 'com.google.code.gson:gson:2.11.0'
+	testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+	useJUnitPlatform()
+	testLogging {
+		events "failed", "skipped"
+		exceptionFormat org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+	}
 }
 
 processResources {
