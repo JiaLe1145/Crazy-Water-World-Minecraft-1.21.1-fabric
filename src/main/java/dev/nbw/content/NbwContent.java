@@ -19,8 +19,10 @@ import net.minecraft.util.Identifier;
 public final class NbwContent {
 
 	public static final String RAFT_CORE = "raft_core";
+	public static final String SAIL = "sail";
 
 	public static RaftCoreBlock raftCore;
+	public static SailBlock sail;
 	public static BlockEntityType<RaftCoreBlockEntity> raftCoreEntity;
 
 	private NbwContent() {
@@ -35,13 +37,20 @@ public final class NbwContent {
 		Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, RAFT_CORE),
 				new BlockItem(raftCore, new Item.Settings()));
 
+		sail = Registry.register(Registries.BLOCK, Identifier.of(NBW.MOD_ID, SAIL),
+				new SailBlock(AbstractBlock.Settings.create()
+						.strength(1.5f).requiresTool().nonOpaque()));
+		Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, SAIL),
+				new BlockItem(sail, new Item.Settings()));
+
 		raftCoreEntity = Registry.register(Registries.BLOCK_ENTITY_TYPE,
 				Identifier.of(NBW.MOD_ID, RAFT_CORE),
 				net.fabricmc.fabric.api.object.builder.v1.block.entity.FabricBlockEntityTypeBuilder
 						.create(RaftCoreBlockEntity::new, raftCore).build());
 
-		NBW.LOGGER.info("[content] registered block={} be={}",
-				Registries.BLOCK.getId(raftCore), Registries.BLOCK_ENTITY_TYPE.getId(raftCoreEntity));
+		NBW.LOGGER.info("[content] registered block={} be={} sail={}",
+				Registries.BLOCK.getId(raftCore), Registries.BLOCK_ENTITY_TYPE.getId(raftCoreEntity),
+				Registries.BLOCK.getId(sail));
 	}
 
 	/** 给 raft 适配层拿：注册后的方块实例。 */

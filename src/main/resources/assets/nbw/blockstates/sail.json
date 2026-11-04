@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "nbw:block/sail" },
+    "facing=south": { "model": "nbw:block/sail", "y": 180 },
+    "facing=east":  { "model": "nbw:block/sail", "y": 90 },
+    "facing=west":  { "model": "nbw:block/sail", "y": 270 }
+  }
+}

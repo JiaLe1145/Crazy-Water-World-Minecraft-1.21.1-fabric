@@ -128,6 +128,9 @@ public final class RaftSpawner {
 				residue.add("队 " + e.getKey() + " 的筏没能销毁（id=" + e.getValue() + "）");
 			}
 		}
+		for (Integer team : spawned.keySet()) {
+			Sailing.forget(team);
+		}
 		spawned.clear();
 		if (!residue.isEmpty()) {
 			NBW.LOGGER.error("[raftgen] 局后清理有残留：{}", residue);
@@ -174,6 +177,51 @@ public final class RaftSpawner {
 		RaftCoreService.markIntact(teamIndex);
 		SableRafts.holdLoaded(world, id);
 		return "队 " + teamIndex + " 已生成筏 " + id + "（半径 " + DEFAULT_RADIUS + "，票已上）";
+	}
+
+	/**
+	 * 重启恢复后重新认领筏子。
+	 *
+	 * <p>为什么需要：sub-level 本身跨重启存活（实测位置与质量都保真），
+	 * 但 {@link #spawned} 是运行时映射，没进快照。少了这一步，恢复进 PLAY 的那一局
+	 * 会变成"筏子在水里漂但我们的沉筏/挂帆/清理全找不到它"——
+	 * 而且 {@code /cww sail rig} 只会回一句"队 0 没有筏"，看不出筏子其实就在眼前。
+	 *
+	 * <p>靠命名约定 {@code nbw_raft_<队>} 反查，不额外加一层持久化：
+	 * 名字已经写进 sub-level 的存储里，比再存一份 UUID 更不容易与 Sable 自己的状态漂移。
+	 * 顺手把加载票也补回来——票虽然会跨重启存活，但补一次是幂等的。
+	 *
+	 * @return 一行结论
+	 */
+	public static String rebindFromWorld(MinecraftServer server) {
+		ServerWorld world = server.getOverworld();
+		List<String> missing = new ArrayList<>();
+		int found = 0;
+		for (var team : RoundManager.machine().teams()) {
+			int index = team.index();
+			UUID id = SableRafts.findByName(world, NAME_PREFIX + index);
+			if (id == null) {
+				missing.add("队 " + index);
+				continue;
+			}
+			spawned.put(index, id);
+			RaftSinking.bind(index, id);
+			SableRafts.holdLoaded(world, id);
+			found++;
+		}
+		String tail = missing.isEmpty() ? "" : "；没找到：" + String.join(" ", missing);
+		NBW.LOGGER.info("[raftgen] 重启重认领 {} 艘筏{}", found, tail);
+		return "重认领 " + found + " 艘筏" + tail;
+	}
+
+	/** 反查：由筏 UUID 找队号。找不到返回 -1。 */
+	public static int teamOf(UUID raftId) {
+		for (Map.Entry<Integer, UUID> e : spawned.entrySet()) {
+			if (e.getValue().equals(raftId)) {
+				return e.getKey();
+			}
+		}
+		return -1;
 	}
 
 	public static @Nullable UUID raftOf(int teamIndex) {

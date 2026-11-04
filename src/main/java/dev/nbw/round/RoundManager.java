@@ -616,6 +616,11 @@ public final class RoundManager {
 					e.getMessage(), err == null ? "ok" : err);
 			return "恢复失败，已退回 LOBBY：" + e.getMessage();
 		}
+		// 筏子本身活着，但我们这边和它的连接（spawned / RaftSinking 绑定 / 票）是运行时的，
+		// 不在快照里。不重认领的话，恢复出来的这一局会看不见自己的筏。
+		if (machine.phase().matchActive()) {
+			NBW.LOGGER.info("[state] {}", RaftSpawner.rebindFromWorld(server));
+		}
 		NBW.LOGGER.info("[state] 已恢复到阶段 {}（match={}，阶段内 {} tick，参战 {} 人）",
 				machine.phase(), machine.matchIndex(), machine.tickInPhase(),
 				machine.snapshot(0).participantCount());

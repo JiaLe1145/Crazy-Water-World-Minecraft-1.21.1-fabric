@@ -714,7 +714,11 @@ public final class RoundMachine {
 	 */
 	public void restore(RoundSnapshot snap) {
 		snap.validate();
-		if (snap.teams().size() != config.teamCount()) {
+		if (snap.teams().isEmpty()) {
+			// 一局打完后 clearMatchState() 会把队伍清空，所以"0 支队伍"是 LOBBY 的正常形态，
+			// 不是损坏。按当前规格重建即可——把它当非法快照拒绝，等于每次打完一局重启都恢复失败。
+			ensureTeams();
+		} else if (snap.teams().size() != config.teamCount()) {
 			throw new RoundSnapshot.InvalidSnapshot("快照里有 " + snap.teams().size()
 					+ " 支队伍，当前规格是 " + config.teamCount() + " 支（format 改过就先 /cww format 再重启）");
 		}

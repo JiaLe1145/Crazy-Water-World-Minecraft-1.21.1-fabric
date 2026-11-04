@@ -15,7 +15,9 @@ import dev.ryanhcode.sable.sublevel.storage.SubLevelRemovalReason;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.ChunkPos;
+import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
+import net.minecraft.block.Blocks;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.Unit;
@@ -141,6 +143,37 @@ public final class SableRafts {
 			return null;
 		}
 		return sl.getPlot().getEmbeddedLevelAccessor().getBlockEntity(new BlockPos(lx, ly, lz));
+	}
+
+	/** 把 plot 局部偏移上的一格换成空气（拆帆用）。 */
+	public static boolean clearPlotBlock(ServerWorld world, UUID raftId, int lx, int ly, int lz) {
+		return setPlotBlock(world, raftId, lx, ly, lz, Blocks.AIR.getDefaultState());
+	}
+
+	/**
+	 * 筏的线速度（世界坐标）。
+	 * 返回 {@code double[3]} 而不是 joml 的 Vector3d：那是物理库的类型，不该漏给上层。
+	 *
+	 * <p>航行配平全靠这个数——帆有没有用、桨推得动推不动，都只能靠速率曲线判，
+	 * 不能靠"看着像在动"。
+	 */
+	public static double[] linearVelocity(ServerWorld world, UUID raftId) {
+		double nan = Double.NaN;
+		ServerSubLevel sl = resolve(world, raftId);
+		if (sl == null) {
+			return new double[]{nan, nan, nan};
+		}
+		ServerSubLevelContainer c = SubLevelContainer.getContainer(world);
+		if (c == null) {
+			return new double[]{nan, nan, nan};
+		}
+		RigidBodyHandle handle = c.physicsSystem().getPhysicsHandle(sl);
+		if (handle == null || !handle.isValid()) {
+			return new double[]{nan, nan, nan};
+		}
+		Vector3d dest = new Vector3d();
+		handle.getLinearVelocity(dest);
+		return new double[]{dest.x, dest.y, dest.z};
 	}
 
 	/** (2r+1)² —— 纯算式，给日志与单测用。 */

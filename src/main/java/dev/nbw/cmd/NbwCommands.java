@@ -13,16 +13,19 @@ import dev.nbw.domain.ZoneModel;
 import dev.nbw.raft.RaftCoreService;
 import dev.nbw.raft.RaftSinking;
 import dev.nbw.raft.RaftSpawner;
+import dev.nbw.raft.Sailing;
 import dev.nbw.round.RoundManager;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
+import net.minecraft.util.math.Direction;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.List;
 import java.util.stream.Stream;
@@ -128,6 +131,20 @@ public final class NbwCommands {
 										.executes(NbwCommands::coreHold)))));
 		root.then(core);
 
+		// ---- 航行（M2）：挂帆 / 拆帆 / 读数
+		var sail = admin(CommandManager.literal("sail"));
+		sail.then(CommandManager.literal("read")
+				.executes(NbwCommands::sailRead));
+		sail.then(CommandManager.literal("rig")
+				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
+						.then(CommandManager.argument("count", IntegerArgumentType.integer(0, 7))
+								.then(CommandManager.argument("facing", StringArgumentType.word())
+										.executes(NbwCommands::sailRig)))));
+		sail.then(CommandManager.literal("strip")
+				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
+						.executes(NbwCommands::sailStrip)));
+		root.then(sail);
+
 		// ---- 落盘与重启恢复（Gate G1）
 		root.then(admin(CommandManager.literal("save").executes(NbwCommands::saveNow)));
 		root.then(admin(CommandManager.literal("statefile").executes(NbwCommands::stateFile)));
@@ -158,6 +175,45 @@ public final class NbwCommands {
 	private static int raftGen(CommandContext<ServerCommandSource> ctx) {
 		int team = IntegerArgumentType.getInteger(ctx, "team");
 		return tell(ctx, RaftSpawner.generateOne(ctx.getSource().getServer(), team));
+	}
+
+	// ---------------------------------------------------------------- 航行
+
+	private static int sailRead(CommandContext<ServerCommandSource> ctx) {
+		ctx.getSource().sendFeedback(() -> Text.literal(
+				Sailing.readout(ctx.getSource().getServer(), RaftSpawner.raftOf(0))), false);
+		return 1;
+	}
+
+	private static int sailRig(CommandContext<ServerCommandSource> ctx) {
+		int team = IntegerArgumentType.getInteger(ctx, "team");
+		int count = IntegerArgumentType.getInteger(ctx, "count");
+		String raw = StringArgumentType.getString(ctx, "facing");
+		Direction facing;
+		try {
+			facing = Direction.byName(raw.toLowerCase(Locale.ROOT));
+		} catch (RuntimeException e) {
+			facing = null;
+		}
+		if (facing == null || facing.getAxis() == Direction.Axis.Y) {
+			return tell(ctx, "朝向只能是 north/south/east/west，给了 " + raw);
+		}
+		UUID raft = RaftSpawner.raftOf(team);
+		if (raft == null) {
+			return tell(ctx, "队 " + team + " 没有筏；先 /cww start");
+		}
+		return tell(ctx, Sailing.rig(ctx.getSource().getServer().getOverworld(), raft, count, facing)
+				+ " | " + Sailing.readout(ctx.getSource().getServer(), raft));
+	}
+
+	private static int sailStrip(CommandContext<ServerCommandSource> ctx) {
+		int team = IntegerArgumentType.getInteger(ctx, "team");
+		UUID raft = RaftSpawner.raftOf(team);
+		if (raft == null) {
+			return tell(ctx, "队 " + team + " 没有筏");
+		}
+		int n = Sailing.deRig(ctx.getSource().getServer().getOverworld(), raft);
+		return tell(ctx, "拆掉 " + n + " 块帆 | " + Sailing.readout(ctx.getSource().getServer(), raft));
 	}
 
 	// ---------------------------------------------------------------- 筏心与残骸修复
