@@ -67,14 +67,63 @@ c.getHoldingChunkMap();                                         // 方块暂存
 
 ### Sable 自带一整套游戏内命令（M0-4/5/6 可零代码先试）
 
+> ⚠️ 本节原先写的 `/sable sublevel list`、`/sable assemble start` **不存在**，是早期从服务端错误文本反推的产物。
+> 定稿命令树（12 个顶层子命令，源码 + 客户端 Tab 双重确认）见 `M0-TEST-PLAN.md` §1：
+> `assemble / spawn / name / teleport / remove / physics / info / paused / forceload / engage_gizmo / storage / debug`
+
+→ **不用写代码就能先验证手感**：游戏内用 `/sable assemble` 造一艘筏、`/sable physics impulse` 让它动起来，比自研原型更接近最终形态。
+
+---
+
+## M0-4 玩家随动 + 移动手感 —— 通过
+
+环境：用户启动器实例 + `dist/` 模组包（sable + fabric-api），单机集成服务端；录屏 2480×1440 @59.88fps，22.3s。
+
+### 测试体构造（关键：甲板必须滞空）
+
+21×21 石砌水池（水面 y=64，水深 4）+ 围墙到 y=75；7×7 橡木木板甲板**悬在 y=68**，与水面之间空 3 格。
+
+- 甲板滞空后 `/sable assemble connected` **一次成功**；此前甲板贴水时必爆 `too many blocks (maximum 256000)`
+  —— 因为连通判定只排除空气、水被当成连通方块，BFS 从筏板漏进整片海（详见 `M0-TEST-PLAN.md` T0）。
+- 装配后甲板方块被搬进 plot、世界位置变 AIR，筏子**自行自由落体入水并漂在水面** —— 这是第一次看到 Sable 的物理落地，不需要我们写任何下落逻辑。
+
+### 客观读数
+
 ```
-/sable sublevel list ...     存在，需参数
-/sable sublevel create ...   存在，需参数
-/sable assemble start ...    存在，需参数（把选中的方块装配成 sub-level）
-/sable joint | spawn | storage | config 等命令组均存在
+/sable info @l →  Found 1 sub-levels: raft
+  Position: 10.4595 64.9869 10.4594
+  Orientation: -0.00357 -0.00158 0.00356 0.99999   （≈ 水平，无侧倾）
+  Mass: 25.0
+  Linear Velocity: 0.0 0.0 0.0
+  Angular Velocity: 0.0 0.0 0.0
 ```
 
-→ **不用写代码就能先验证手感**：你在游戏里用 `/sable assemble` 造一艘筏再让它动起来，比我们的自研原型更接近最终形态。
+**质量算式对得上**：49 块木板 × 0.5（`#sable:light`）+ 1 个箱子 0.5 = **25.0**
+→ 证明 50 格全部进了**同一个** sub-level（没分裂），且**方块实体被计入质量**（BE 确实随迁进来了）。
+
+### 随动断言
+
+```
+/sable info @t →  Found 1 sub-levels: raft      ✅ 随动绑定生效
+/sable info @i →  No sub-levels found           ⚠️ 预期内，非失败
+```
+
+- **`@t` 才是真正的随动断言**：它读 `getTrackingSubLevel(player)`，即 `ServerPlayerMixin` 每 tick 施加刚体增量的前提。它解析出 raft ⇒ 随动链路整条活着。
+- **`@i` 不是"我站在什么上面"**：`getContaining` 实际是**按 chunk 槽位查 plot**（`ActiveSableCompanion.java:92-104` → `container.getPlot(chunkX>>4, chunkZ>>4)`），而 plot 在 16384 槽 plot 网格里的槽位与它的世界坐标无必然关系。测试方案 T1 里"两条都要通"的要求是我写错了，已更正。
+
+### 手感
+
+`/sable physics impulse @n linear 0 0 12` 连续 3 次，动作栏回显 `Applied global linear impulse to raft of 0.0, 0.0, 12.0`。
+**用户判定：移动顺畅**（旧自研方案的"跳格感"没有复现）。
+抽帧复核 t=0.5 / 8 / 20s 三帧：玩家始终站在甲板上、甲板始终在水面 —— **旧 bug"人没跟着平台一起走"未复现**。
+
+→ 因此不需要跑 T3 的抖动归因（`substeps` / `damping` / UDP 三条旋钮仍保留在测试方案里，等真出现抖动再用）。
+
+### 顺带发现（要进 M2 数值）
+
+甲板顶面几乎与水面齐平（Position y=64.99，水面顶层 y=64）→ **干舷≈0**。
+50 格的筏已经快沉到甲板吃水，玩法上会出现"海水漫上甲板 / 站在筏边就泡水"。
+调法两条：`data/sable/floating_materials/*.json` 提 `lift_strength`，或给筏体方块降 `sable:mass`。
 
 ---
 
@@ -85,9 +134,9 @@ c.getHoldingChunkMap();                                         // 方块暂存
 | M0-1 依赖装配 | 通过（依赖比预期少两个） |
 | M0-2 专用服务端 | 通过（物理管线初始化 + 起服 3.5s） |
 | M0-3 API 路径 | 通过（容器/分配/销毁/物理/回调齐全 + schematic + 全套命令） |
-| M0-4 手感 | **待你真人判定**，命令入口已找到 |
-| M0-5 移动中交互与 BE 保真 | 待做 |
-| M0-6 移动中建造 | 待做 |
+| M0-4 玩家随动 + 手感 | **通过**（`@t` 绑定成功 + 入水自漂 + 用户判定顺畅 + 抽帧复核无人货分离） |
+| M0-5 移动中交互与 BE 保真 | 进行中（BE 已确认随迁并计入质量，**开箱可交互尚未测**） |
+| M0-6 移动中建造 | 进行中 |
 | M0-7~10 性能 / 共存 / 崩溃恢复 / 公平 | 待做 |
 
-**路线判定：Sable 这条路目前成立**，三个先决条件全绿，尚未出现失败点。
+**路线判定：Sable 这条路成立**，M0-4 这个最大的不确定点已经落地，且**一行代码没写**。
