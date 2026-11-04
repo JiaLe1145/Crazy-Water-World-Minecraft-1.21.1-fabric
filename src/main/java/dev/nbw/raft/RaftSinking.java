@@ -2,7 +2,7 @@ package dev.nbw.raft;
 
 import dev.nbw.NBW;
 import dev.nbw.domain.raft.SinkRule;
-import dev.nbw.domain.raft.SinkRule.TeamVitality;
+import dev.nbw.domain.raft.SinkRule.SinkTrigger;
 import dev.nbw.domain.raft.SinkState;
 import dev.nbw.domain.round.MatchTeam;
 import dev.nbw.domain.round.PlayerSession;
@@ -65,6 +65,17 @@ public final class RaftSinking {
 	private static final Map<Integer, UUID> rafts = new LinkedHashMap<>();
 
 	private RaftSinking() {
+	}
+
+	/** 筏心恢复成功 → 解除本队沉筏倒计时（A2-v2）。已沉的捞不回来，SUNK 不可逆。 */
+	public static void cancelByCoreRestore(int teamIndex) {
+		SinkState current = stateOf(teamIndex);
+		SinkState cleared = SinkRule.clear(current);
+		if (cleared != current) {
+			states.put(teamIndex, cleared);
+			NBW.LOGGER.info("[raft] 队 {} 筏心恢复，沉筏倒计时已解除（原剩余 {}s，阶段 {}）",
+					teamIndex, current.remainingSeconds(), current.phase());
+		}
 	}
 
 	public static void bind(int teamIndex, UUID raftId) {
@@ -170,8 +181,11 @@ public final class RaftSinking {
 					break;
 				}
 			}
-			TeamVitality vitality = new TeamVitality(anyPlayerAlive, false);
-			SinkState next = SinkRule.tick(stateOf(index), vitality, false);
+			// 幸存者职业尚未实现（M5），此刻 anySurvivorAlive 恒为 false，
+			// 所以 teamWiped 等价于"本队玩家全灭"。第二条触发路径来自筏心（A2）。
+			SinkTrigger trigger = new SinkTrigger(!anyPlayerAlive,
+					RaftCoreService.isWreckage(index));
+			SinkState next = SinkRule.tick(stateOf(index), trigger, false);
 			if (next != stateOf(index)) {
 				states.put(index, next);
 				if (next.sunk()) {

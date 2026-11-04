@@ -9,6 +9,7 @@ import dev.nbw.domain.round.PlayerSession;
 import dev.nbw.domain.round.RoundConfig;
 import dev.nbw.domain.round.RoundEvent;
 import dev.nbw.domain.round.RoundMachine;
+import dev.nbw.raft.RaftCoreService;
 import dev.nbw.raft.RaftSinking;
 import dev.nbw.domain.round.Transitions;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
@@ -105,6 +106,14 @@ public final class RoundManager {
 		// 05 C18：死亡/伤害一律用 ServerLivingEntityEvents，不用已废弃的 ServerPlayerEvents.ALLOW_DEATH
 		ServerLivingEntityEvents.ALLOW_DAMAGE.register((entity, source, amount) ->
 				allowPlayerVsPlayer(entity, source == null ? null : source.getAttacker()));
+		// 必须排在 PVP 闸门之后：Allow 事件一旦有处理器返回 false 就短路，
+		// 于是"被闸门挡下的互殴"不会走到这里，不会误伤正在引导修复的玩家。
+		ServerLivingEntityEvents.ALLOW_DAMAGE.register((entity, source, amount) -> {
+			if (amount > 0f && entity instanceof ServerPlayerEntity victim) {
+				RaftCoreService.notifyDamaged(victim.getUuid());
+			}
+			return true;
+		});
 		NBW.LOGGER.info("[round] registered: {} transition edges, spec={}x{}",
 				Transitions.edgeCount(), machine.config().teamCount(), machine.config().teamSize());
 	}
@@ -137,6 +146,7 @@ public final class RoundManager {
 		if (machine.phase() == Phase.PLAY) {
 			sweepDeaths();
 			RaftSinking.onEndTick(srv);
+			RaftCoreService.onEndTick(srv);
 		}
 		broadcastCountdown();
 	}
@@ -527,6 +537,7 @@ public final class RoundManager {
 		}
 		lastParticipants.clear();
 		RaftSinking.reset();
+		RaftCoreService.reset();
 	}
 
 	// ---------------------------------------------------------------- 配置与命令入口

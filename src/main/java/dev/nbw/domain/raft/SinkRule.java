@@ -21,11 +21,20 @@ public final class SinkRule {
 	/** 01 §4.3.1：重修筏心每局重置倒计时的次数上限。 */
 	public static final int MAX_RESETS = 1;
 
-	/** 一个队的"还剩什么"。幸存者与玩家任一个活着，就不算打光。 */
-	public record TeamVitality(boolean anyPlayerAlive, boolean anySurvivorAlive) {
+	/**
+	 * 本 tick 的沉筏触发事实。
+	 *
+	 * <p>两条已批准的路径（01 §4.3.1 / §4.3.2）：
+	 * <ul>
+	 *   <li>{@code teamWiped}：既无幸存者存活也无玩家存活（A3-v4）；</li>
+	 *   <li>{@code coreDestroyed}：敌方把本队筏心打成了残骸（A2）。</li>
+	 * </ul>
+	 * 两者任一成立即开始 30s 倒计时。
+	 */
+	public record SinkTrigger(boolean teamWiped, boolean coreDestroyed) {
 
-		public boolean wiped() {
-			return !anyPlayerAlive && !anySurvivorAlive;
+		public boolean shouldStart() {
+			return teamWiped || coreDestroyed;
 		}
 	}
 
@@ -45,12 +54,12 @@ public final class SinkRule {
 	/**
 	 * 每 tick 对每个队调一次。
 	 *
-	 * @param state          该队当前沉筏状态
-	 * @param vitality       该队此刻的玩家/幸存者存活情况
-	 * @param repairedThisTick 本 tick 是否有人重修了筏心
+	 * @param state            该队当前沉筏状态
+	 * @param trigger          本 tick 的两条触发事实（全队打光 / 筏心成残骸）
+	 * @param repairedThisTick 本 tick 是否有人重修了筏心（只重置倒计时，不解除）
 	 * @return 新状态；SUNK 之后原样返回
 	 */
-	public static SinkState tick(SinkState state, TeamVitality vitality, boolean repairedThisTick) {
+	public static SinkState tick(SinkState state, SinkTrigger trigger, boolean repairedThisTick) {
 		validate(state);
 
 		switch (state.phase()) {
@@ -58,7 +67,7 @@ public final class SinkRule {
 				return state;
 
 			case IDLE:
-				if (!vitality.wiped()) {
+				if (!trigger.shouldStart()) {
 					return state;
 				}
 				if (repairedThisTick) {
@@ -86,6 +95,23 @@ public final class SinkRule {
 			default:
 				throw new IllegalSinkState(state, "未知阶段");
 		}
+	}
+
+	/**
+	 * 筏心从残骸恢复成功 → <b>解除</b>倒计时（01 §4.3.2 A2-v2）。
+	 *
+	 * <p>与 {@link #reset} 的区别是实打实的：reset 只是把 30s 拉回满、稍后照样沉；
+	 * clear 让这一队彻底退出沉筏流程，回到 IDLE。所以恢复成功的判定必须走这里，
+	 * 不然"修好了筏心却还是沉了"这种表现会直接毁掉这条机制的可信度。
+	 *
+	 * <p>SUNK 是不可逆的：筏子已经沉了，再修筏心也捞不回来。
+	 */
+	public static SinkState clear(SinkState state) {
+		validate(state);
+		if (state.phase() == SinkState.SinkPhase.SUNK) {
+			return state;
+		}
+		return new SinkState(SinkState.SinkPhase.IDLE, 0, state.resetsUsed());
 	}
 
 	/**

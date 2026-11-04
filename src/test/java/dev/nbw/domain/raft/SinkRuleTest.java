@@ -2,17 +2,16 @@ package dev.nbw.domain.raft;
 
 import org.junit.jupiter.api.Test;
 
-import dev.nbw.domain.raft.SinkRule.TeamVitality;
+import dev.nbw.domain.raft.SinkRule.SinkTrigger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /** 沉筏倒计时规则（01 §4.3.1 A3-v4）。纯函数，不需要起服。 */
 class SinkRuleTest {
 
-	private static final TeamVitality ALIVE = new TeamVitality(true, true);
-	private static final TeamVitality ONLY_SURVIVOR = new TeamVitality(false, true);
-	private static final TeamVitality ONLY_PLAYER = new TeamVitality(true, false);
-	private static final TeamVitality WIPED = new TeamVitality(false, false);
+	private static final SinkTrigger NONE = new SinkTrigger(false, false);
+	private static final SinkTrigger WIPED = new SinkTrigger(true, false);
+	private static final SinkTrigger CORE_GONE = new SinkTrigger(false, true);
 
 	@Test
 	void countdownIsThirtySeconds() {
@@ -23,10 +22,8 @@ class SinkRuleTest {
 	@Test
 	void idleStaysIdleWhileTeamHasAnythingAlive() {
 		SinkState s = SinkState.fresh();
-		for (TeamVitality v : new TeamVitality[]{ALIVE, ONLY_PLAYER, ONLY_SURVIVOR}) {
-			assertEquals(SinkState.SinkPhase.IDLE, SinkRule.tick(s, v, false).phase(),
-					v + " 不该触发沉筏");
-		}
+		assertEquals(SinkState.SinkPhase.IDLE, SinkRule.tick(s, NONE, false).phase(), "无事发生不该触发沉筏");
+		assertSame(s, SinkRule.tick(s, NONE, false), "无触发时状态原样返回（同一个对象，不新建）");
 	}
 
 	@Test
@@ -41,8 +38,8 @@ class SinkRuleTest {
 	@Test
 	void countdownTicksDownOnePerTick() {
 		SinkState s = SinkRule.tick(SinkState.fresh(), WIPED, false);
-		s = SinkRule.tick(s, ALIVE, false);
-		s = SinkRule.tick(s, ALIVE, false);
+		s = SinkRule.tick(s, NONE, false);
+		s = SinkRule.tick(s, NONE, false);
 		assertEquals(598, s.remainingTicks());
 	}
 
@@ -51,7 +48,7 @@ class SinkRuleTest {
 		// 设计选择 #1：条件消失不自动中止，否则复活会把沉筏反复抵消掉。
 		SinkState s = SinkRule.tick(SinkState.fresh(), WIPED, false);
 		for (int i = 0; i < 100; i++) {
-			s = SinkRule.tick(s, ALIVE, false);
+			s = SinkRule.tick(s, NONE, false);
 		}
 		assertEquals(SinkState.SinkPhase.COUNTDOWN, s.phase());
 		assertEquals(500, s.remainingTicks());
@@ -72,8 +69,8 @@ class SinkRuleTest {
 	@Test
 	void sunkIsTerminal() {
 		SinkState sunk = new SinkState(SinkState.SinkPhase.SUNK, 0, 1);
-		assertEquals(SinkState.SinkPhase.SUNK, SinkRule.tick(sunk, ALIVE, false).phase());
-		assertEquals(sunk, SinkRule.tick(sunk, ALIVE, false));
+		assertEquals(SinkState.SinkPhase.SUNK, SinkRule.tick(sunk, NONE, false).phase());
+		assertEquals(sunk, SinkRule.tick(sunk, NONE, false));
 	}
 
 	@Test
@@ -143,6 +140,53 @@ class SinkRuleTest {
 				() -> SinkRule.tick(new SinkState(SinkState.SinkPhase.COUNTDOWN, 10, 2), WIPED, false));
 		assertThrows(SinkRule.IllegalSinkState.class,
 				() -> SinkRule.tick(new SinkState(SinkState.SinkPhase.COUNTDOWN, 10, -1), WIPED, false));
+	}
+
+	@Test
+	void coreDestructionAlsoStartsCountdown() {
+		// 01 §4.3.2 [已批准 A2]：摧毁敌方筏心是第二条取胜路径，触发条件与全队打光等价
+		SinkState next = SinkRule.tick(SinkState.fresh(), CORE_GONE, false);
+		assertEquals(SinkState.SinkPhase.COUNTDOWN, next.phase());
+		assertEquals(600, next.remainingTicks());
+	}
+
+	@Test
+	void restoringCoreClearsCountdownEntirely() {
+		// A2-v2 的"恢复"是解除，不是重置：修好了筏心却照样沉，这条机制就废了
+		SinkState s = SinkRule.tick(SinkState.fresh(), WIPED, false);
+		for (int i = 0; i < 400; i++) {
+			s = SinkRule.tick(s, NONE, false);
+		}
+		assertEquals(200, s.remainingTicks());
+
+		SinkState cleared = SinkRule.clear(s);
+		assertEquals(SinkState.SinkPhase.IDLE, cleared.phase());
+		assertEquals(0, cleared.remainingTicks());
+		assertEquals(0, cleared.resetsUsed(), "解除不消耗重置额度");
+	}
+
+	@Test
+	void clearingFromIdleIsANoOpAndKeepsQuota() {
+		SinkState s = SinkRule.clear(SinkState.fresh());
+		assertEquals(SinkState.SinkPhase.IDLE, s.phase());
+		assertEquals(0, s.remainingTicks());
+	}
+
+	@Test
+	void sunkCannotBeUndoneByRestoringCore() {
+		// SUNK 不可逆：筏子已经沉了，再修筏心也捞不回来
+		SinkState sunk = new SinkState(SinkState.SinkPhase.SUNK, 0, 1);
+		assertEquals(SinkState.SinkPhase.SUNK, SinkRule.clear(sunk).phase());
+	}
+
+	@Test
+	void quotaSurvivesClearAndAllowsOneMoreReset() {
+		SinkState s = SinkRule.tick(SinkState.fresh(), CORE_GONE, false);
+		s = SinkRule.clear(s);
+		assertEquals(SinkState.SinkPhase.IDLE, s.phase());
+		s = SinkRule.tick(s, CORE_GONE, false);
+		s = SinkRule.tick(s, NONE, true);
+		assertEquals(1, s.resetsUsed(), "解除过一次的队伍仍然享有那一次重置额度");
 	}
 
 	@Test

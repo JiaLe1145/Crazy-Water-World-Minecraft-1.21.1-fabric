@@ -10,6 +10,7 @@ import dev.nbw.NBW;
 import dev.nbw.cfg.ConfigModels;
 import dev.nbw.cfg.ConfigService;
 import dev.nbw.domain.ZoneModel;
+import dev.nbw.raft.RaftCoreService;
 import dev.nbw.raft.RaftSinking;
 import dev.nbw.round.RoundManager;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
@@ -21,6 +22,7 @@ import net.minecraft.text.Text;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.UUID;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -108,6 +110,19 @@ public final class NbwCommands {
 						.executes(NbwCommands::raftWeight)));
 		root.then(raft);
 
+		// ---- 筏心与残骸修复（01 §4.3.2 A2 / A2-v2）
+		var core = admin(CommandManager.literal("raftcore"));
+		core.then(CommandManager.literal("status").executes(NbwCommands::coreStatus));
+		core.then(CommandManager.literal("destroy")
+				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
+						.executes(NbwCommands::coreDestroy)));
+		core.then(CommandManager.literal("hold")
+				.then(CommandManager.argument("player", StringArgumentType.word())
+						.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
+								.then(CommandManager.argument("ticks", IntegerArgumentType.integer(1, 600))
+										.executes(NbwCommands::coreHold)))));
+		root.then(core);
+
 		dispatcher.register(root);
 	}
 
@@ -124,6 +139,37 @@ public final class NbwCommands {
 	}
 
 	// ---------------------------------------------------------------- 沉筏命令
+
+	// ---------------------------------------------------------------- 筏心与残骸修复
+
+	private static int coreStatus(CommandContext<ServerCommandSource> ctx) {
+		ctx.getSource().sendFeedback(() -> Text.literal(RaftCoreService.status()), false);
+		return 1;
+	}
+
+	private static int coreDestroy(CommandContext<ServerCommandSource> ctx) {
+		int team = IntegerArgumentType.getInteger(ctx, "team");
+		RaftCoreService.markDestroyed(team);
+		return tell(ctx, "队 " + team + " 筏心已置为残骸（30s 沉筏倒计时开始）");
+	}
+
+	/**
+	 * /cww raftcore hold &lt;玩家&gt; &lt;队&gt; &lt;tick&gt;
+	 *
+	 * <p>模拟"持续按住右键 N tick"。这不是玩法入口，是自动化测试夹具：
+	 * 真实客户端长按要走自定义包（还没做），但服务端那条路径与这里完全相同，
+	 * 所以 8 秒持续与受伤打断可以不等真人就验完。
+	 */
+	private static int coreHold(CommandContext<ServerCommandSource> ctx) {
+		String name = StringArgumentType.getString(ctx, "player");
+		UUID player = RaftCoreService.playerByName(ctx.getSource().getServer(), name);
+		if (player == null) {
+			return tell(ctx, "找不到在线玩家 " + name + "（假玩家也要先 /player <名> spawn）");
+		}
+		int team = IntegerArgumentType.getInteger(ctx, "team");
+		int ticks = IntegerArgumentType.getInteger(ctx, "ticks");
+		return tell(ctx, RaftCoreService.hold(ctx.getSource().getServer(), player, team, ticks));
+	}
 
 	private static int raftStatus(CommandContext<ServerCommandSource> ctx) {
 		ctx.getSource().sendFeedback(() -> Text.literal(RaftSinking.status()), false);
