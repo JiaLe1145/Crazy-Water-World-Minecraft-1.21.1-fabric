@@ -11,7 +11,7 @@
 
 推断用法（**待实机确认，不要当结论**）：
 - 按形状选区装配：`cube` / `sphere` / `connected`（连通域）/ `area`，配合 `origin`、`radius`、`range`、`from`→`to`
-- `shatter` = 反向操作（拆回世界方块）→ **对应我们的"靠岸拆解/结算毁筏"**
+- `shatter` = 碎块化（每格变一个独立单格 sub-level，非"写回世界"）→ 只适合做残骸/碎片表现，**不是玩法机制**
 - `capacity` 可能与 sub-level 容量/尺寸档位有关
 
 ## `/sable sublevel`（操作已存在的 sub-level）

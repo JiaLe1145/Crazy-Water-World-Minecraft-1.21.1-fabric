@@ -56,7 +56,7 @@ ServerSubLevelContainer c = SubLevelContainer.getContainer(ServerWorld);   // cl
 c.initialize(); c.tick();
 SubLevel s = c.allocateNewSubLevel(Pose3d);                     // 创建（开局发初始筏）
 SubLevel s = c.allocateSubLevel(UUID, int x, int z, Pose3d);    // 指定 id/坐标创建
-c.removeSubLevel(int x, int z, SubLevelRemovalReason);          // 销毁（结算毁筏）
+c.removeSubLevel(int x, int z, SubLevelRemovalReason);          // 销毁（局后清理，非玩法机制）
 c.physicsSystem(); c.trackingSystem(); c.getAllSubLevels();
 c.addObserver(SubLevelObserver);                                // 生命周期回调
 c.getHoldingChunkMap();                                         // 方块暂存
@@ -135,8 +135,19 @@ c.getHoldingChunkMap();                                         // 方块暂存
 | M0-2 专用服务端 | 通过（物理管线初始化 + 起服 3.5s） |
 | M0-3 API 路径 | 通过（容器/分配/销毁/物理/回调齐全 + schematic + 全套命令） |
 | M0-4 玩家随动 + 手感 | **通过**（`@t` 绑定成功 + 入水自漂 + 用户判定顺畅 + 抽帧复核无人货分离） |
-| M0-5 移动中交互与 BE 保真 | 进行中（BE 已确认随迁并计入质量，**开箱可交互尚未测**） |
-| M0-6 移动中建造 | 进行中 |
-| M0-7~10 性能 / 共存 / 崩溃恢复 / 公平 | 待做 |
+| M0-5 移动中交互与 BE 保真 | **通过**（箱子数据没丢、移动中可开可取放；筏上掉落物随船移动） |
+| M0-6 移动中建造 | **通过**（滑行中放置的方块随筏移动、质量随之变化 → "边航行边建造"成立，Q4 退路作废） |
+| M0-7~10 性能 / 共存 / 崩溃恢复 / 公平 | **移出 M0，并入 M1/M2 的集成回归** |
 
-**路线判定：Sable 这条路成立**，M0-4 这个最大的不确定点已经落地，且**一行代码没写**。
+**Gate G0 通过 —— Sable 路线定案，M0 结束。**
+
+### 为什么 M0-7~10 不再单独测（用户裁定，写进方法论）
+
+Sable 是一个成熟模组，**它自身的行为不需要我们反复验证**；要验证的是**模组关联之后**的问题。
+性能、共存冲突、崩溃恢复、多筏公平性这四件事，**在没有我们的代码之前根本没有可测对象**：
+- 性能要测的是"我们的回合系统 + N 艘筏 + 我们的方块/实体"一起跑，空跑一艘测试筏没有意义
+- 共存冲突要测的是**我们的 mixin 与 Sable 的 143 个 mixin 撞不撞**，我们还没注册任何 mixin
+- 公平性要测的是**我们的动力实现**给同规格筏带来的航速方差，而动力还没写
+
+→ 这四条改为在 M1/M2 各自带真实实现后作为**集成回归项**执行，不再作为里程碑门槛。
+桌面已保留 `sable-main` 源码，遇到具体问题时直接按源码定位（必要时走我们自己的兼容层，不改 Sable）。

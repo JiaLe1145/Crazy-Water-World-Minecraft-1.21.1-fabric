@@ -242,30 +242,31 @@ B) 瞬移驱动（对照组，旧自研方案的样子）
    - 注意：UDP 需要服务端可达端口，**公网服务器上这是个运维成本项**，要进 04-依赖与运维。
 4. 若客户端装了 Sodium（我们 dist/ 没装）：Sable 走 Sodium 渲染 mixin 分支（`AbstractSableMixinPlugin.java:43`）。dist/ 保持"仅 Sable+Fabric API"，先排除这个变量。
 
-### T4 · 移动中的方块实体交互（M0-5）
+### T4 · 移动中的方块实体交互（M0-5）—— ✅ 全过
 
-```
-/sable physics impulse @n linear 0 0 10
-```
-筏动起来后立刻：
-- 打开筏上的箱子 → 是否可开、物品是否在（装配前用 `/data modify block ... Items` 塞入已知 4 样）、能否取出/放入。
-- 破坏箱旁一格木板 → 掉落物是否落在筏上并随筏移动。
-- 期望依据：`SubLevelAssemblyHelper.java:380-415` BE 已保真；`sublevel_render.BlockEntityRenderDispatcherMixin`（客户端）负责 BE 随筏渲染。
-- 判负条件：**箱子打不开** 或 **BE 渲染与筏脱开**。这两条任一成立 → "筏上储物/ crafting"玩法（M4 生产层）需要重估。
+实测三条全部通过：
+1. **箱子数据没丢，能正常放回取出**（移动中开箱亦可）
+2. **筏上掉落物随船移动**
+3. **水面没有漫过甲板**（§"顺带发现"里担心的干舷≈0 在 50 格尺度上不成立，暂不需调浮力）
 
-### T5 · 移动中建造（M0-6）
+### T5 · 移动中建造（M0-6）—— ✅ 已过（建造作用在筏上，非世界）
 
-```
-筏保持滑行中：
-1. 在筏甲板上放 3 块木板
-2. 站在刚放的木板上
-3. /sable info @n        （质量是否已含新块）
-4. 砸掉初始装配的那块木板
-5. /sable info @n        （是否分裂：见 sub_level_splitting）
-```
-- 依据：`mixin/block_placement/{BlockPlaceContextMixin,UseOnContextMixin,EntityGetterMixin}`。
-- 关键观察：新块是进 **plot**（筏的一部分）还是进 **世界**（筏走掉、块留在原地）。后者=玩法不成立。
-- 顺带测 T5b：`/sable assemble shatter sub_level @n`（`:48-50`）= 靠岸拆解的原生入口，期望把整筏写回世界。
+筏在滑行中放置橡木木板 → 质量随之上升、新块随筏移动；破坏甲板块 → 质量回落。
+→ **"边航行边建造"成立**，M2 不需要退化成"靠岸建造"两段式（`02-风险与M0验证.md` Q4 的退路作废）。
+
+### T5b · `shatter` 的真实语义（**不是"靠岸拆解"**）
+
+重读源码：`shatterBlockToSubLevel` 对**每一格**单独调
+`assembleBlocks(level, anchor, List.of(anchor), bounds)`（`SableAssembleCommands.java:256-272`）
+→ `shatter` = **碎块化**：每个实心方块变成一个**独立的单格 sub-level**（漂浮碎片），
+非实心方块则 `level.destroyBlock(pos, true)` 掉落物品（`:242-246`）。
+它**不会**把筏"写回世界方块"，所以它跟"靠岸"没有任何关系。
+
+**玩法归属已定（用户裁定）**：`靠岸拆解 / 结算毁筏` **不是我们的机制，删除**。靠岸不需要毁筏。
+内容里真正定的是 **沉筏**（`docs/content/01-玩法设计.md:107`、`02-数值与节奏.md:102`：
+无幸存者且玩家死亡 → 30s 后沉没 → 淘汰）。
+`shatter` 的恰当用途是**击碎后的残骸 / 漂浮碎片**（对应 `01-玩法设计.md:143` 的"沉没残骸需潜水打捞"），
+局后清理走 `container.removeSubLevel(...)`，那是工程清理不是玩法。
 
 ### T6 · 边界与破坏性（M0-7 提前扫一遍）
 
@@ -327,7 +328,7 @@ Sable 仓库**零 Item / 零 Block 注册 / 零配方**，是纯库模组。但�
 | `engage_gizmo` | 进入即 `setPaused(true)`（`:98`） | 它是调试工具，**不是**玩法交互入口 |
 | `sub_level_tracking_range` | 320 格 | 超出即不再收快照 → 筏"消失/定格"，缩圈远距离观战要显式处理 |
 | `connected` 装配上限 | 256,000 块（可传 `capacity`，上限 ×100） | 大筏一次装配没问题 |
-| `shatter` 半径 | `cube/sphere` ≤128 | 靠岸拆解的范围限制 |
+| `shatter` 半径 | `cube/sphere` ≤128 | 碎块化的范围上限（残骸用，非玩法机制） |
 | `sub_level_remove_min/max` | Y −10000 / 100000 之外回收 | 筏沉入深处的表现 |
 | `sub_level_velocity_retained_on_load` | 0.9 | 重载后筏会带 90% 速度 → **重启会"窜一下"**，见 T8 |
 | **装配后不能用世界坐标寻址容器** | 方块写进 plot，`/data modify block <原坐标>` 失效 | T4 必须在**装配前**塞箱子内容；结算/战利品逻辑要改走 plot API |
