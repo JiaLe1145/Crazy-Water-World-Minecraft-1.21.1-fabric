@@ -1,6 +1,7 @@
 package dev.nbw.cmd;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
@@ -9,6 +10,7 @@ import dev.nbw.NBW;
 import dev.nbw.cfg.ConfigModels;
 import dev.nbw.cfg.ConfigService;
 import dev.nbw.domain.ZoneModel;
+import dev.nbw.raft.RaftSinking;
 import dev.nbw.round.RoundManager;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.server.command.CommandManager;
@@ -87,6 +89,25 @@ public final class NbwCommands {
 		lobby.then(CommandManager.literal("reload").executes(ctx -> testLobby(ctx, true)));
 		root.then(lobby);
 
+		// ---- 沉筏运维（01 §4.3.1 A3-v4）。命令层只碰 RaftSinking，不碰 Sable 类型。
+		var raft = admin(CommandManager.literal("raft"));
+		raft.then(CommandManager.literal("status").executes(NbwCommands::raftStatus));
+		raft.then(CommandManager.literal("bind")
+				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
+						.executes(NbwCommands::raftBindNearest)
+						.then(CommandManager.argument("name", StringArgumentType.word())
+								.executes(NbwCommands::raftBindByName))));
+		raft.then(CommandManager.literal("repair")
+				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
+						.executes(NbwCommands::raftRepair)));
+		raft.then(CommandManager.literal("sink")
+				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
+						.executes(NbwCommands::raftSink)));
+		raft.then(CommandManager.literal("accel")
+				.then(CommandManager.argument("value", DoubleArgumentType.doubleArg(0.0, 1.0))
+						.executes(NbwCommands::raftAccel)));
+		root.then(raft);
+
 		dispatcher.register(root);
 	}
 
@@ -100,6 +121,51 @@ public final class NbwCommands {
 	private static int start(CommandContext<ServerCommandSource> ctx, String format, String arena) throws CommandSyntaxException {
 		String err = RoundManager.start(format, arena);
 		return reply(ctx, err, "第 " + RoundManager.phase() + " 阶段已启动（format=" + nz(format) + " arena=" + nz(arena) + "）");
+	}
+
+	// ---------------------------------------------------------------- 沉筏命令
+
+	private static int raftStatus(CommandContext<ServerCommandSource> ctx) {
+		ctx.getSource().sendFeedback(() -> Text.literal(RaftSinking.status()), false);
+		return 1;
+	}
+
+	private static int raftBindNearest(CommandContext<ServerCommandSource> ctx) {
+		var src = ctx.getSource();
+		int team = IntegerArgumentType.getInteger(ctx, "team");
+		var pos = src.getPosition();
+		return tell(ctx, RaftSinking.bindNearest(src.getWorld(), team, pos.x, pos.y, pos.z));
+	}
+
+	private static int raftBindByName(CommandContext<ServerCommandSource> ctx) {
+		int team = IntegerArgumentType.getInteger(ctx, "team");
+		return tell(ctx, RaftSinking.bindByName(ctx.getSource().getWorld(), team,
+				StringArgumentType.getString(ctx, "name")));
+	}
+
+	private static int raftRepair(CommandContext<ServerCommandSource> ctx) {
+		int team = IntegerArgumentType.getInteger(ctx, "team");
+		return tell(ctx, RaftSinking.repair(team)
+				? "队 " + team + " 筏心已重修，沉筏倒计时回到 30s（每局限 1 次）"
+				: "队 " + team + " 重修未生效：要么不在倒计时中，要么本局额度已用完");
+	}
+
+	private static int raftSink(CommandContext<ServerCommandSource> ctx) {
+		int team = IntegerArgumentType.getInteger(ctx, "team");
+		return tell(ctx, RaftSinking.forceSink(ctx.getSource().getWorld(), team));
+	}
+
+	private static int raftAccel(CommandContext<ServerCommandSource> ctx) {
+		double value = DoubleArgumentType.getDouble(ctx, "value");
+		RaftSinking.sinkAccelPerTick = value;
+		return tell(ctx, "沉筏加速度 = " + value + " 格/tick²（按质量成比例换算成冲量）");
+	}
+
+	/** 沉筏命令一律"成功也回话、失败也回话"，不抛异常——运维需要的是可读结果不是堆栈。 */
+	private static int tell(CommandContext<ServerCommandSource> ctx, String message) {
+		ctx.getSource().sendFeedback(() -> Text.literal("[cww] " + message), true);
+		NBW.LOGGER.info("[cmd] {} (source={})", message, ctx.getSource().getName());
+		return 1;
 	}
 
 	private static int reply(CommandContext<ServerCommandSource> ctx, String error, String okMessage) throws CommandSyntaxException {

@@ -40,6 +40,13 @@ dependencies {
 	// veil 与 forge-config-api-port 已 embedded 在 sable jar 内，imguimc 为 optional，均不单独引入。
 	modImplementation files("libs/sable-fabric-1.21.1-2.0.6.jar")
 
+	// sable-companion 只从 sable jar 的 META-INF/jars/ 里解出来这一份，**只给编译期用**：
+	// Pose3dc / BoundingBox3ic / JOMLConversion 这些几何类型只存在于这个嵌套 jar，
+	// 少了它任何碰 sub-level 位姿的代码都编译不过（M0 那个探针文件就是这么挂的）。
+	// 它本身是个模组（带 fabric.mod.json），运行时由 sable 内嵌加载；
+	// 若再放进 run/mods 或改成 implementation，会被重复注册。
+	compileOnly files("libs/sable-companion-fabric-1.21.1-1.6.0.jar")
+
 	// domain/cfg 层不依赖 Minecraft，用普通 JUnit 做回归（07 §6.1 第 1 层）
 	compileOnly 'com.google.code.gson:gson:2.11.0'
 	testImplementation 'com.google.code.gson:gson:2.11.0'

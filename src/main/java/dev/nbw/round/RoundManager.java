@@ -9,6 +9,7 @@ import dev.nbw.domain.round.PlayerSession;
 import dev.nbw.domain.round.RoundConfig;
 import dev.nbw.domain.round.RoundEvent;
 import dev.nbw.domain.round.RoundMachine;
+import dev.nbw.raft.RaftSinking;
 import dev.nbw.domain.round.Transitions;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
@@ -22,7 +23,6 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
-import net.minecraft.util.math.Box;
 import net.minecraft.world.GameMode;
 
 import java.nio.file.Path;
@@ -44,9 +44,6 @@ import java.util.UUID;
  *    任何表现层异常都不得拖垮对局（04 §6 降级要求）。
  */
 public final class RoundManager {
-
-	/** 全图扫描用的保守包围盒：只在阶段切换/命令时调用，绝不在 tick 热路径。 */
-	private static final Box WORLD_WIDE = new Box(-1.0E7, -64.0, -1.0E7, 1.0E7, 320.0, 1.0E7);
 
 	private static RoundMachine machine = new RoundMachine(RoundConfig.standard());
 	private static MinecraftServer server;
@@ -139,6 +136,7 @@ public final class RoundManager {
 		drainPendingPlacements();
 		if (machine.phase() == Phase.PLAY) {
 			sweepDeaths();
+			RaftSinking.onEndTick(srv);
 		}
 		broadcastCountdown();
 	}
@@ -302,11 +300,6 @@ public final class RoundManager {
 		}
 		for (ServerWorld world : server.getWorlds()) {
 			for (ServerPlayerEntity p : world.getPlayers()) {
-				if (seen.add(p.getUuid())) {
-					out.add(p);
-				}
-			}
-			for (ServerPlayerEntity p : world.getEntitiesByClass(ServerPlayerEntity.class, WORLD_WIDE, x -> true)) {
 				if (seen.add(p.getUuid())) {
 					out.add(p);
 				}
@@ -533,9 +526,15 @@ public final class RoundManager {
 			NBW.LOGGER.error("[S10] residue=FAIL matches={} issues={}", machine.matchIndex(), issues);
 		}
 		lastParticipants.clear();
+		RaftSinking.reset();
 	}
 
 	// ---------------------------------------------------------------- 配置与命令入口
+
+	/** 只读暴露 domain 状态机：供 raft/ 等上层读队伍与在场情况，不得在这里改状态。 */
+	public static RoundMachine machine() {
+		return machine;
+	}
 
 	public static Path worldRoot() {
 		return net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().resolve("world").toAbsolutePath();
