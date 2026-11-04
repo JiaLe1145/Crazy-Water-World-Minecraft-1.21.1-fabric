@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "nbw",
+  "version": "${version}",
+  "name": "NB Water World",
+  "description": "海上木筏生存竞技小游戏（M0：Sable 可行性验证）",
+  "authors": ["NB-Water-World Team"],
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["dev.nbw.NBW"],
+    "client": ["dev.nbw.NBWClient"]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "minecraft": "1.21.1",
+    "java": ">=21",
+    "fabric-api": "*",
+    "sable": "*"
+  }
+}
