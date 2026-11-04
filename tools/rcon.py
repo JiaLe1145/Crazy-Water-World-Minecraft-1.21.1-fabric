@@ -4,14 +4,15 @@
     python tools/rcon.py "spike build 5"
     python tools/rcon.py --batch "spike verify" "spike move 1 0" "spike verify"
 """
+import os
 import socket
 import struct
 import sys
 import time
 
 HOST = "127.0.0.1"
-PORT = 25575
-PASSWORD = "cwwspike"
+PORT = int(os.environ.get("RCON_PORT", "25575"))
+PASSWORD = os.environ.get("RCON_PASSWORD", "cwwspike")
 
 
 def _send(sock, req_id, ptype, payload):
