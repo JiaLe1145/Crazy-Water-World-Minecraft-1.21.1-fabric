@@ -152,15 +152,42 @@ Rapier 物理步进（每 game tick 做 substeps 次，默认 2 → 40Hz）
 
 ### T0 · 建立唯一可寻址的筏（M0-4 前置）
 
+**实机已证伪 `connected`**：水上的筏装配必报 `Couldn't assemble sub-level, too many blocks (maximum 256000)`。
+
+根因（不是容量问题）：
+- 连通判定只看 `!state.isAir()` → **水算连通方块**（`SubLevelAssemblyHelper.java:251-253`）
+- 命令层传 `frontierPredicate = null`，不做任何材质过滤（`SableAssembleCommands.java:106, :332`）
+- BFS 按 6-邻边扩散、对角不连（`:236-240`）→ 从筏板直接漏进整片海，瞬间爆上限
+
+→ 这是**玩法级约束**，不只是测试障碍：水上的筏永远不能用 `connected` 装配。
+
+两条出路：
+
 ```
-/sable assemble connected
+# 出路 1（推荐，保留箱子才能测 T4）：严格包围盒，盒子必须完全避开海水
+/sable assemble area <minX> <minY> <minZ> <maxX> <maxY> <maxZ>
+# 例：筏板 97..103 / y=64 / 97..103，箱子在 100 65 100
+/sable assemble area 97 64 97 103 65 103
+
+# 出路 2（最快，但没有箱子）：直接生成干净的 sub-level 平台，完全跳过装配
+/sable spawn platform 3 oak_planks raft
+```
+
+⚠️ `assemble area` 会把**包围盒内所有方块**搬进 plot 并在世界置 AIR
+（`executeAssembleAreaCommand:278-291` 用 `betweenClosedStream` 不过滤 + `moveBlocks:409/452`）
+→ 盒子里只要含水，海里就会留下一个洞、筏上还多一块"水砖"。**盒子必须只框住筏体。**
+
+装配成功后：
+```
 /sable info @l
 /sable name set @l raft
 ```
-- 期望：第一条回显装配方块数；第二条列出位置/质量/速度；第三条命名成功。
-- 若 `connected` 把周围的地板/水也算进去（`assemble connected` 从脚下块做连通域，`SableAssembleCommands.java:82`）→ 改用它形态版：
-  `/sable assemble area <min> <max>`（`:75-78`，严格按包围盒，最可控）。
-- 失败面：`no_blocks` / `too_many_blocks`。
+- 期望 `info` 回显方块数、位置、质量；`@l`（最后创建的那个）此时应唯一。
+- 正式方案（M2，写在 `sable/` 隔离层）：直接调
+  `SubLevelAssemblyHelper.gatherConnectedBlocks(origin, level, capacity, frontierPredicate)`，
+  第 4 参传一个拒绝流体的 `FrontierPredicate`（签名 `SubLevelAssemblyHelper.java:496-508`）。
+  Sable 留了这个口子，只是它自己的命令没用。
+
 
 ### T1 · 随动绑定（M0-4 的生死线，30 秒）
 
