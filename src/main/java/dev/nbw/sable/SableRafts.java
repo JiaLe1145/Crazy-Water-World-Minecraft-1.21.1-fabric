@@ -308,6 +308,35 @@ public final class SableRafts {
 		return true;
 	}
 
+	/**
+	 * 施加一个世界坐标方向的力（风用）。
+	 *
+	 * <p>与 {@link #sink} 的区别很关键：sink 是"变重"，所以按质量成比例；
+	 * 风是<b>真实的外力</b>，不该乘质量——同一阵风吹大筏和小筏，加速度本就应该不同。
+	 * 乘了质量会让风对大筏不公平地更强。
+	 *
+	 * @return 是否真的施到了力
+	 */
+	public static boolean push(ServerWorld world, UUID raftId, double forceX, double forceY, double forceZ) {
+		if (forceX == 0.0 && forceY == 0.0 && forceZ == 0.0) {
+			return false;
+		}
+		ServerSubLevel sl = resolve(world, raftId);
+		if (sl == null) {
+			return false;
+		}
+		ServerSubLevelContainer c = SubLevelContainer.getContainer(world);
+		if (c == null) {
+			return false;
+		}
+		RigidBodyHandle handle = c.physicsSystem().getPhysicsHandle(sl);
+		if (handle == null || !handle.isValid()) {
+			return false;
+		}
+		handle.applyLinearImpulse(new Vector3d(forceX, forceY, forceZ));
+		return true;
+	}
+
 	// ---------------------------------------------------------------- 加载票
 
 	/** 开局发票：对局期间禁止该筏被卸载。 */

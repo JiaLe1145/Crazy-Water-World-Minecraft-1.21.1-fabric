@@ -43,7 +43,11 @@ public final class Sailing {
 	 * <p>所以：写方块时用"我们传进去的局部偏移"记下来，数与拆都只遍历这张小表。
 	 * 表随对局生命周期建与销（{@link #forget}），不跨局残留。
 	 */
-	private static final Map<Integer, List<int[]>> sailsByTeam = new LinkedHashMap<>();
+	private static final Map<Integer, List<SailCell>> sailsByTeam = new LinkedHashMap<>();
+
+	/** 一块帆：plot 局部偏移 + 法向朝向。朝向必须记着，否则算不出风对哪面吹。 */
+	public record SailCell(int x, int y, int z, Direction facing) {
+	}
 
 	private Sailing() {
 	}
@@ -64,7 +68,7 @@ public final class Sailing {
 			return "帆数必须在 0.." + MAX_SAILS_PER_ROW + "，给了 " + count;
 		}
 		int teamIndex = RaftSpawner.teamOf(raftId);
-		List<int[]> cells = sailsByTeam.computeIfAbsent(teamIndex, k -> new ArrayList<>());
+		List<SailCell> cells = sailsByTeam.computeIfAbsent(teamIndex, k -> new ArrayList<>());
 		int half = count / 2;
 		int placed = 0;
 		String firstError = null;
@@ -72,7 +76,7 @@ public final class Sailing {
 			// z=-3 是甲板靠尾那一排；y=1 在甲板之上，不会埋进甲板方块里
 			if (SableRafts.setPlotBlock(world, raftId, i, 1, -3,
 					NbwContent.sail.getDefaultState().with(SailBlock.FACING, facing))) {
-				cells.add(new int[]{i, 1, -3});
+				cells.add(new SailCell(i, 1, -3, facing));
 				placed++;
 			} else if (firstError == null) {
 				firstError = "plot 写入失败（局部偏移 " + i + ",1,-3）";
@@ -89,8 +93,23 @@ public final class Sailing {
 		if (raftId == null) {
 			return 0;
 		}
-		List<int[]> cells = sailsByTeam.get(RaftSpawner.teamOf(raftId));
+		List<SailCell> cells = sailsByTeam.get(RaftSpawner.teamOf(raftId));
 		return cells == null ? 0 : cells.size();
+	}
+
+	/** 各朝向的帆数，给 {@link WindService} 算合力用。 */
+	public static int sailsFacing(int teamIndex, Direction facing) {
+		List<SailCell> cells = sailsByTeam.get(teamIndex);
+		if (cells == null) {
+			return 0;
+		}
+		int n = 0;
+		for (SailCell c : cells) {
+			if (c.facing() == facing) {
+				n++;
+			}
+		}
+		return n;
 	}
 
 	/** 局后清理：忘掉记录。帆方块本身随筏一起销毁，不需要逐个拆。 */
@@ -103,11 +122,11 @@ public final class Sailing {
 		if (raftId == null) {
 			return 0;
 		}
-		List<int[]> cells = sailsByTeam.get(RaftSpawner.teamOf(raftId));
+		List<SailCell> cells = sailsByTeam.get(RaftSpawner.teamOf(raftId));
 		int removed = 0;
 		if (cells != null) {
-			for (int[] c : cells) {
-				if (SableRafts.clearPlotBlock(world, raftId, c[0], c[1], c[2])) {
+			for (SailCell c : cells) {
+				if (SableRafts.clearPlotBlock(world, raftId, c.x(), c.y(), c.z())) {
 					removed++;
 				}
 			}

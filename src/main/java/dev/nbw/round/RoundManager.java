@@ -13,6 +13,7 @@ import dev.nbw.domain.round.RoundSnapshot;
 import dev.nbw.raft.RaftCoreService;
 import dev.nbw.raft.RaftSinking;
 import dev.nbw.raft.RaftSpawner;
+import dev.nbw.raft.WindService;
 import dev.nbw.domain.round.Transitions;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
@@ -157,6 +158,7 @@ public final class RoundManager {
 			sweepDeaths();
 			RaftSinking.onEndTick(srv);
 			RaftCoreService.onEndTick(srv);
+			WindService.apply(srv);   // 帆的唯一动力来源；无帆不受力
 		}
 		broadcastCountdown();
 	}
@@ -558,6 +560,7 @@ public final class RoundManager {
 		lastParticipants.clear();
 		RaftSinking.reset();
 		RaftCoreService.reset();
+		WindService.set("calm", 0.0);   // 风是局内状态，不许跨局残留成"永久顺风"
 	}
 
 	// ---------------------------------------------------------------- 配置与命令入口

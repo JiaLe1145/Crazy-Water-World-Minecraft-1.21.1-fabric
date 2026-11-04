@@ -14,6 +14,7 @@ import dev.nbw.raft.RaftCoreService;
 import dev.nbw.raft.RaftSinking;
 import dev.nbw.raft.RaftSpawner;
 import dev.nbw.raft.Sailing;
+import dev.nbw.raft.WindService;
 import dev.nbw.round.RoundManager;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.server.command.CommandManager;
@@ -145,6 +146,17 @@ public final class NbwCommands {
 						.executes(NbwCommands::sailStrip)));
 		root.then(sail);
 
+		// ---- 风（M2-5）：全局单值，所有队同一时刻受同一阵风
+		var wind = admin(CommandManager.literal("wind"));
+		wind.then(CommandManager.literal("read")
+				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
+						.executes(NbwCommands::windRead)));
+		wind.then(CommandManager.literal("set")
+				.then(CommandManager.argument("dir", StringArgumentType.word())
+						.then(CommandManager.argument("strength", DoubleArgumentType.doubleArg(0.0, 4.0))
+								.executes(NbwCommands::windSet))));
+		root.then(wind);
+
 		// ---- 落盘与重启恢复（Gate G1）
 		root.then(admin(CommandManager.literal("save").executes(NbwCommands::saveNow)));
 		root.then(admin(CommandManager.literal("statefile").executes(NbwCommands::stateFile)));
@@ -178,6 +190,19 @@ public final class NbwCommands {
 	}
 
 	// ---------------------------------------------------------------- 航行
+
+	private static int windRead(CommandContext<ServerCommandSource> ctx) {
+		int team = IntegerArgumentType.getInteger(ctx, "team");
+		ctx.getSource().sendFeedback(() -> Text.literal(WindService.readout(ctx.getSource().getServer(), team)), false);
+		return 1;
+	}
+
+	private static int windSet(CommandContext<ServerCommandSource> ctx) {
+		String dir = StringArgumentType.getString(ctx, "dir");
+		double strength = DoubleArgumentType.getDouble(ctx, "strength");
+		return tell(ctx, WindService.set(dir, strength) + " | "
+				+ WindService.readout(ctx.getSource().getServer(), 0));
+	}
 
 	private static int sailRead(CommandContext<ServerCommandSource> ctx) {
 		ctx.getSource().sendFeedback(() -> Text.literal(

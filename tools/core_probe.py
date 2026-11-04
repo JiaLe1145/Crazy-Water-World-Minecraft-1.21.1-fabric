@@ -84,6 +84,12 @@ def main():
         # 每局都要重新拉起假玩家：上一局的 WINNER_DECIDED 是靠 kill 掉一队达成的，
         # 而 kill 掉的 Carpet 假玩家不会自己回来。少了这一步，第二局的 cww force
         # 会静默失败、start 因"报名不足"被拒，然后所有断言都变成假失败。
+        # 先 kill 再 spawn：上一局 WINNER_DECIDED 靠 kill 达成、而第 3 步的伤害也可能把引导者打死，
+        # 处在重生界面的假玩家不会自己回来，player spawn 对它是无效的，
+        # 于是引导每 tick 被 isAlive()=false 打断（实测进度反复停在 19/160）。
+        for bot, _ in BOTS:
+            p("player %s kill" % bot)
+        time.sleep(1.0)
         for bot, _ in BOTS:
             p("player %s spawn" % bot)
         for _ in range(30):
@@ -134,12 +140,15 @@ def main():
     # 打死之后走的是 isAlive=false 那条分支，就证明不了"伤害"打断本身了。
     p("cww raftcore hold c0 %d 400" % TEAM, quiet=False)
     time.sleep(1.0)
-    print("      /damage 回包：%s" % p.cmd("damage c0 1 generic")[:110])
+    # 0.5 伤害 × 8：够打断，但不会把引导者打死。
+    # 打死也是合法打断（死玩家当然不能修东西），但那会顺带把"人没了"和"受伤"两件事混在一起，
+    # 后面几步还会因为找不到尸体而假失败——实测就是这样绕了一圈才分清是探针的锅。
+    print("      /damage 回包：%s" % p.cmd("damage c0 0.5 generic")[:110])
     peak = 0
-    for _ in range(10):
+    for _ in range(8):
         time.sleep(0.6)
         peak = max(peak, p.progress())
-        p.cmd("damage c0 1 generic")
+        p.cmd("damage c0 0.5 generic")
     print("      挨打期间的进度峰值 = %d" % peak)
     expect(0 < peak < CHANNEL_TICKS, "进度在走但从未完成（峰值 %d，%d 才够）" % (peak, CHANNEL_TICKS))
     expect(p.core_phase() == "WRECKAGE", "挨打期间筏心仍是残骸")
@@ -156,6 +165,10 @@ def main():
     p("cww raftcore destroy %d" % TEAM)
     time.sleep(1.0)
     expect(p.sink_phase() == "COUNTDOWN", "第2局倒计时开始（实际 %s）" % p.sink_phase())
+
+    print("== 3b. 把引导者复位（保证第 4 步用的是活人）")
+    p("player c0 kill"); time.sleep(1.0); p("player c0 spawn"); time.sleep(3.0)
+    expect("c0" in p.cmd("list").lower(), "c0 重新在线，可以当引导者")
 
     print("== 4. 一次连续引导 → 筏心恢复 + 倒计时解除（不是重置）")
     p("cww raftcore hold c0 %d 200" % TEAM, quiet=False)
