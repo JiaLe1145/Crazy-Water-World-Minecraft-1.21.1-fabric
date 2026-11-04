@@ -123,6 +123,60 @@
 
 ---
 
+## 3.6 筏心方块本体（M2-4 前半）—— 通过
+
+`tools/raftgen_probe.py` **18/18**、`core_probe` **18/18**、`sink_probe` 15/15。
+
+### 这轮回答了一个之前没人验证过的关键问题
+
+**自定义方块实体在 Sable 的 sub-level plot 里到底会不会被 tick？**
+
+答案是：**原版那条路走不通，Sable 留了专用通道。**
+`ServerLevelPlot.tick()` 只跑光照与 contraption 清理，**完全不 tick 方块实体**。
+每 tick 行为的唯一入口是实现 Sable 的 `BlockEntitySubLevelActor`——
+`LevelPlot.java:410-416` 靠 `instanceof` 决定要不要收进 actor 表，
+再由 `ServerSubLevel.java:299`（游戏 tick）与 `SubLevelPhysicsSystem.java:226`（物理 tick）调用。
+所以 **BE 必须自己实现那个接口**，中间加适配器不会被注册。
+
+实测证据：`[content] 筏心登记（BE 已被 Sable tick）` 出现 2 次（每队一条）。
+
+### 因此记下一条架构例外
+
+"全工程只有 `sable/` 允许 import Sable"这条纪律，现在有一处**刻意的例外**：
+`content/RaftCoreBlockEntity` 实现 `BlockEntitySubLevelActor`。
+例外只到"实现接口"为止——接口方法内部要调的 Sable 能力仍然走 `sable/`。
+这是接口约束不是设计偷懒，写进代码注释而不是藏着。
+
+### 质量算式顺手成了方块真进 plot 的证据
+
+初始筏质量从 **24.5 变成 25.5** = 49 格木板×0.5 + 筏心 1.0（完整方块默认质量）。
+筏心是用 `plot.getEmbeddedLevelAccessor().setBlockState()` 写在 **plot 局部坐标 (0,1,0)** 的，
+原版 `setBlockState` 负责创建方块实体。
+
+### 一个差点埋进产品的坐标陷阱
+
+BE 在自己 tick 里看到的 `getPos()` 是 **plot 局部坐标**（实测 `x=20481032` 这种量级），
+而交互回调给的 pos 属于哪个坐标空间**没有保证**。两套空间一旦错位，
+表现是"玩家怎么点都没反应"，而且日志里什么都不会报。
+所以 `onUse` 改成**从玩家实际点到的那个 BE 读归属**，不再按坐标查表。
+
+### 两个我主动没写的东西
+
+1. **`onBroken` 没写。** 1.21.1 的 Yarn 里它有两个归属不明的重载
+   （`(DamageSource, World, BlockPos)` 与 `(WorldAccess, BlockPos, BlockState)`），
+   而"武器打掉筏心"本来要等 M4 的武器表。破坏只留一个入口 `RaftCoreService.markDestroyed`，
+   方块状态由 `syncState` 每 tick 回写。与其猜个签名把逻辑钉死在错的钩子上，不如等伤害来源出现再挂。
+2. **`onUseWithItem` 没写。** 1.21.1 把右键拆成空手 `onUse(state,world,pos,player,hitResult)`
+   与拿东西 `onUseWithItem(stack,...)`。带物品那一半和客户端长按周期包是同一个问题的两面
+   （玩家真在修的时候手里往往有工具），分开写会各测一半，所以一起等客户端包时补。
+
+### 新增的可断言证据
+
+`/cww raftcore status` 现在带 `状态回写 N 次`。没有它，"倒计时在走但方块看着还是好的"
+这种不一致在日志里完全看不出来，玩家也无从判断该不该去修。
+
+---
+
 ## 4. Q9 · Sable sub-level 跨重启（顺带拿到数据）
 
 造一艘筏、推开、上加载票、重启：
@@ -152,9 +206,9 @@
 | `tools/m1_round.py` | 回合骨架端到端 + 残留复检 | 5 局 120/120 |
 | `tools/g1_guards.py` | 坏配置拒绝 + 归档 + 不崩服 | 9/9 |
 | `tools/sink_probe.py` | 沉筏 | 15/15 |
-| `tools/core_probe.py` | 筏心摧毁 / 8s 修复 / 受伤打断 / 额度 | 17/17 |
+| `tools/core_probe.py` | 筏心摧毁 / 8s 修复 / 受伤打断 / 额度 / 状态回写 | 18/18 |
 | `tools/restart_probe.py` | 回合状态落盘 + 重启恢复 | before 3/3, after 7/7 |
-| `tools/raftgen_probe.py` | 开局发筏 + 票/筏零残留 | 17/17 |
+| `tools/raftgen_probe.py` | 开局发筏 + 票/筏零残留 + BE 被 tick | 18/18 |
 | 单测 | domain 纯函数 6 个类 | **118 个，0 失败** |
 
 ## 6. 仍需真人验证（攒着，等客户端输入接上一起测）

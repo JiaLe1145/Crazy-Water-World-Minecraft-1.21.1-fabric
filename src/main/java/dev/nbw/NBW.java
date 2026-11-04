@@ -1,6 +1,7 @@
 package dev.nbw;
 
 import dev.nbw.cmd.NbwCommands;
+import dev.nbw.content.NbwContent;
 import dev.nbw.round.RoundManager;
 import net.fabricmc.api.ModInitializer;
 import org.slf4j.Logger;
@@ -13,6 +14,7 @@ public class NBW implements ModInitializer {
 
 	@Override
 	public void onInitialize() {
+		NbwContent.register();
 		RoundManager.register();
 		NbwCommands.register();
 		LOGGER.info("NB-Water-World {} initialized (mc 1.21.1 / loader 0.19.3 / Sable 2.0.6)", MOD_VERSION);

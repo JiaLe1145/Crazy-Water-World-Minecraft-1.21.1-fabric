@@ -1,0 +1,6 @@
+{
+  "variants": {
+    "wreckage=false": { "model": "nbw:block/raft_core" },
+    "wreckage=true": { "model": "nbw:block/raft_core_wreckage" }
+  }
+}

@@ -2,6 +2,8 @@ package dev.nbw.raft;
 
 import dev.nbw.NBW;
 import dev.nbw.cfg.ConfigModels;
+import dev.nbw.content.NbwContent;
+import dev.nbw.content.RaftCoreBlockEntity;
 import dev.nbw.round.RoundManager;
 import dev.nbw.sable.SableRafts;
 import net.minecraft.block.Block;
@@ -93,6 +95,10 @@ public final class RaftSpawner {
 			spawned.put(index, id);
 			RaftSinking.bind(index, id);
 			RaftCoreService.markIntact(index);
+			String coreErr = placeCore(world, id, index);
+			if (coreErr != null) {
+				failures.add("队 " + index + " " + coreErr);
+			}
 			if (!SableRafts.holdLoaded(world, id)) {
 				failures.add("队 " + index + " 加载票没上成功（筏子可能在中途被卸载）");
 			}
@@ -190,6 +196,28 @@ public final class RaftSpawner {
 					.append(" 质量=").append(SableRafts.mass(world, e.getValue())).append("  ");
 		}
 		return sb.toString().trim();
+	}
+
+	/**
+	 * 把筏心放进筏体中心的正上方一格。
+	 *
+	 * <p>用 <b>plot 局部坐标</b> (0,1,0)：筏子会动，世界坐标寻址 sub-level 里的方块
+	 * 是本项目已经否掉的做法。中心是甲板原点，(0,1,0) 正好在甲板之上且不埋进方块里。
+	 */
+	private static String placeCore(ServerWorld world, UUID raftId, int teamIndex) {
+		if (NbwContent.raftCore == null) {
+			return "筏心方块还没注册，跳过放置";
+		}
+		if (!SableRafts.setPlotBlock(world, raftId, 0, 1, 0, NbwContent.raftCore.getDefaultState())) {
+			return "筏心没能写进 plot";
+		}
+		if (SableRafts.plotBlockEntity(world, raftId, 0, 1, 0) instanceof RaftCoreBlockEntity be) {
+			be.setTeam(teamIndex);
+		} else {
+			// 没有 BE 的筏心不会 tick，也就永远不会登记 pos→team，修复与破坏全都失效
+			return "筏心方块实体没被创建（方块注册或 BE 类型不匹配）";
+		}
+		return null;
 	}
 
 	private static @Nullable Block resolveBlock(String id) {

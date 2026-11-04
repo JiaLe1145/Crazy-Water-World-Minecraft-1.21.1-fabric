@@ -16,6 +16,7 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.block.BlockState;
+import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.Unit;
 import org.jetbrains.annotations.Nullable;
@@ -115,6 +116,31 @@ public final class SableRafts {
 				String.format(java.util.Locale.ROOT, "%.1f", cy),
 				String.format(java.util.Locale.ROOT, "%.1f", cz));
 		return id;
+	}
+
+	/**
+	 * 往筏的 plot 里写一格方块（筏心就是这么放进筏体中心的）。
+	 *
+	 * <p>坐标是 <b>plot 局部坐标</b>，不是世界坐标——筏子会动，
+	 * 用世界坐标寻址 sub-level 里的方块是本项目已经明确否掉的做法
+	 * （{@code /data modify block <原坐标>} 同理失效）。
+	 * 带方块实体的方块由原版 {@code setBlockState} 负责创建实体，这里不自己 new。
+	 */
+	public static boolean setPlotBlock(ServerWorld world, UUID raftId, int lx, int ly, int lz, BlockState state) {
+		ServerSubLevel sl = resolve(world, raftId);
+		if (sl == null) {
+			return false;
+		}
+		return sl.getPlot().getEmbeddedLevelAccessor().setBlockState(new BlockPos(lx, ly, lz), state, 3);
+	}
+
+	/** 取 plot 局部坐标上的方块实体；不存在返回 null。 */
+	public static @Nullable BlockEntity plotBlockEntity(ServerWorld world, UUID raftId, int lx, int ly, int lz) {
+		ServerSubLevel sl = resolve(world, raftId);
+		if (sl == null) {
+			return null;
+		}
+		return sl.getPlot().getEmbeddedLevelAccessor().getBlockEntity(new BlockPos(lx, ly, lz));
 	}
 
 	/** (2r+1)² —— 纯算式，给日志与单测用。 */

@@ -52,6 +52,16 @@ public final class RaftCoreService {
 	/** 队号 → 正在引导的玩家。同一残骸同时只认一个人。 */
 	private static final Map<Integer, UUID> holder = new LinkedHashMap<>();
 	private static final Map<Integer, Integer> keepaliveUntil = new LinkedHashMap<>();
+
+	/**
+	 * 方块坐标 → 归属队伍。BE 第一次被 Sable tick 时登记进来。
+	 * 键用 {@code BlockPos.asLong()}：这张表活过整个对局，存 BlockPos 对象
+	 * 等于存一个可能已经换世界的引用。
+	 */
+	private static final Map<Long, Integer> coreByPos = new LinkedHashMap<>();
+
+	/** 相位→方块状态的回写次数，给状态与探针断言用。 */
+	private static int stateSyncs;
 	/** 本 tick 受过伤害的玩家，{@link #onEndTick} 用完即清。 */
 	private static final Set<UUID> damagedThisTick = Collections.synchronizedSet(new java.util.HashSet<>());
 
@@ -145,6 +155,62 @@ public final class RaftCoreService {
 		simulatedHoldUntil.put(teamIndex, tick + ticks);
 		return "已登记模拟引导 " + ticks + " tick（到 tick " + tick + "+" + ticks
 				+ "；" + ChannelRule.CHANNEL_TICKS + " tick 才够修好）";
+	}
+
+	// ---------------------------------------------------------------- 方块侧登记
+
+	/**
+	 * BE 首次被 tick 时登记自己。返回 false 表示这个位置已经属于别的队——
+	 * 那是配置或生成逻辑出错，必须吵出来，不能让两队共用一个筏心。
+	 */
+	public static boolean registerCore(net.minecraft.server.MinecraftServer server,
+			net.minecraft.util.math.BlockPos pos, int teamIndex) {
+		long key = pos.asLong();
+		Integer existing = coreByPos.get(key);
+		if (existing != null && existing != teamIndex) {
+			NBW.LOGGER.error("[raftcore] pos={} 已登记给队 {}，队 {} 想再登记同一个筏心", pos, existing, teamIndex);
+			return false;
+		}
+		if (teamIndex < 0) {
+			return false;   // 手工摆的筏心没有归属，先不登记，等分配
+		}
+		coreByPos.put(key, teamIndex);
+		if (phases.get(teamIndex) == null) {
+			phases.put(teamIndex, Phase.INTACT);
+		}
+		return true;
+	}
+
+	/** 由方块坐标反查归属队伍；查不到返回 -1。 */
+	public static int teamOfCore(net.minecraft.server.MinecraftServer server,
+			net.minecraft.util.math.BlockPos pos) {
+		Integer team = coreByPos.get(pos.asLong());
+		return team == null ? -1 : team;
+	}
+
+	/**
+	 * 把服务端的权威相位回写到方块状态上。
+	 * 不这么做就会出现"倒计时已经在走、方块看着还是好的"——玩家完全无法判断该不该去修。
+	 */
+	public static void syncState(net.minecraft.world.World world,
+			net.minecraft.util.math.BlockPos pos, int teamIndex) {
+		if (world == null || world.isClient() || teamIndex < 0) {
+			return;
+		}
+		var state = world.getBlockState(pos);
+		if (!(state.getBlock() instanceof dev.nbw.content.RaftCoreBlock core)) {
+			return;
+		}
+		boolean shouldWrecked = phases.get(teamIndex) == Phase.WRECKAGE;
+		if (state.get(dev.nbw.content.RaftCoreBlock.WRECKAGE) != shouldWrecked) {
+			world.setBlockState(pos, state.with(dev.nbw.content.RaftCoreBlock.WRECKAGE, shouldWrecked),
+					net.minecraft.block.Block.NOTIFY_ALL);
+			// 这是"服务端相位真的写进了方块状态"的唯一可断言证据。
+			// 没有它，玩家看不到残骸、而日志上什么都看不出来。
+			stateSyncs++;
+			NBW.LOGGER.info("[raftcore] 队 {} 的筏心方块状态回写为 {}（累计 {} 次）",
+					teamIndex, shouldWrecked ? "残骸" : "完好", stateSyncs);
+		}
 	}
 
 	// ---------------------------------------------------------------- tick
@@ -245,6 +311,7 @@ public final class RaftCoreService {
 			sb.append(" 已用额度 ").append(restoresUsed.getOrDefault(e.getKey(), 0))
 					.append('/').append(MAX_RESTORES_PER_MATCH).append("  ");
 		}
+		sb.append(" 状态回写 ").append(stateSyncs).append(" 次");
 		return sb.toString().trim();
 	}
 

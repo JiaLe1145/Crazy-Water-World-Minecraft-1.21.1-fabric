@@ -20,13 +20,14 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOG = os.path.join(ROOT, "run", "server-console.log")
 BOTS = (("g0", 0), ("g1", 0), ("g2", 1), ("g3", 1))
 DEFAULT_DECK = 49          # radius=3 → (2*3+1)^2
-DECK_MASS = 24.5           # oak_planks 属 #sable:light → 0.5/格
+DECK_MASS = 25.5           # 49 格 oak_planks ×0.5 + 筏心 1.0（筏心是完整方块，默认 1.0）
 
 
 class P:
     def __init__(self):
         self.sock = rcon.connect()
         self.logpos = os.path.getsize(LOG) if os.path.exists(LOG) else 0
+        self.logbuf = ""
 
     def cmd(self, text, quiet=True):
         out = rcon.run(self.sock, text) or ""
@@ -38,12 +39,20 @@ class P:
         return self.cmd(text, **kw)
 
     def log(self):
+        """累积式读日志。
+
+        只返回"新增段"会推进偏移量，于是先调用的一步把内容消费掉、后一步再找同一段就没了
+        ——实测就是把"生成日志在案"搞成了假失败。
+        """
         size = os.path.getsize(LOG)
         with open(LOG, "rb") as fh:
             fh.seek(self.logpos)
             raw = fh.read()
         self.logpos = size
-        return raw.decode("utf-8", errors="replace")
+        self.logbuf += raw.decode("utf-8", errors="replace")
+        if len(self.logbuf) > 400000:
+            self.logbuf = self.logbuf[-300000:]
+        return self.logbuf
 
     def phase(self):
         return self.cmd("cww phase")
@@ -88,8 +97,8 @@ def main():
     print("== 2. 生成结果应当符合 arena 配置（radius 3 → 49 格 → 质量 24.5）")
     status = p("cww raft all")
     print("      %s" % status[:260])
-    expect(status.count("质量=24.5") == 2,
-           "两队筏质量都是 %.1f（实际：%s）" % (DECK_MASS, status[:160]))
+    expect(status.count("质量=25.5") == 2,
+           "两队都是 49 甲板格(24.5) + 1 筏心(1.0) = 25.5（实际：%s）" % status[:160])
     ys = [float(m) for m in re.findall(r"Y=([\d.-]+)", status)]
     expect(len(ys) == 2, "读到两艘筏的 Y：%s" % ys)
     expect(all(abs(y - 150.0) < 6.0 for y in ys),
@@ -112,6 +121,14 @@ def main():
         if m:
             y = float(m.group(2))
             expect(149.0 <= y <= 156.0, "%s 站在筏面高度（Y=%.2f）" % (bot, y))
+
+    print("== 4b. 自定义 BE 在 sub-level plot 里到底会不会被 tick")
+    # ServerLevelPlot.tick() 只跑光照与 contraption 清理，不 tick BE。
+    # 唯一入口是实现 Sable 的 BlockEntitySubLevelActor，由 ServerSubLevel 的 actor 循环调用。
+    # 这条断言是整个筏心方块设计的成立前提，不是锦上添花。
+    ticklog = p.log()
+    n = ticklog.count("筏心登记（BE 已被 Sable tick）")
+    expect(n == 2, "两个筏心的 BE 都被 Sable tick 到了（实际 %d 条）" % n)
 
     print("== 5. 收局：票与筏都不许残留")
     p("cww abort")

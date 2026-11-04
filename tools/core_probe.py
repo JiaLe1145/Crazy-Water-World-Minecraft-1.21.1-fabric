@@ -60,6 +60,11 @@ class P:
         m = re.search(r"队%d=(\w+)" % TEAM, self.core())
         return m.group(1) if m else "?"
 
+    def syncs(self):
+        """相位→方块状态的回写次数。读不到就当 0，让断言去吵。"""
+        m = re.search(r"状态回写 (\d+) 次", self.core())
+        return int(m.group(1)) if m else 0
+
     def sink_phase(self):
         m = re.search(r"队%d=(\w+)" % TEAM, self.sink())
         return m.group(1) if m else "?"
@@ -76,6 +81,15 @@ def main():
     def start_match(label):
         p("cww abort")
         time.sleep(1.0)
+        # 每局都要重新拉起假玩家：上一局的 WINNER_DECIDED 是靠 kill 掉一队达成的，
+        # 而 kill 掉的 Carpet 假玩家不会自己回来。少了这一步，第二局的 cww force
+        # 会静默失败、start 因"报名不足"被拒，然后所有断言都变成假失败。
+        for bot, _ in BOTS:
+            p("player %s spawn" % bot)
+        for _ in range(30):
+            if all(b.lower() in p.cmd("list").lower() for b, _ in BOTS):
+                break
+            time.sleep(1)
         for bot, team in BOTS:
             p("cww force %s %d" % (bot, team))
         p("cww start test_3min flat_test")
@@ -96,9 +110,13 @@ def main():
     start_match("第1局")
 
     print("== 1. 摧毁筏心 → 30s 沉筏倒计时必须开始（A2 第二条触发路径）")
+    sync_before = p.syncs()
     p("cww raftcore destroy %d" % TEAM)
     expect(p.core_phase() == "WRECKAGE", "筏心进入残骸态（实际 %s）" % p.core_phase())
     time.sleep(1.5)
+    expect(p.syncs() > sync_before,
+           "服务端相位已回写进方块状态（%d -> %d）；不回写就会出现倒计时在走、筏心看着完好" %
+           (sync_before, p.syncs()))
     expect(p.sink_phase() == "COUNTDOWN", "倒计时已开始（实际 %s）" % p.sink_phase())
 
     print("== 2. 按住 80 tick 后松手 → 进度先涨、再归零")
