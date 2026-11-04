@@ -1,5 +1,9 @@
 # M0-3 补充 · Sable 命令词表（从 class 常量池提取，非文档）
 
+> ⚠️ **整篇作废，仅作反面教材保留。** 定稿命令树见 `M0-TEST-PLAN.md` §1（逐行读 builder 的 `.then()` 链得出，且与客户端 Tab 补全的 12 个顶层子命令完全一致）。
+> 本文下方两个表格都错：常量池提取的"推断用法"层级不对；后来那次"RCON 实测更正"**更错**——它把 `add`/`query`/`remove`/`sub_level`/`get`/`set`/`name`/`teleport` 这些**子节点字面量当成了顶层命令**（因为 `forceload add`、`forceload query`、`assemble shatter sub_level`、`name set/get` 都存在），而顶层 `assemble`/`info`/`teleport` 反而被判成"不存在"。
+> 根因：RCON 客户端拿到的 Brigadier 错误文本**丢失插入符位置**，无法区分"缺参数"与"节点不存在"。**教训：命令语法只能从源码或客户端 Tab 补全取证，不能从服务端错误文本反推。**
+
 来源：`javap -c` 提取 `dev/ryanhcode/sable/command/SableAssembleCommands` 与 `SableSubLevelCommands` 的字符串常量。
 
 ## `/sable assemble`（把世界里的方块装配成 sub-level）
