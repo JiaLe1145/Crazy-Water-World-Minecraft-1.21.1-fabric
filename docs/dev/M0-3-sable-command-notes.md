@@ -34,3 +34,37 @@
    - M0-5：移动后箱子可开、方块实体数据保真
    - M0-6：能否在移动中的结构上放置/破坏方块
 3. M0-4（手感）由你判定：物理驱动的连续移动应该已经没有"跳格感"，但要看实际帧表现。
+
+---
+
+# 更正与实机确认（2026-11-04 23:45，RCON 实测）
+
+上面"推断用法"**部分是错的**，以实测为准：
+
+## 真实的 `/sable` 子命令树（RCON 逐个探测）
+
+| 命令 | 实测结果 |
+|---|---|
+| `/sable add` | 存在，需参数 |
+| `/sable add assemble` | **存在，仍需参数**（装配入口在这里，不是 `/sable assemble`） |
+| `/sable remove` | 存在 |
+| `/sable query` | 存在，需参数 |
+| `/sable sub_level` | 存在，需参数 |
+| `/sable sub_level get` | 存在，需参数 |
+| `/sable sub_level teleport` | **存在，需参数** → 命令级移动 sub-level 的入口 |
+| `/sable engage_gizmo` | 存在，但 **「A player is required to run this command here」** → 交互式的拖拽/转向工具，**必须真客户端** |
+| `/sable info` | ❌ 不存在（我上轮从常量池提取的字面量里混入了非命令字符串） |
+| `/sable assemble`、`/assemble`、`/sublevel` | ❌ 均不存在 |
+
+## 教训（写进方法论）
+从 class 常量池提取字符串**只能当线索，不能当命令语法**——`SableCommand` 的常量里既有命令名也有参数提示语与调试开关名。
+上一版笔记里的 `cube/sphere/connected/area/origin/from/to/radius/range/capacity/shatter` 是真实存在的字面量，
+但**层级关系必须由客户端 Tab 补全或源码 builder 调用顺序确认**，不能猜。
+
+## M0-5/6 的执行前提
+装配需要正确的参数顺序。两条路：
+1. **你在客户端打 `/sable add assemble ` 按 Tab**，把补全提示抄给我（1 分钟，最快）。
+2. 我用 `javap -c` 逐条读 `SableAssembleCommands` 的 builder 调用顺序推断参数序列（可行但费时间，且可能仍错）。
+
+另外 `engage_gizmo` 需要玩家 → 说明 Sable 的**主要交互方式就是给真人玩家的工具**，
+这进一步支持"手感由你判定"这条纪律，也意味着我们的玩法 UI 未来可以直接复用它的 gizmo 或自建命令层。
