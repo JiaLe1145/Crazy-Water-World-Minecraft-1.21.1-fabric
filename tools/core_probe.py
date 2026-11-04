@@ -17,7 +17,12 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import rcon  # noqa: E402
 
-BOTS = (("c0", 0), ("c1", 0), ("c2", 1), ("c3", 1))
+# 每轮跑用全新的假玩家名字。
+# 原因（实测踩过）：Carpet 的 `player <名> kill` + `spawn` 会造出一个**新 UUID** 的同名假玩家，
+# 而引导绑的是 UUID。复用名字会让上一轮的旧 UUID 残留在绑定里，
+# getPlayer(旧UUID) 永远返回 null，表现为"进度卡在 19/160 每秒重来"，看起来像产品 bug。
+RUN = time.strftime("%M%S")
+BOTS = (("h%s0" % RUN, 0), ("h%s1" % RUN, 0), ("h%s2" % RUN, 1), ("h%s3" % RUN, 1))
 TEAM = 0
 CHANNEL_TICKS = 160
 
@@ -70,8 +75,14 @@ class P:
         return m.group(1) if m else "?"
 
 
+CH = ""   # 第 3b 步之后换用的干净引导者名字
+
+
 def main():
+    global CH
     p = P()
+    CH = "h%s9" % time.strftime("%M%S")
+    LEAD = BOTS[0][0]   # 第 2、3 步的引导者；3b 之后换成没挨过打的 CH
     ok, bad = [], []
 
     def expect(cond, msg):
@@ -126,7 +137,7 @@ def main():
     expect(p.sink_phase() == "COUNTDOWN", "倒计时已开始（实际 %s）" % p.sink_phase())
 
     print("== 2. 按住 80 tick 后松手 → 进度先涨、再归零")
-    p("cww raftcore hold c0 %d 80" % TEAM, quiet=False)
+    p(("cww raftcore hold " + LEAD + " %d 80") % TEAM, quiet=False)
     time.sleep(3.0)
     mid = p.progress()
     print("      t+3s 进度 = %d" % mid)
@@ -138,17 +149,17 @@ def main():
     print("== 3. 一边引导一边受伤 → 永远修不好（用户点名的打断条件）")
     # 伤害只给 1.0：打断只需要"受了伤害"。给 4.0 会把假玩家打死，
     # 打死之后走的是 isAlive=false 那条分支，就证明不了"伤害"打断本身了。
-    p("cww raftcore hold c0 %d 400" % TEAM, quiet=False)
+    p(("cww raftcore hold " + LEAD + " %d 400") % TEAM, quiet=False)
     time.sleep(1.0)
     # 0.5 伤害 × 8：够打断，但不会把引导者打死。
     # 打死也是合法打断（死玩家当然不能修东西），但那会顺带把"人没了"和"受伤"两件事混在一起，
     # 后面几步还会因为找不到尸体而假失败——实测就是这样绕了一圈才分清是探针的锅。
-    print("      /damage 回包：%s" % p.cmd("damage c0 0.5 generic")[:110])
+    print("      /damage 回包：%s" % p.cmd("damage " + LEAD + " 0.5 generic")[:110])
     peak = 0
     for _ in range(8):
         time.sleep(0.6)
         peak = max(peak, p.progress())
-        p.cmd("damage c0 0.5 generic")
+        p.cmd("damage " + LEAD + " 0.5 generic")
     print("      挨打期间的进度峰值 = %d" % peak)
     expect(0 < peak < CHANNEL_TICKS, "进度在走但从未完成（峰值 %d，%d 才够）" % (peak, CHANNEL_TICKS))
     expect(p.core_phase() == "WRECKAGE", "挨打期间筏心仍是残骸")
@@ -166,12 +177,14 @@ def main():
     time.sleep(1.0)
     expect(p.sink_phase() == "COUNTDOWN", "第2局倒计时开始（实际 %s）" % p.sink_phase())
 
-    print("== 3b. 把引导者复位（保证第 4 步用的是活人）")
-    p("player c0 kill"); time.sleep(1.0); p("player c0 spawn"); time.sleep(3.0)
-    expect("c0" in p.cmd("list").lower(), "c0 重新在线，可以当引导者")
+    print("== 3b. 换一个干净的引导者")
+    # 不 kill+spawn（那会换 UUID）、也不复用被打残的人：用一个本局全新的名字
+    p("player " + CH + " spawn")
+    time.sleep(3.0)
+    expect(CH.lower() in p.cmd("list").lower(), CH + " 在线，可以当引导者")
 
     print("== 4. 一次连续引导 → 筏心恢复 + 倒计时解除（不是重置）")
-    p("cww raftcore hold c0 %d 200" % TEAM, quiet=False)
+    p(("cww raftcore hold " + CH + " %d 200") % TEAM, quiet=False)
     restored = False
     for _ in range(12):
         time.sleep(1.0)
@@ -185,7 +198,7 @@ def main():
     print("== 5. 额度用完后再摧毁 → 修不了，且命令明确告知")
     p("cww raftcore destroy %d" % TEAM)
     time.sleep(1.0)
-    out = p("cww raftcore hold c0 %d 160" % TEAM, quiet=False)
+    out = p(("cww raftcore hold " + CH + " %d 160") % TEAM, quiet=False)
     print("      第二次修复尝试：%s" % out[:160])
     expect(p.core_phase() == "WRECKAGE", "额度用完，仍是残骸")
     expect("额度已用完" in out, "命令明确告知额度用完，不是静默失败")

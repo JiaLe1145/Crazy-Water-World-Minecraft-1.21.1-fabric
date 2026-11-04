@@ -53,6 +53,9 @@ public final class RaftCoreService {
 	private static final Map<Integer, UUID> holder = new LinkedHashMap<>();
 	private static final Map<Integer, Integer> keepaliveUntil = new LinkedHashMap<>();
 
+	/** 已经报过"引导者查不到实体"的队，避免每 tick 刷屏。 */
+	private static final Set<Integer> vanished = new java.util.HashSet<>();
+
 	/**
 	 * 方块坐标 → 归属队伍。BE 第一次被 Sable tick 时登记进来。
 	 * 键用 {@code BlockPos.asLong()}：这张表活过整个对局，存 BlockPos 对象
@@ -128,6 +131,7 @@ public final class RaftCoreService {
 	/** 玩家主动松手。 */
 	public static void release(UUID player) {
 		holder.entrySet().removeIf(e -> e.getValue().equals(player));
+		vanished.clear();   // 换人重新引导后，"查不到"要允许重新报一次
 	}
 
 	/** 伤害事件回调（由 ALLOW_DAMAGE 挂钩调用）。 */
@@ -237,6 +241,18 @@ public final class RaftCoreService {
 			UUID who = entry.getValue();
 			ServerPlayerEntity p = server.getPlayerManager().getPlayer(who);
 
+			// 绑不到人要说清楚，不能静默反复重来。
+			// 真实玩家重生不换 UUID，所以查不到就等于真的离线了——
+			// 打断是正确行为，但必须留一句话，否则现场只剩"进度每秒归零"这种无法解释的现象
+			// （实测就是这样绕了四步才定位到 Carpet 的 kill+spawn 会换 UUID，是夹具问题不是产品问题）。
+			boolean gone = p == null
+					&& channels.getOrDefault(teamIndex, Channel.none()).active();
+			if (gone && vanished.add(teamIndex)) {
+				NBW.LOGGER.warn("[raftcore] 队 {} 的引导者 {} 已查不到实体，引导终止。"
+								+ "真人重生不换 UUID，所以这里通常是真离线；"
+								+ "若在用 Carpet 假玩家测试，注意 kill+spawn 会换 UUID",
+						teamIndex, who);
+			}
 			boolean interacting = p != null && p.isAlive()
 					&& keepaliveUntil.getOrDefault(teamIndex, 0) >= tick;
 			boolean damaged = damagedThisTick.contains(who);
