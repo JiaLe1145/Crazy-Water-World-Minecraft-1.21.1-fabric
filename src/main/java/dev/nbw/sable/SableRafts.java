@@ -5,6 +5,7 @@ import dev.ryanhcode.sable.api.physics.handle.RigidBodyHandle;
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
 import dev.ryanhcode.sable.api.sublevel.ticket.SubLevelLoadingTicketType;
+import dev.ryanhcode.sable.physics.config.dimension_physics.DimensionPhysicsData;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.Identifier;
@@ -108,21 +109,28 @@ public final class SableRafts {
 	// ---------------------------------------------------------------- 施力
 
 	/**
-	 * 沉筏：对筏体施加一帧的向下冲量。
+	 * 沉筏：把筏的<b>有效重量</b>放大到 N 倍，持续一 tick。
 	 *
-	 * <p>玩法上说的是"把木筏重量加大"（01 §4.3.1），但 Sable 里质量完全由方块算出，
-	 * {@code MassTracker} 只有 getter、{@code RigidBodyHandle} 只有冲量/速度/传送，
-	 * 全仓没有 setMass / gravityScale / massMultiplier。
-	 * 所以按 <b>impulse = mass × 附加加速度</b> 施加，物理效果与"变重"等价
-	 * （浮力不变、向下净力超过浮力 → 压到海底），而且不破坏筏体方块、不丢箱子内容。
+	 * <p>玩法说的就是"将木筏重量加大"（01 §4.3.1），而 Sable 里质量完全由方块算出，
+	 * {@code MassTracker} 只有 getter、全仓没有 setMass / gravityScale / massMultiplier，
+	 * 所以用等效力实现：重力已经由 Sable 的 GRAVITY 力组施加，我们只补上 <b>(N−1) 倍的那部分</b>，
+	 * 于是浮力仍是 1 倍而向下是 N 倍 → 筏被压下水。不破坏筏体方块，也不丢箱子里的东西。
 	 *
-	 * <p>按质量成比例很关键：固定冲量对小筏能压沉，对 3000 格的大筏几乎不动，
-	 * 那会让"沉筏"变成只对小船有效的规则。
+	 * <p><b>为什么不用"每 tick 一个固定加速度"这个裸常数</b>：实测
+	 * {@code applyLinearImpulse} 的注释写的是 {@code [N]}，它是<b>力</b>不是冲量
+	 * （{@code RigidBodyHandle.java:115-121}）。
+	 * {@code mass × 0.05} 只有重力的不到 1%，筏子纹丝不动；
+	 * 而 {@code mass × 30} 直接把筏<b>穿过池底石头压下去 50 格</b>。
+	 * 用重力倍数表达就不有这个尺度问题，而且换维度自动正确
+	 * （重力取自 {@code DimensionPhysicsData.getGravity}，:57-62）。
 	 *
-	 * @param extraAccelerationPerTick 每 tick 的附加向下加速度（格/tick²），越大沉得越干脆
+	 * @param weightMultiplier 有效重量倍数；1.0 等于不施力。建议 2–4
 	 * @return 是否真的施到了力；false 说明筏已经不在了
 	 */
-	public static boolean sink(ServerWorld world, UUID raftId, double extraAccelerationPerTick) {
+	public static boolean sink(ServerWorld world, UUID raftId, double weightMultiplier) {
+		if (weightMultiplier <= 1.0) {
+			return false;
+		}
 		ServerSubLevel sl = resolve(world, raftId);
 		if (sl == null) {
 			return false;
@@ -135,8 +143,10 @@ public final class SableRafts {
 		if (handle == null || !handle.isValid()) {
 			return false;
 		}
-		double mass = sl.getMassTracker().getMass();
-		handle.applyLinearImpulse(new Vector3d(0.0, -mass * extraAccelerationPerTick, 0.0));
+		Vector3d gravity = DimensionPhysicsData.getGravity(world, sl.logicalPose().position(), new Vector3d());
+		// 向下"补充"的重力 = 质量 × 重力 × (倍数 - 1)；gravity 本身已是负 Y
+		gravity.mul(sl.getMassTracker().getMass() * (weightMultiplier - 1.0));
+		handle.applyLinearImpulse(gravity);
 		return true;
 	}
 

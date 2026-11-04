@@ -103,9 +103,9 @@ public final class NbwCommands {
 		raft.then(CommandManager.literal("sink")
 				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
 						.executes(NbwCommands::raftSink)));
-		raft.then(CommandManager.literal("accel")
-				.then(CommandManager.argument("value", DoubleArgumentType.doubleArg(0.0, 1.0))
-						.executes(NbwCommands::raftAccel)));
+		raft.then(CommandManager.literal("weight")
+				.then(CommandManager.argument("multiplier", DoubleArgumentType.doubleArg(1.0, 4.0))
+						.executes(NbwCommands::raftWeight)));
 		root.then(raft);
 
 		dispatcher.register(root);
@@ -155,10 +155,10 @@ public final class NbwCommands {
 		return tell(ctx, RaftSinking.forceSink(ctx.getSource().getWorld(), team));
 	}
 
-	private static int raftAccel(CommandContext<ServerCommandSource> ctx) {
-		double value = DoubleArgumentType.getDouble(ctx, "value");
-		RaftSinking.sinkAccelPerTick = value;
-		return tell(ctx, "沉筏加速度 = " + value + " 格/tick²（按质量成比例换算成冲量）");
+	private static int raftWeight(CommandContext<ServerCommandSource> ctx) {
+		double multiplier = DoubleArgumentType.getDouble(ctx, "multiplier");
+		RaftSinking.sinkWeightMultiplier = multiplier;
+		return tell(ctx, "沉筏有效重量倍数 = " + multiplier + "（上限 4.0：实测 6.0 会把筏压穿池底石头）");
 	}
 
 	/** 沉筏命令一律"成功也回话、失败也回话"，不抛异常——运维需要的是可读结果不是堆栈。 */

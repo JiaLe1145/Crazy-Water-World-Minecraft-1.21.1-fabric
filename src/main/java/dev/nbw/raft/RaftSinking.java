@@ -14,6 +14,8 @@ import net.minecraft.server.world.ServerWorld;
 
 import org.jetbrains.annotations.Nullable;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.Map;
 import java.util.UUID;
 
@@ -33,10 +35,30 @@ import java.util.UUID;
 public final class RaftSinking {
 
 	/**
-	 * 沉没加速度（格/tick²），按筏质量成比例换算成冲量。
-	 * 0.05 是起点值，需要真机调：太小→沉得磨叽，太大→像被瞬移进水里。
+	 * 沉筏的有效重量倍数（见 {@code SableRafts.sink}）。1.0 = 不施力。
+	 *
+	 * <p>2.0 是实测出来的安全值（25×17×9 的水池、质量 40.5 的筏）：
+	 * 2.0–3.0 倍下筏子约 1 秒沉到 Y≈94.5 并稳定贴着池底摆动；
+	 * <b>6.0 倍则压穿池底石头一路掉到 Y=70</b>（那不是沉底，是穿模）。
 	 */
-	public static double sinkAccelPerTick = 0.05;
+	public static double sinkWeightMultiplier = 2.0;
+
+	/** 判"已沉到底"的观察窗口（tick）与窗口内位移阈值。 */
+	public static final int REST_WINDOW_TICKS = 20;
+	public static final double REST_WINDOW_MOVE = 0.25;
+
+	/**
+	 * 倍数上限。实测出来的，不是拍的：
+	 * 2.0–3.0 倍下筏子稳定停在池底（相邻采样只在 94.41↔94.54 之间摆），
+	 * 6.0 倍则把筏子<b>压穿池底石头一路掉到 Y=70</b>。
+	 * 所以穿模的闸门设在"倍数"这一侧，而不是靠"压一会儿就停手"——
+	 * 停手会让浮力把已经沉底的筏子重新顶回水面（实测 94.5 → 104.1）。
+	 */
+	public static final double MAX_WEIGHT_MULTIPLIER = 4.0;
+
+	private static final Map<Integer, Double> windowStartY = new LinkedHashMap<>();
+	private static final Map<Integer, Integer> windowTicks = new LinkedHashMap<>();
+	private static final Set<Integer> resting = new LinkedHashSet<>();
 
 	private static final Map<Integer, SinkState> states = new LinkedHashMap<>();
 	/** 队号 → sub-level UUID。开局生成筏时写入；当前也可用 /cww raft bind 手工绑。 */
@@ -98,6 +120,10 @@ public final class RaftSinking {
 	public static void reset() {
 		states.clear();
 		rafts.clear();
+		windowStartY.clear();
+		windowTicks.clear();
+		resting.clear();
+		warned.clear();
 	}
 
 	/**
@@ -153,26 +179,48 @@ public final class RaftSinking {
 				}
 			}
 			if (next.sunk()) {
-				applySink(world, index);
+				UUID raftId = resolve(world, index);
+				if (raftId != null) {
+					applySink(world, index, raftId);
+				}
 			}
 		}
 	}
 
 	/**
-	 * 已经判沉之后，每 tick 继续压——力是一帧的，不持续施加筏子会重新浮起来。
-	 * 筏找不到时告警一次而不是每 tick 刷屏。
+	 * 判沉之后每 tick 持续加压。
+	 *
+	 * <p><b>不因为"看起来触底了"就停手</b>：SUNK 是本局终态，筏子就该一直躺在海底当残骸。
+	 * 实测停压 6 秒后浮力会把筏子从 Y=94.5 重新顶回水面 104.1——"沉到一半又浮回去"
+	 * 比不沉更糟。穿模的风险改由 {@link #MAX_WEIGHT_MULTIPLIER} 在倍数那一侧拦。
+	 *
+	 * <p>触底只做一件事：记一次日志，供运维确认它真的到底了（每 tick 刷屏会把真错误埋掉）。
 	 */
-	private static void applySink(ServerWorld world, int teamIndex) {
-		UUID id = resolve(world, teamIndex);
-		if (id == null) {
+	private static void applySink(ServerWorld world, int teamIndex, UUID id) {
+		if (!SableRafts.sink(world, id, sinkWeightMultiplier)) {
+			warnOnce(teamIndex, "绑定的 sub-level " + id + " 已不存在（可能被 shatter/卸载），队 " + teamIndex);
 			return;
 		}
-		if (!SableRafts.sink(world, id, sinkAccelPerTick)) {
-			warnOnce(teamIndex, "绑定的 sub-level " + id + " 已不存在（可能被 shatter/卸载），队 " + teamIndex);
+		double y = SableRafts.posY(world, id);
+		Double anchor = windowStartY.get(teamIndex);
+		if (anchor == null) {
+			windowStartY.put(teamIndex, y);
+			windowTicks.put(teamIndex, 0);
+			return;
+		}
+		if (Math.abs(anchor - y) >= REST_WINDOW_MOVE) {
+			windowStartY.put(teamIndex, y);   // 还在实质移动，重开窗口
+			windowTicks.put(teamIndex, 0);
+			return;
+		}
+		if (windowTicks.merge(teamIndex, 1, Integer::sum) >= REST_WINDOW_TICKS && !resting.contains(teamIndex)) {
+			resting.add(teamIndex);
+			NBW.LOGGER.info("[raft] 队 {} 已沉到池底（Y={}，{} tick 内位移 < {} 格），继续维持压力直到本局结束",
+					teamIndex, String.format(java.util.Locale.ROOT, "%.2f", y), REST_WINDOW_TICKS, REST_WINDOW_MOVE);
 		}
 	}
 
-	/** 显式绑定优先；没绑定就按开局生成逻辑的命名约定 {@code nbw_raft_<team>} 兜底。 */
+		/** 显式绑定优先；没绑定就按开局生成逻辑的命名约定 {@code nbw_raft_<team>} 兜底。 */
 	private static @Nullable UUID resolve(ServerWorld world, int teamIndex) {
 		UUID bound = rafts.get(teamIndex);
 		if (bound != null) {
