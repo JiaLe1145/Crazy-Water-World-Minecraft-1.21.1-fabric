@@ -49,12 +49,26 @@ public final class RoundMachine {
 	private final List<Transition> pendingEffects = new ArrayList<>();
 	private final List<String> auditNotes = new ArrayList<>();
 
+	/**
+	 * 本局用的是哪张图、哪套赛制。状态机自己不去读配置文件，
+	 * 这两个值由适配层在 {@code loadConfigs} 成功后写进来——
+	 * 但它们是"这一局的身份"的一部分，所以必须随快照一起落盘，
+	 * 否则重启时按默认规格恢复，队伍数对不上，恢复永远失败。
+	 */
+	private String arenaId = "";
+	private String formatId = "";
+
 	private int winnerTeamIndex = -1;
 	private Result lastResult;
 	private RoundEvent pendingCause;
 
 	public RoundMachine(RoundConfig initialConfig) {
 		this.config = initialConfig;
+		// 构造时就建好队伍骨架。ensureTeams() 本来幂等，提前调用不改变任何行为
+		// （空队不算 members），但它有两个必要效果：
+		//   1) 快照里始终带队伍，restore() 的"队伍数 vs 规格"校验才不会把正常快照判成非法；
+		//   2) /cww state 在 LOBBY 就能看到队伍骨架，而不是 teams=0 让人以为配置没载入。
+		ensureTeams();
 	}
 
 	// ---------------------------------------------------------------- 查询
@@ -77,6 +91,20 @@ public final class RoundMachine {
 
 	public RoundConfig config() {
 		return config;
+	}
+
+	/** 适配层载入 format/arena 后调用，把本局身份交给状态机。 */
+	public void setConfigIds(String arena, String format) {
+		this.arenaId = arena == null ? "" : arena;
+		this.formatId = format == null ? "" : format;
+	}
+
+	public String arenaId() {
+		return arenaId;
+	}
+
+	public String formatId() {
+		return formatId;
 	}
 
 	public List<MatchTeam> teams() {
@@ -648,5 +676,87 @@ public final class RoundMachine {
 					.append("--> ").append(last.to()).append(" @tick").append(last.totalTick()).append('\n');
 		}
 		return sb.toString();
+	}
+
+
+	// ---------------------------------------------------------------- 快照与恢复（03 §6.1）
+
+	/**
+	 * 导出当前状态的可序列化快照。
+	 *
+	 * <p>审计日志只保留尾部 {@code auditKeep} 条：全量落盘会让每次转移都重写整段历史，
+	 * 一晚上几百局之后文件比世界数据还大，而排查问题时真正有用的只是最近那几十条。
+	 */
+	public RoundSnapshot snapshot(int auditKeep) {
+		List<RoundSnapshot.Team> ts = new ArrayList<>(teams.size());
+		for (MatchTeam t : teams) {
+			ts.add(new RoundSnapshot.Team(t.index(), t.name(), t.maxSize(), t.membersOrdered()));
+		}
+		List<RoundSnapshot.Session> ss = new ArrayList<>(sessions.size());
+		for (PlayerSession s : sessions.values()) {
+			ss.add(new RoundSnapshot.Session(s.id(), s.name(), s.teamIndex(), s.isAlive(),
+					s.isEliminated(), s.eliminatedTick(), s.disconnectTick(), s.joinedQueueTick()));
+		}
+		List<Transition> tail = audit.size() <= auditKeep
+				? new ArrayList<>(audit)
+				: new ArrayList<>(audit.subList(audit.size() - auditKeep, audit.size()));
+		return new RoundSnapshot(phase, tickInPhase, totalTicks, matchIndex, matchStartTick,
+				autoStart, winnerTeamIndex, ts, ss, new ArrayList<>(queueOrder),
+				tail, new ArrayList<>(auditNotes()), arenaId, formatId);
+	}
+
+	/**
+	 * 从快照恢复。调用方必须<b>先</b>把 config 设成与快照相配的规格，否则这里会抛。
+	 *
+	 * <p>为什么宁可抛也不"尽力恢复"：运维改了 format 的队伍数再重启，是重启恢复最常见的破坏源。
+	 * 此时若默默按旧快照建 4 队、而新规格只有 2 队，胜负判定与圈层会一起按错误前提跑完整局，
+	 * 而且表面上"恢复成功"。宁可起不来。
+	 */
+	public void restore(RoundSnapshot snap) {
+		snap.validate();
+		if (snap.teams().size() != config.teamCount()) {
+			throw new RoundSnapshot.InvalidSnapshot("快照里有 " + snap.teams().size()
+					+ " 支队伍，当前规格是 " + config.teamCount() + " 支（format 改过就先 /cww format 再重启）");
+		}
+		teams.clear();
+		for (RoundSnapshot.Team t : snap.teams()) {
+			MatchTeam team = new MatchTeam(t.index(), t.name(), t.maxSize());
+			for (java.util.UUID id : t.members()) {
+				team.add(id);
+			}
+			teams.add(team);
+		}
+		sessions.clear();
+		for (RoundSnapshot.Session s : snap.sessions()) {
+			PlayerSession ps = new PlayerSession(s.id(), s.name(), s.joinedQueueTick());
+			ps.setTeam(s.teamIndex());
+			ps.setAlive(s.alive());
+			ps.setEliminated(s.eliminated());
+			ps.setEliminatedTick(s.eliminatedTick());
+			if (s.disconnectTick() >= 0) {
+				ps.markDisconnected(s.disconnectTick());
+			} else {
+				ps.markReconnected();
+			}
+			sessions.put(s.id(), ps);
+		}
+		queueOrder.clear();
+		queueOrder.addAll(snap.queue());
+		audit.clear();
+		audit.addAll(snap.audit());
+		auditNotes.clear();
+		auditNotes.addAll(snap.auditNotes());
+		arenaId = snap.arenaId();
+		formatId = snap.formatId();
+		pendingEffects.clear();   // 见 RoundSnapshot 的类注释：旧副作用绝不回放
+
+		phase = snap.phase();
+		tickInPhase = snap.tickInPhase();
+		totalTicks = snap.totalTicks();
+		matchIndex = snap.matchIndex();
+		matchStartTick = snap.matchStartTick();
+		autoStart = snap.autoStart();
+		winnerTeamIndex = snap.winnerTeamIndex();
+		pendingCause = null;
 	}
 }

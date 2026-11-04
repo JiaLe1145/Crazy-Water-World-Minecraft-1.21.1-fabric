@@ -9,6 +9,7 @@ import dev.nbw.domain.round.PlayerSession;
 import dev.nbw.domain.round.RoundConfig;
 import dev.nbw.domain.round.RoundEvent;
 import dev.nbw.domain.round.RoundMachine;
+import dev.nbw.domain.round.RoundSnapshot;
 import dev.nbw.raft.RaftCoreService;
 import dev.nbw.raft.RaftSinking;
 import dev.nbw.domain.round.Transitions;
@@ -82,6 +83,9 @@ public final class RoundManager {
 			if (err != null) {
 				NBW.LOGGER.warn("[round] 开服配置载入未完成（玩家会留在原地，/cww start 会再试一次）：{}", err);
 			}
+			// 恢复必须在配置就位之后：快照里的队伍数要与 format 规格对得上，
+			// 对不上时 restore() 会抛，那正是我们想要的（宁可起不来，也不要按错误前提跑完整局）
+			NBW.LOGGER.info("[state] 重启恢复：{}", restoreFromDisk());
 		});
 		ServerLifecycleEvents.SERVER_STOPPING.register(s -> server = null);
 		ServerTickEvents.END_SERVER_TICK.register(RoundManager::onEndTick);
@@ -135,12 +139,16 @@ public final class RoundManager {
 
 	private static void onEndTick(MinecraftServer srv) {
 		machine.tick();
-		for (RoundMachine.Transition t : machine.drainPendingEffects()) {
+		List<RoundMachine.Transition> effects = machine.drainPendingEffects();
+		for (RoundMachine.Transition t : effects) {
 			try {
 				onPhaseEnter(t);
 			} catch (RuntimeException e) {
 				NBW.LOGGER.error("[round] phase side effect failed for match={} -> {}", t.matchIndex(), t.to(), e);
 			}
+		}
+		if (!effects.isEmpty()) {
+			persist("阶段转移");   // 03 §6.1：每次转移落盘
 		}
 		drainPendingPlacements();
 		if (machine.phase() == Phase.PLAY) {
@@ -542,6 +550,76 @@ public final class RoundManager {
 
 	// ---------------------------------------------------------------- 配置与命令入口
 
+	// ---------------------------------------------------------------- 落盘与重启恢复
+
+	/**
+	 * 落盘当前回合状态。
+	 *
+	 * <p>失败不抛（{@link RoundStateStore#write} 内部已吞 IOException 并记 ERROR）：
+	 * 磁盘问题不该中断正在进行的对局，但也不能假装恢复能力还在。
+	 */
+	private static void persist(String why) {
+		RoundStateStore.write(worldRoot(), machine.snapshot(RoundStateStore.AUDIT_KEEP));
+		NBW.LOGGER.debug("[state] 已落盘（{}）", why);
+	}
+
+	/**
+	 * 重启时把状态从盘上拉回来（Gate G1"重启能恢复到当前阶段"）。
+	 *
+	 * <p>三种结果的处理方式必须不同：
+	 * <ul>
+	 *   <li>{@code ABSENT}：首次启动，正常，留在 LOBBY；</li>
+	 *   <li>{@code OK}：<b>先按快照里记的 format/arena 载入配置</b>，再恢复状态机。
+	 *       顺序反了就会出现"落盘时 2x2、恢复时默认 4x3"这种规格不符，
+	 *       然后被 restore 的校验正确地拒掉——等于有快照却恢复不了（真机踩过）。</li>
+	 *   <li>{@code INVALID}：文件存在但读不出来。记 ERROR 并留在 LOBBY，
+	 *       绝不"尽力恢复"——半损坏的状态比干净重启危险得多。</li>
+	 * </ul>
+	 *
+	 * @return 一行可读结论，进日志也进 /cww state
+	 */
+	public static String restoreFromDisk() {
+		RoundStateStore.Load load = RoundStateStore.read(worldRoot());
+		if (load.status() != RoundStateStore.Status.OK) {
+			return RoundStateStore.describe(load);
+		}
+		RoundSnapshot snap = load.snapshot();
+		// 必须先用快照自己记的 format/arena 载入配置，再恢复状态机。
+		// 顺序反了机器还停在默认规格（4x3），而快照是 2x2，
+		// restore 的队伍数校验会正确地拒绝恢复——等于有快照却永远恢复不了（真机踩过）。
+		String cfgErr = loadConfigs(snap.formatId(), snap.arenaId());
+		if (cfgErr != null) {
+			NBW.LOGGER.error("[state] 快照指定的配置载不出来（format={} arena={}：{}），放弃恢复，留在 LOBBY",
+					snap.formatId(), snap.arenaId(), cfgErr);
+			return "恢复中止：快照引用的 format/arena 载入失败（" + cfgErr + "）";
+		}
+		try {
+			machine.restore(snap);
+		} catch (RuntimeException e) {
+			// restore 里包含"队伍数与当前 format 规格不符"这类跨配置校验，
+			// 抛出来时状态可能已经改了一半，所以直接重建一台干净的机器最稳妥
+			machine = new RoundMachine(RoundConfig.standard());
+			String err = loadConfigs(null, null);   // 退回默认配置，而不是继续用载不出来的那套
+			NBW.LOGGER.error("[state] 快照存在但无法安全恢复，已退回 LOBBY 干净启动（原因：{}；配置重载：{}）",
+					e.getMessage(), err == null ? "ok" : err);
+			return "恢复失败，已退回 LOBBY：" + e.getMessage();
+		}
+		NBW.LOGGER.info("[state] 已恢复到阶段 {}（match={}，阶段内 {} tick，参战 {} 人）",
+				machine.phase(), machine.matchIndex(), machine.tickInPhase(),
+				machine.snapshot(0).participantCount());
+		return RoundStateStore.describe(load);
+	}
+
+	/** 运维手动落盘（正常路径是每次转移自动落，这里给"我想现在就存一份"留个口子）。 */
+	public static String saveNow() {
+		persist("手动");
+		return describeStateFile();
+	}
+
+	public static String describeStateFile() {
+		return RoundStateStore.describe(RoundStateStore.read(worldRoot()));
+	}
+
 	/** 只读暴露 domain 状态机：供 raft/ 等上层读队伍与在场情况，不得在这里改状态。 */
 	public static RoundMachine machine() {
 		return machine;
@@ -619,6 +697,7 @@ public final class RoundManager {
 		lobby = lobbyLoaded.lobby();
 		arenaId = aid;
 		formatId = fid;
+		machine.setConfigIds(aid, fid);   // 本局身份要交给状态机，它才会随快照一起落盘
 		machine.setConfig(RoundConfig.fromFormat(f.teams, f.teamSize, f.minPlayers,
 				f.duration == null || f.duration.targetTotal <= 0 ? 720 : f.duration.targetTotal));
 		NBW.LOGGER.info("[round] configs loaded: arena={} format={} spec={}x{} min={} lobby=({},{},{})",

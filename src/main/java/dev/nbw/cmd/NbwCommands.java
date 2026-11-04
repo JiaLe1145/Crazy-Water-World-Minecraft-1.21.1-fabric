@@ -123,6 +123,10 @@ public final class NbwCommands {
 										.executes(NbwCommands::coreHold)))));
 		root.then(core);
 
+		// ---- 落盘与重启恢复（Gate G1）
+		root.then(admin(CommandManager.literal("save").executes(NbwCommands::saveNow)));
+		root.then(admin(CommandManager.literal("statefile").executes(NbwCommands::stateFile)));
+
 		dispatcher.register(root);
 	}
 
@@ -169,6 +173,22 @@ public final class NbwCommands {
 		int team = IntegerArgumentType.getInteger(ctx, "team");
 		int ticks = IntegerArgumentType.getInteger(ctx, "ticks");
 		return tell(ctx, RaftCoreService.hold(ctx.getSource().getServer(), player, team, ticks));
+	}
+
+	// ---------------------------------------------------------------- 落盘
+
+	private static int saveNow(CommandContext<ServerCommandSource> ctx) {
+		String msg = RoundManager.saveNow();
+		ctx.getSource().sendFeedback(() -> Text.literal("[cww] " + msg), true);
+		NBW.LOGGER.info("[cmd] {} (source={})", msg, ctx.getSource().getName());
+		return 1;
+	}
+
+	/** 读一遍盘上的快照并原样报告——排查"重启到底会不会恢复"时，这比看代码有用。 */
+	private static int stateFile(CommandContext<ServerCommandSource> ctx) {
+		String msg = RoundManager.describeStateFile();
+		ctx.getSource().sendFeedback(() -> Text.literal("[cww] " + msg), false);
+		return 1;
 	}
 
 	private static int raftStatus(CommandContext<ServerCommandSource> ctx) {
