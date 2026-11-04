@@ -12,6 +12,7 @@ import dev.nbw.cfg.ConfigService;
 import dev.nbw.domain.ZoneModel;
 import dev.nbw.raft.RaftCoreService;
 import dev.nbw.raft.RaftSinking;
+import dev.nbw.raft.RaftSpawner;
 import dev.nbw.round.RoundManager;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.server.command.CommandManager;
@@ -94,6 +95,10 @@ public final class NbwCommands {
 		// ---- 沉筏运维（01 §4.3.1 A3-v4）。命令层只碰 RaftSinking，不碰 Sable 类型。
 		var raft = admin(CommandManager.literal("raft"));
 		raft.then(CommandManager.literal("status").executes(NbwCommands::raftStatus));
+		raft.then(CommandManager.literal("all").executes(NbwCommands::raftAll));
+		raft.then(CommandManager.literal("gen")
+				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
+						.executes(NbwCommands::raftGen)));
 		raft.then(CommandManager.literal("bind")
 				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
 						.executes(NbwCommands::raftBindNearest)
@@ -143,6 +148,17 @@ public final class NbwCommands {
 	}
 
 	// ---------------------------------------------------------------- 沉筏命令
+
+	private static int raftAll(CommandContext<ServerCommandSource> ctx) {
+		String msg = RaftSpawner.status(ctx.getSource().getServer());
+		ctx.getSource().sendFeedback(() -> Text.literal(msg), false);
+		return 1;
+	}
+
+	private static int raftGen(CommandContext<ServerCommandSource> ctx) {
+		int team = IntegerArgumentType.getInteger(ctx, "team");
+		return tell(ctx, RaftSpawner.generateOne(ctx.getSource().getServer(), team));
+	}
 
 	// ---------------------------------------------------------------- 筏心与残骸修复
 

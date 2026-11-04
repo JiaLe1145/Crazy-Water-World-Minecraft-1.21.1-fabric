@@ -1,0 +1,141 @@
+"""开局发筏真机探针（M2-2）。
+
+重点不是"筏子生成了"，而是**票与筏都不许残留**：
+实测过 Sable 的加载票会跨重启存活（M2-RESULTS §4），漏收一次就把筏子永久钉在内存里，
+而 plot 网格只有 16384 槽位，长期服漏几十局就开始生成失败。
+所以清理断言比生成断言更重要。
+
+用法：python tools/raftgen_probe.py
+前置：./gradlew runServer 在跑，Carpet 在 run/mods。
+"""
+import os
+import re
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import rcon  # noqa: E402
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LOG = os.path.join(ROOT, "run", "server-console.log")
+BOTS = (("g0", 0), ("g1", 0), ("g2", 1), ("g3", 1))
+DEFAULT_DECK = 49          # radius=3 → (2*3+1)^2
+DECK_MASS = 24.5           # oak_planks 属 #sable:light → 0.5/格
+
+
+class P:
+    def __init__(self):
+        self.sock = rcon.connect()
+        self.logpos = os.path.getsize(LOG) if os.path.exists(LOG) else 0
+
+    def cmd(self, text, quiet=True):
+        out = rcon.run(self.sock, text) or ""
+        if not quiet:
+            print("  > %s\n      %s" % (text, out.replace("\n", "\n      ")[:300]))
+        return out.strip()
+
+    def __call__(self, text, **kw):
+        return self.cmd(text, **kw)
+
+    def log(self):
+        size = os.path.getsize(LOG)
+        with open(LOG, "rb") as fh:
+            fh.seek(self.logpos)
+            raw = fh.read()
+        self.logpos = size
+        return raw.decode("utf-8", errors="replace")
+
+    def phase(self):
+        return self.cmd("cww phase")
+
+    def wait_phase(self, want, timeout=90):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if want in self.phase():
+                return True
+            time.sleep(1.0)
+        return False
+
+
+def main():
+    p = P()
+    ok, bad = [], []
+
+    def expect(cond, msg):
+        (ok if cond else bad).append(msg)
+        print("    %s %s" % ("OK  " if cond else "FAIL", msg))
+
+    print("== 0. 清场")
+    p("cww abort")
+    for bot, _ in BOTS:
+        p("player %s kill" % bot)
+    for name in ("nbw_raft_0", "nbw_raft_1"):
+        p("sable remove @e[name=%s]" % name)
+    p.log()   # 丢弃历史日志，后面的断言只看这一段
+
+    print("== 1. 起一局，READY 应当自动发筏")
+    for bot, _ in BOTS:
+        p("player %s spawn" % bot)
+    for _ in range(30):
+        if all(b.lower() in p.cmd("list").lower() for b, _ in BOTS):
+            break
+        time.sleep(1)
+    for bot, team in BOTS:
+        p("cww force %s %d" % (bot, team))
+    p("cww start test_3min flat_test")
+    expect(p.wait_phase("PLAY", 90), "进入 PLAY")
+
+    print("== 2. 生成结果应当符合 arena 配置（radius 3 → 49 格 → 质量 24.5）")
+    status = p("cww raft all")
+    print("      %s" % status[:260])
+    expect(status.count("质量=24.5") == 2,
+           "两队筏质量都是 %.1f（实际：%s）" % (DECK_MASS, status[:160]))
+    ys = [float(m) for m in re.findall(r"Y=([\d.-]+)", status)]
+    expect(len(ys) == 2, "读到两艘筏的 Y：%s" % ys)
+    expect(all(abs(y - 150.0) < 6.0 for y in ys),
+           "两艘筏都落在出生锚点水面附近（flat_test 水面 149，实际 %s）" % ys)
+
+    print("== 3. 命名与加载票")
+    info = p("sable info @e")
+    expect("nbw_raft_0" in info and "nbw_raft_1" in info,
+           "两艘筏按 nbw_raft_<队> 命名可查：%s" % info[:150])
+    tickets = p("sable forceload query")
+    expect("2 force-loading ticket" in tickets or "for 2 sub-level" in tickets,
+           "上了 2 张加载票：%s" % tickets[:170])
+    expect("nbw:round_active" in tickets,
+           "票是我们自己的类型而不是蹭 sable:command_forced：%s" % tickets[:200])
+
+    print("== 4. 玩家应当在筏子上而不是水里")
+    for bot, _ in BOTS:
+        pos = p.cmd("data get entity %s Pos" % bot)
+        m = re.search(r"\[([\d.-]+)d?,\s*([\d.-]+)d?,\s*([\d.-]+)d?\]", pos)
+        if m:
+            y = float(m.group(2))
+            expect(149.0 <= y <= 156.0, "%s 站在筏面高度（Y=%.2f）" % (bot, y))
+
+    print("== 5. 收局：票与筏都不许残留")
+    p("cww abort")
+    time.sleep(4.0)
+    after = p("sable info @e")
+    expect("No sub-levels found" in after, "筏已销毁，内存里没有残留：%s" % after[:120])
+    tickets_after = p("sable forceload query")
+    expect("0 force-loading ticket" in tickets_after or "No force-loading" in tickets_after
+           or "none" in tickets_after.lower(),
+           "加载票已全部释放：%s" % tickets_after[:170])
+
+    tail = p.log()
+    expect("[S10] residue=CLEAN" in tail, "S10 残留复检报 CLEAN（含筏体与票两项）")
+    expect("[S10] residue=FAIL" not in tail, "没有残留 FAIL")
+    expect("[raftgen] 生成 2 艘初始筏" in tail, "生成日志在案")
+    leak = [l for l in tail.splitlines() if "清理有残留" in l or "未能释放" in l]
+    expect(not leak, "无清理残留告警：%s" % leak[:2])
+
+    print("\n=== RAFTGEN SUMMARY === satisfied=%d FAILED=%d" % (len(ok), len(bad)))
+    for f in bad:
+        print("  FAIL %s" % f)
+    print("RESULT: %s" % ("PASS" if not bad else "HAS-FAILURES"))
+    return 0 if not bad else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

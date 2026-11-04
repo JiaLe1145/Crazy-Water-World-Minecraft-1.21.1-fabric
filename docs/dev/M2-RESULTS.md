@@ -94,6 +94,35 @@
 
 ---
 
+## 3.5 开局发筏（M2-2）—— 通过
+
+`tools/raftgen_probe.py` **17/17 一次过**。READY 阶段给每支有人的队生成一艘初始 sub-level 筏。
+
+| 断言 | 实测 |
+|---|---|
+| 尺寸来自配置 | `limits.initialRaftRadius=3` → 49 格甲板 → 质量 **24.5**（49×0.5，`#sable:light`） |
+| 落点 | 两队都在出生锚点，Y=149.50（flat_test 水面 149） |
+| 命名 | `nbw_raft_<队>`，`/sable info @e` 直接可查 |
+| 加载票 | 2 张，类型是 **`nbw:round_active`** 而不是蹭 Sable 的 `command_forced` |
+| 玩家落位 | 4 个假玩家 Y 都在 149（在筏面上，不在水里） |
+| **收局残留** | 筏全部销毁、票全部释放、`[S10] residue=CLEAN` |
+
+设计取舍：
+- **用 `allocateNewSubLevel` + 往 plot 铺方块，不用 `assembleBlocks`。** 装配要求世界上已有这些方块，
+  而开局要的是"凭空造一艘形状可控、可复现的筏"；而且装配在水上还会踩连通域漏水的坑（T0）。
+- **`initialRaftRadius` / `initialRaftBlock` 放进 arena 的 `limits`，不放 format。**
+  筏子多大是"这张图"的空间事实，赛制只管时间与人数（03 §2 的字段归属）。两个字段都是可选的，
+  缺省走 `DEFAULT_RADIUS=3`，所以旧的 arena 文件不会被这次改动打废。
+- **先建锚点→再发筏→最后传人。** 顺序反了玩家会落进水里等筏子凭空出现。
+- **`plot 网格已满` 翻译成可读失败而不是崩对局。** `allocateNewSubLevel` 满了抛
+  `IllegalStateException`，16384 槽位对长期服是真实约束，不是假想。
+
+回归确认：发筏接进 READY 之后，`m1_round.py` 2 局 + abort 路径 **58/58、0 异常日志**，
+残留复检跨 3 局仍然 CLEAN；`sink_probe` 15/15、`core_probe` 17/17 也都没被影响
+（core_probe 现在能看到队 1 也有绑定的筏，正是自动生成生效的迹象）。
+
+---
+
 ## 4. Q9 · Sable sub-level 跨重启（顺带拿到数据）
 
 造一艘筏、推开、上加载票、重启：
@@ -125,6 +154,7 @@
 | `tools/sink_probe.py` | 沉筏 | 15/15 |
 | `tools/core_probe.py` | 筏心摧毁 / 8s 修复 / 受伤打断 / 额度 | 17/17 |
 | `tools/restart_probe.py` | 回合状态落盘 + 重启恢复 | before 3/3, after 7/7 |
+| `tools/raftgen_probe.py` | 开局发筏 + 票/筏零残留 | 17/17 |
 | 单测 | domain 纯函数 6 个类 | **118 个，0 失败** |
 
 ## 6. 仍需真人验证（攒着，等客户端输入接上一起测）

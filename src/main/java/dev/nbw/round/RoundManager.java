@@ -12,6 +12,7 @@ import dev.nbw.domain.round.RoundMachine;
 import dev.nbw.domain.round.RoundSnapshot;
 import dev.nbw.raft.RaftCoreService;
 import dev.nbw.raft.RaftSinking;
+import dev.nbw.raft.RaftSpawner;
 import dev.nbw.domain.round.Transitions;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
@@ -26,6 +27,7 @@ import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 import net.minecraft.world.GameMode;
+import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -232,6 +234,11 @@ public final class RoundManager {
 			}
 			case READY -> {
 				buildAnchors();
+				// 先有筏再传人：玩家应当落到自己那艘筏上，而不是落到水裡等筏子凭空出现
+				String gen = RaftSpawner.generateForTeams(server);
+				if (gen.contains("失败")) {
+					NBW.LOGGER.error("[round] READY 发筏有问题：{}", gen);
+				}
 				int moved = teleportParticipants();
 				announce("§e进入对局（" + moved + " 人已传送），" + seconds(machine.config().readyTicks()) + " 秒后开局");
 			}
@@ -509,12 +516,17 @@ public final class RoundManager {
 			p.clearStatusEffects();
 			cleared++;
 		}
+		List<String> raftResidue = RaftSpawner.clearAll(server);
+		if (!raftResidue.isEmpty()) {
+			NBW.LOGGER.error("[round] 局后筏体清理失败 {} 项：{}", raftResidue.size(), raftResidue);
+		}
 		NBW.LOGGER.info("[round] cleanup executed for {} participants (inventory + effects)", cleared);
 	}
 
 	/** S10 断言：domain 侧与 MC 侧都查，日志给出可核对的证据（不通过就 FAIL，不静默）。 */
 	private static void auditResidue() {
 		List<String> issues = new ArrayList<>(machine.residueReport());
+		issues.addAll(RaftSpawner.auditResidue(server));
 		for (ServerPlayerEntity p : collect(lastParticipants)) {
 			if (!p.getInventory().isEmpty()) {
 				issues.add(p.getNameForScoreboard() + " 物品栏非空");
@@ -623,6 +635,16 @@ public final class RoundManager {
 	/** 只读暴露 domain 状态机：供 raft/ 等上层读队伍与在场情况，不得在这里改状态。 */
 	public static RoundMachine machine() {
 		return machine;
+	}
+
+	/** 只读：给 raft/ 拿初始筏的材质与尺寸约束，不暴露可写引用。 */
+	public static ConfigModels.Arena arenaOrNull() {
+		return arena;
+	}
+
+	/** 队号对应的出生锚点；下标越界返回 null 而不是抛，调用方自己决定怎么报。 */
+	public static @Nullable Anchor anchorAt(int teamIndex) {
+		return teamIndex >= 0 && teamIndex < anchors.size() ? anchors.get(teamIndex) : null;
 	}
 
 	public static Path worldRoot() {

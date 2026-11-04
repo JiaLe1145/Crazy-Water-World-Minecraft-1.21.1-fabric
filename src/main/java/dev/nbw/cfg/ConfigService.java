@@ -39,6 +39,23 @@ public final class ConfigService {
 		return name != null && name.matches(NAME_PATTERN);
 	}
 
+	/** 方块 id 允许命名空间：{@code oak_planks} 或 {@code minecraft:oak_planks}；空段与多段冒号一律拒绝。 */
+	public static boolean isSafeBlockId(String raw) {
+		if (raw == null || raw.isEmpty()) {
+			return false;
+		}
+		String[] parts = raw.split(":");
+		if (parts.length == 0 || parts.length > 2) {
+			return false;
+		}
+		for (String part : parts) {
+			if (!isSafeName(part)) {
+				return false;
+			}
+		}
+		return true;
+	}
+
 	/** 解析并校验单个 arena 文件；失败时把文件移入 _invalid/ 并返回字段级错误。 */
 	public static Loaded loadArena(Path worldRoot, String id, boolean quarantineOnFailure) {
 		List<String> errors = new ArrayList<>();
@@ -129,6 +146,17 @@ public final class ConfigService {
 		if (a.limits == null || a.limits.maxRaftArea <= 0 || a.limits.maxBlocksPerRaft < 100
 				|| a.limits.maxFacilities <= 0) {
 			errors.add("limits 必填且 maxRaftArea>0、maxBlocksPerRaft>=100、maxFacilities>0");
+		}
+		if (a.limits != null) {
+			// 只在"给了值"时约束：这两个字段是后加的，缺省必须继续能用
+			if (a.limits.initialRaftRadius < 0 || a.limits.initialRaftRadius > 8) {
+				errors.add("limits.initialRaftRadius 必须在 0..8（0=用默认值），实际 "
+						+ a.limits.initialRaftRadius);
+			}
+			if (a.limits.initialRaftBlock != null && !a.limits.initialRaftBlock.isEmpty()
+					&& !isSafeBlockId(a.limits.initialRaftBlock)) {
+				errors.add("limits.initialRaftBlock 不是合法的方块 id：" + a.limits.initialRaftBlock);
+			}
 		}
 		if (a.spawns != null && a.spawns.teams != null) {
 			for (ConfigModels.Arena.Spawns.TeamSpawn t : a.spawns.teams) {

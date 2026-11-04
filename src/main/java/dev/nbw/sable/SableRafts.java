@@ -6,8 +6,16 @@ import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
 import dev.ryanhcode.sable.api.sublevel.ticket.SubLevelLoadingTicketType;
 import dev.ryanhcode.sable.physics.config.dimension_physics.DimensionPhysicsData;
+import dev.ryanhcode.sable.companion.math.Pose3d;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
+import dev.ryanhcode.sable.sublevel.SubLevel;
+import dev.ryanhcode.sable.sublevel.plot.EmbeddedPlotLevelAccessor;
+import dev.ryanhcode.sable.sublevel.plot.LevelPlot;
+import dev.ryanhcode.sable.sublevel.storage.SubLevelRemovalReason;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.util.math.ChunkPos;
+import net.minecraft.block.BlockState;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.Unit;
 import org.jetbrains.annotations.Nullable;
@@ -41,6 +49,97 @@ public final class SableRafts {
 			SubLevelLoadingTicketType.create(Identifier.of(NBW.MOD_ID, "round_active"), Unit.CODEC);
 
 	private SableRafts() {
+	}
+
+	// ---------------------------------------------------------------- 生成与销毁
+
+	/**
+	 * 程序化生成一初始筏（M2-2）。做法照 Sable 自己的 {@code /sable spawn platform}
+	 * （{@code SableSpawnCommands.java:484-521}）：分配 sub-level → 往 plot 铺甲板 →
+	 * {@code updateLastPose()} → 摆到目标世界坐标。
+	 *
+	 * <p>为什么不用 {@code assembleBlocks}：那条路要求世界上已经存在这些方块，
+	 * 开局发筏要的是"凭空造一艘形状可控、可复现的筏"，而且装配在水上还会踩连通域漏水的坑
+	 * （见 {@code M0-TEST-PLAN.md} T0）。
+	 *
+	 * <p>plot 网格只有 16384 个槽位，{@code allocateNewSubLevel} 满了会抛
+	 * {@code IllegalStateException}。这里把它翻译成可读失败而不是让对局崩：
+	 * 长期服跑久了这是会真发生的。
+	 *
+	 * @return 新筏的 UUID；失败时返回 null 并把原因写进 {@code outError}（长度为 1 的数组当出参用，
+	 *         是为了让调用方既能拿到成功值又能拿到具体原因，而不必再查日志）
+	 */
+	public static @Nullable UUID createRaft(ServerWorld world, double cx, double cy, double cz,
+			int radius, BlockState deck, @Nullable String name, String[] outError) {
+		ServerSubLevelContainer c = SubLevelContainer.getContainer(world);
+		if (c == null) {
+			outError[0] = "该维度不是 sub-level 承载维度";
+			return null;
+		}
+		SubLevel subLevel;
+		try {
+			Pose3d pose = new Pose3d();
+			pose.position().set(cx, cy, cz);
+			subLevel = c.allocateNewSubLevel(pose);
+		} catch (IllegalStateException e) {
+			outError[0] = "plot 网格已满（上限 16384 槽位）：" + e.getMessage();
+			NBW.LOGGER.error("[sable] 生成筏失败：{}", outError[0]);
+			return null;
+		}
+
+		LevelPlot plot = subLevel.getPlot();
+		int radiusChunks = (radius + 8) / 16;
+		ChunkPos center = plot.getCenterChunk();
+		for (int x = -radiusChunks; x <= radiusChunks; x++) {
+			for (int z = -radiusChunks; z <= radiusChunks; z++) {
+				plot.newEmptyChunk(new ChunkPos(center.x + x, center.z + z));
+			}
+		}
+		EmbeddedPlotLevelAccessor accessor = plot.getEmbeddedLevelAccessor();
+		for (int x = -radius; x <= radius; x++) {
+			for (int z = -radius; z <= radius; z++) {
+				accessor.setBlockState(new BlockPos(x, 0, z), deck, 2);
+			}
+		}
+		subLevel.updateLastPose();
+		if (name != null) {
+			subLevel.setName(name);
+		}
+		c.physicsSystem().getPipeline().teleport((ServerSubLevel) subLevel,
+				new Vector3d(cx, cy, cz), subLevel.logicalPose().orientation());
+
+		UUID id = subLevel.getUniqueId();
+		NBW.LOGGER.info("[sable] 生成筏 '{}' id={} 半径={} 甲板 {} 格，落点=({} {} {})",
+				name, id, radius, deckCount(radius),
+				String.format(java.util.Locale.ROOT, "%.1f", cx),
+				String.format(java.util.Locale.ROOT, "%.1f", cy),
+				String.format(java.util.Locale.ROOT, "%.1f", cz));
+		return id;
+	}
+
+	/** (2r+1)² —— 纯算式，给日志与单测用。 */
+	public static int deckCount(int radius) {
+		return (2 * radius + 1) * (2 * radius + 1);
+	}
+
+	/** 销毁筏。局后清理用；{@code reason} 由 Sable 记录在存储层。 */
+	public static boolean remove(ServerWorld world, UUID raftId) {
+		ServerSubLevelContainer c = SubLevelContainer.getContainer(world);
+		ServerSubLevel sl = resolve(world, raftId);
+		if (c == null || sl == null) {
+			return false;
+		}
+		c.removeSubLevel(sl, SubLevelRemovalReason.REMOVED);
+		return true;
+	}
+
+	/** 列出盘上/内存里的筏（名字 + id），给残留复检与运维用。 */
+	public static List<String> describeAll(ServerWorld world) {
+		List<String> out = new ArrayList<>();
+		for (ServerSubLevel sl : list(world)) {
+			out.add((sl.getName() == null ? "<unnamed>" : sl.getName()) + "=" + sl.getUniqueId());
+		}
+		return out;
 	}
 
 	// ---------------------------------------------------------------- 查找
