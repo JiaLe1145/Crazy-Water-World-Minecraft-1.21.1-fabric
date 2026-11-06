@@ -1,12 +1,9 @@
 package dev.nbw.client;
 
-import dev.nbw.content.OarBlock;
-import dev.nbw.content.RaftCoreBlock;
 import dev.nbw.net.HoldPayload;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.block.BlockState;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
@@ -17,8 +14,9 @@ import net.minecraft.util.math.BlockPos;
  * <p>单独成类而不是和服务端放一起，是因为模组要能在<b>专用服务端</b>跑：
  * 这个类引用 {@code MinecraftClient}，混进服务端入口就会在无私有客户端的环境里炸。
  *
- * <p>这里筛"是不是残骸筏心"只是为了少发包，<b>不是安全检查</b>：
- * 服务端仍然自己查归属、查距离、查相位，客户端说的话一句都不算。
+ * <p><b>这一侧只做一件事：把"我正按着右键 + 我指着哪一格"送上去，不做任何判定。</b>
+ * 它连"指的是什么方块"都说不准（准星给的 sub-level 坐标是存储坐标，在客户端父世界里查不出名堂），
+ * 归属、可达、玩法全归服务端。
  */
 public final class HoldInputClient {
 
@@ -41,7 +39,7 @@ public final class HoldInputClient {
 			return;
 		}
 		final boolean held = client.options.useKey.isPressed();
-		final BlockPos target = held ? facilityUnderCrosshair(client) : null;
+		final BlockPos target = held ? targetUnderCrosshair(client) : null;
 		if (held && target != null) {
 			sending = true;
 			lastTarget = target;
@@ -61,25 +59,29 @@ public final class HoldInputClient {
 		}
 	}
 
-	/** 准星指的方块只有在"可长按的设施"时才值得发包：筏心残骸或桨台。 */
-	private static BlockPos facilityUnderCrosshair(MinecraftClient client) {
+	/**
+	 * 准星指到方块就发包，<b>不再分方块是什么</b>。
+	 *
+	 * <p><b>为什么原来那套"只挑桨台/残骸筏心/水里实心格"的白名单不够用。</b>
+	 * 伸手救队友这条动作里，救援方是<b>旱的</b>、指着的就是甲板或船壳上一个普通方块——
+	 * 既不是桨台也不是残骸筏心，白名单一条都不匹配，这个动作就根本发不出包。
+	 *
+	 * <p>顺带更正一条我在这里犯过的推断：sub-level 的方块<b>物理上就存在父世界的存储坐标里</b>
+	 * （{@code ServerSubLevelContainer.java:152} 把父 Level 交给 sub-level），
+	 * 所以 {@code client.world.getBlockState(准星坐标)} 一直读得出来，不存在"筛选器恒读空气"这回事
+	 * ——2026-11-06 用 {@code cww net probe} 实测钉死了这一点（父世界读得到 OarBlockEntity）。
+	 * 真正坏的只有服务端那道距离判定，见 {@code NbwNetworking.reachDistance}。
+	 *
+	 * <p>现在客户端只负责"我正按着、我指着哪一格"，剩下全部由服务端判：
+	 * 归属从方块实体读，可达距离在甲板局部帧量，
+	 * 扒边还是伸手由 {@code RescueService} 按几何决定。04 §2 不变式 4 本来就是这么定的——
+	 * 客户端说的话一句都不算，那它连"我指的是什么方块"都不必说。
+	 */
+	private static BlockPos targetUnderCrosshair(MinecraftClient client) {
 		final HitResult hit = client.crosshairTarget;
 		if (client.world == null || hit == null || hit.getType() != HitResult.Type.BLOCK) {
-			return null;
+			return null;   // 指向实体或指向天空都不算：这条通道只认方块
 		}
-		final BlockPos pos = ((BlockHitResult) hit).getBlockPos();
-		final BlockState state = client.world.getBlockState(pos);
-		if (client.player.isTouchingWater() && !state.isAir()) {
-			// 泡在水里时把准星对准的实心格也发出去：扒边靠的就是这条包，
-			// 而"是不是自家筏的外壳、够不够得着"一律由服务端判（04 §2 不变式 4，客户端不作数）。
-			return pos;
-		}
-		if (state.getBlock() instanceof OarBlock) {
-			return pos;   // 桨台没有"残骸"这种前置条件，随时可按
-		}
-		if (!(state.getBlock() instanceof RaftCoreBlock)) {
-			return null;
-		}
-		return state.get(RaftCoreBlock.WRECKAGE) ? pos : null;
+		return ((BlockHitResult) hit).getBlockPos();
 	}
 }

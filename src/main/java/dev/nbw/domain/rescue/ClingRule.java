@@ -41,25 +41,64 @@ public final class ClingRule {
 	 */
 	public static final double DECK_SURFACE_OFFSET = 1.0;
 
-	/** 甲板面的世界 Y（筏位姿原点 Y + 一个方块高）。 */
-	public static double deckSurfaceY(double poseY) {
-		return poseY + DECK_SURFACE_OFFSET;
+	/**
+	 * 落点从 footprint 边界往内缩几格。
+	 *
+	 * <p><b>这一条补的是一个已经确认的缺陷。</b>攀爬原来只抬 Y、X/Z 一动不动，于是"在离壳
+	 * {@link #HULL_REACH}=2.5 格的地方扒住"的人爬到顶之后，是站在筏子<b>旁边</b>两格半的半空里，
+	 * 下一步就掉回海里——01 §8 说的"爬回筏"根本没兑现。现在终点一律夹进甲板内。
+	 *
+	 * <p>0.75 不是拍脑袋：玩家碰撞箱半径 0.3，站在边界线上（脚正压在方块棱上）会跟着筏子起伏
+	 * 被挤回水里，留出一格以内的余量才叫"站上甲板"。
+	 */
+	public static final double LANDING_INSET = 0.75;
+
+	/** 一根轴上的落点：夹进 {@code ±(halfWidth − LANDING_INSET)}；已经在甲板内就原样交回。 */
+	public static double landingAxis(double l, double halfWidth) {
+		double limit = Math.max(0.0, halfWidth - LANDING_INSET);
+		return Math.max(-limit, Math.min(limit, l));
 	}
 
 	/**
-	 * 第 {@code tick} 拍应该在的世界 Y：从 {@code baseY} 线性插值到 {@code deckY}。
+	 * 落点的局部坐标：水平方向夹进甲板内、高度取甲板面。
 	 *
-	 * <p>线性是刻意的：探针要逐拍比"高度单调不减、终点正好是甲板面"，
-	 * 换成缓动曲线这条断言就只能写成"大概齐"。
+	 * <p>注意高度这里用的是<b>局部</b>量（甲格局部 {@code y=0} 那一层的顶面 =
+	 * {@link #DECK_SURFACE_OFFSET}），不是"位姿原点 Y + 1"。筏子有俯仰时两者不等，
+	 * 而 {@code SableRafts.localToWorld} 会把局部点连旋转一起换算回世界坐标。
+	 *
+	 * @param halfWidth footprint 半边宽，见 {@code RaftLayout.halfWidth}
 	 */
-	public static double climbY(double baseY, double deckY, int tick) {
+	public static double[] landingLocal(double lx, double lz, double halfWidth) {
+		return new double[]{landingAxis(lx, halfWidth), DECK_SURFACE_OFFSET, landingAxis(lz, halfWidth)};
+	}
+
+	/**
+	 * 第 {@code tick} 拍应该在的局部点：从 {@code baseLocal} 三轴线性插值到 {@code targetLocal}。
+	 *
+	 * <p><b>为什么在局部帧里插值。</b>起点（人扒着时泡在哪）、终点（甲板面 + 夹进 footprint 的那一格）、
+	 * 边界（{@code halfWidth}）全都是筏子自己的量；在这一帧里插完值再逐拍交给
+	 * {@code SableRafts.localToWorld}，筏子开走或转弯时人就跟到哪儿。反过来先算世界坐标、
+	 * 再逐拍只加一个 Y 偏移，筏子一动就会把人甩在起爬点那一格——那正是上一条缺陷的成因。
+	 *
+	 * <p>线性是刻意的：探针要逐拍比"三个分量单调趋近终点、终点正好是落点"，
+	 * 换成缓动曲线这条断言就只能写成"大概齐"。自救用 {@link #CLIMB_TICKS}，
+	 * 队友拉回用 {@code ReachRule.REACH_TICKS}，同一条插值两处共用，不允许各写一遍。
+	 */
+	public static double[] climbLocal(double[] baseLocal, double[] targetLocal, int tick, int climbTicks) {
+		double[] out = new double[3];
+		if (climbTicks <= 0 || tick >= climbTicks) {
+			System.arraycopy(targetLocal, 0, out, 0, 3);
+			return out;
+		}
 		if (tick <= 0) {
-			return baseY;
+			System.arraycopy(baseLocal, 0, out, 0, 3);
+			return out;
 		}
-		if (tick >= CLIMB_TICKS) {
-			return deckY;
+		double k = (double) tick / climbTicks;
+		for (int i = 0; i < 3; i++) {
+			out[i] = baseLocal[i] + (targetLocal[i] - baseLocal[i]) * k;
 		}
-		return baseY + (deckY - baseY) * tick / CLIMB_TICKS;
+		return out;
 	}
 
 	/** 攀爬阶段。{@code LANDED} 是一次性的"刚刚上筏"，用于播报与探针取证，下一 tick 就回 {@code OFF}。 */
@@ -139,11 +178,6 @@ public final class ClingRule {
 			return new State(Stage.LANDED, tick);
 		}
 		return new State(Stage.CLIMB, tick);
-	}
-
-	/** GRAB 那一拍绝不出力：01 §8 的顺序是"先扒住边缘，再花 2 秒爬回筏"，没抓住就起飞很怪。 */
-	public static boolean liftsThisTick(Stage stage) {
-		return stage == Stage.CLIMB;
 	}
 
 }

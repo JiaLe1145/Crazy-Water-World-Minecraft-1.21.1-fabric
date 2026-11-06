@@ -311,6 +311,54 @@ public final class SableRafts {
 		return new double[]{storage.x, storage.y, storage.z};
 	}
 
+	/**
+	 * <b>方块交互坐标</b>（Sable 递交的存储坐标）→ 同一套甲板局部坐标。
+	 *
+	 * <p>与 {@link #worldToLocal} 的分工必须写清楚，这两条经常被当成一条：
+	 * 玩家/实体的世界坐标要过位姿逆变换（上面那条）；而交互事件与客户端准星交出来的
+	 * {@code BlockPos} <b>已经是存储坐标了</b>，只需要减掉 accessor 的原点，<b>不做旋转</b>——
+	 * sub-level 的方块物理上就存在父世界的那片存储区域里
+	 * （{@code ServerSubLevelContainer.java:152} 把父 {@code ServerLevel} 直接交给了 sub-level，
+	 * 实测父世界 {@code getBlockEntity(存储坐标)} 能读出 OarBlockEntity）。
+	 * 换算出来的两组数值上落在<b>同一帧</b>（甲板中心=0），所以可以直接相减求距离
+	 * （{@code domain/net/HoldPolicy.localDistance}）。
+	 *
+	 * <p>减的那个原点只能是 {@code plot.getCenterBlock()}：accessor 内部就是
+	 * {@code blockPos.offset(center)}（{@code EmbeddedPlotLevelAccessor.java:91}），
+	 * 换任何一个原点都会得到"读出来全是空气"这种静默失效。
+	 *
+	 * @return 方块<b>角</b>的局部坐标 {@code {lx, ly, lz}}；筏不在场时返回 NaN 三元组
+	 */
+	public static double[] storageToLocal(ServerWorld world, UUID raftId, BlockPos pos) {
+		BlockPos center = accessorOrigin(world, raftId);
+		if (center == null) {
+			return new double[]{Double.NaN, Double.NaN, Double.NaN};
+		}
+		return new double[]{pos.getX() - center.getX(), pos.getY() - center.getY(), pos.getZ() - center.getZ()};
+	}
+
+	/**
+	 * 甲板局部坐标 → 世界（显示）坐标：{@link #worldToLocal} 的正变换
+	 * {@code world = origin + q · local}。
+	 *
+	 * <p><b>为什么需要它。</b>攀爬与拉回的插值只能在那套<b>不随筏子移动</b>的局部帧里算
+	 * （起点、甲板面、footprint 边界都是局部量），但 {@code requestTeleport} 只认世界坐标。
+	 * 逐拍"局部插值点→世界"而不是"记下起始世界坐标再加偏移"，才会在筏子开走之后
+	 * 仍然把人放到筏子旁边——否则一加速，人就被留在起爬点那一格的半空里掉回海里。
+	 */
+	public static double[] localToWorld(ServerWorld world, UUID raftId, double lx, double ly, double lz) {
+		ServerSubLevel sl = resolve(world, raftId);
+		if (sl == null) {
+			return new double[]{Double.NaN, Double.NaN, Double.NaN};
+		}
+		Vector3d local = new Vector3d(lx, ly, lz);
+		// 正变换就是共轭反过来：world = origin + q·local。与 worldToLocal 同一套 joml 写法。
+		local.rotate(new org.joml.Quaterniond(sl.logicalPose().orientation()));
+		Vector3d origin = new Vector3d();
+		sl.logicalPose().position().get(origin);
+		return new double[]{origin.x + local.x, origin.y + local.y, origin.z + local.z};
+	}
+
 	/** 实心 = 非空气且不可替换（水、雪、植被都不算）。 */
 	private static boolean isSolid(BlockState state) {
 		return state != null && !state.isAir() && !state.isReplaceable();

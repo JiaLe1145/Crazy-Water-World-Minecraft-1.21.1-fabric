@@ -14,6 +14,7 @@ import dev.nbw.cfg.ConfigModels;
 import dev.nbw.cfg.ConfigService;
 import dev.nbw.domain.ZoneModel;
 import dev.nbw.domain.arena.SeaAudit;
+import dev.nbw.net.NbwNetworking;
 import dev.nbw.raft.OarService;
 import dev.nbw.raft.RaftCoreService;
 import dev.nbw.raft.RaftSinking;
@@ -194,7 +195,7 @@ public final class NbwCommands {
 												.executes(NbwCommands::oarHold))))));
 		root.then(oar);
 
-		// ---- 落水与扒边（M2-8 / 01 §8）：自救时序与拒绝原因的观测面
+		// ---- 落水与救援（M2-8 / 01 §8）：自救与伸手救援的时序、配对与拒绝原因的观测面
 		var rescue = admin(CommandManager.literal("rescue"));
 		rescue.then(CommandManager.literal("status").executes(NbwCommands::rescueStatus));
 		rescue.then(CommandManager.literal("last").executes(NbwCommands::rescueLast));
@@ -202,7 +203,38 @@ public final class NbwCommands {
 				.then(CommandManager.argument("player", StringArgumentType.word())
 						.then(CommandManager.argument("ticks", IntegerArgumentType.integer(1, 600))
 								.executes(NbwCommands::rescueHold))));
+		// reach 登记在<b>救援方</b>身上：被救者不需要任何输入（2026-11-06 用户裁决）
+		rescue.then(CommandManager.literal("reach")
+				.then(CommandManager.argument("player", StringArgumentType.word())
+						.then(CommandManager.argument("ticks", IntegerArgumentType.integer(1, 600))
+								.executes(NbwCommands::rescueReach))));
 		root.then(rescue);
+
+		// ---- 长按通道自身的判定面（M2-8）：坐标口径这种"错了不报、只是永远判不够"的东西，
+		// 只能靠把服务端那道判定原样打出来取证。
+		// deck/oar 两种写法由我们自己对上筏的局部格，探针里不出现 2×10^7 那种魔数；
+		// at 保留给"手工喂一个存储坐标"的排查场合（x/y/z 不做范围限制，存储坐标本来就很大）
+		var net = admin(CommandManager.literal("net"));
+		// 逐级 then：三种目标的子节点必须挂在 player 参数下面，挂在 probe 上会让
+		// "probe <玩家> deck 0" 解析完玩家就走进死胡同（实测报 Incorrect argument for command）
+		var npDeck = CommandManager.literal("deck")
+				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
+						.executes(NbwCommands::netProbeDeck));
+		var npOar = CommandManager.literal("oar")
+				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
+						.then(CommandManager.argument("slot", IntegerArgumentType.integer(0, 32))
+								.executes(NbwCommands::netProbeOar)));
+		var npAt = CommandManager.literal("at")
+				.then(CommandManager.argument("x", IntegerArgumentType.integer())
+						.then(CommandManager.argument("y", IntegerArgumentType.integer())
+								.then(CommandManager.argument("z", IntegerArgumentType.integer())
+										.executes(NbwCommands::netProbeAt))));
+		var npPlayer = CommandManager.argument("player", StringArgumentType.word());
+		npPlayer.then(npDeck);
+		npPlayer.then(npOar);
+		npPlayer.then(npAt);
+		net.then(CommandManager.literal("probe").then(npPlayer));
+		root.then(net);
 
 		// ---- 建造规则（M2-6 / 01 §4.2）：上限与归属判定的观测面
 		var build = admin(CommandManager.literal("build"));
@@ -439,6 +471,70 @@ public final class NbwCommands {
 		int ticks = IntegerArgumentType.getInteger(ctx, "ticks");
 		String line = RescueService.hold(ctx.getSource().getServer(), player, ticks);
 		ctx.getSource().sendFeedback(() -> Text.literal("[cww] " + line), true);
+		return 1;
+	}
+
+	/** 伸手救援的模拟入口：登记在<b>救援方</b>身上，返回行里带着配对了谁、距离几格。 */
+	private static int rescueReach(CommandContext<ServerCommandSource> ctx) {
+		String player = StringArgumentType.getString(ctx, "player");
+		int ticks = IntegerArgumentType.getInteger(ctx, "ticks");
+		String line = RescueService.reach(ctx.getSource().getServer(), player, ticks);
+		ctx.getSource().sendFeedback(() -> Text.literal("[cww] " + line), true);
+		return 1;
+	}
+
+	/** 把长按通道的服务端判定原样打出来：坐标口径这种静默失效只能这样取证。 */
+	private static int netProbeAt(CommandContext<ServerCommandSource> ctx) throws CommandSyntaxException {
+		String player = StringArgumentType.getString(ctx, "player");
+		var pos = new net.minecraft.util.math.BlockPos(IntegerArgumentType.getInteger(ctx, "x"),
+				IntegerArgumentType.getInteger(ctx, "y"), IntegerArgumentType.getInteger(ctx, "z"));
+		return sendProbe(ctx, player, pos);
+	}
+
+	/** 甲板中心那一格（筏的局部 (0,0,0)）：有归属、没有方块实体，走的正是救援那一支分派。 */
+	private static int netProbeDeck(CommandContext<ServerCommandSource> ctx) throws CommandSyntaxException {
+		int team = IntegerArgumentType.getInteger(ctx, "team");
+		return probeCell(ctx, team, 0, 0, 0, "甲板中心");
+	}
+
+	/** 某个桨位：必须认得出 OarBlockEntity，否则"长按桨台推进"这条整条是空的。 */
+	private static int netProbeOar(CommandContext<ServerCommandSource> ctx) throws CommandSyntaxException {
+		int team = IntegerArgumentType.getInteger(ctx, "team");
+		int slot = IntegerArgumentType.getInteger(ctx, "slot");
+		int[] cell = dev.nbw.domain.raft.RaftLayout.oarCell(RaftSpawner.deckSide(), slot);
+		if (cell == null) {
+			ctx.getSource().sendError(Text.literal("[cww] 边长 " + RaftSpawner.deckSide() + " 的甲板塞不下桨位 "
+					+ slot + "，无从探测"));
+			return 0;
+		}
+		return probeCell(ctx, team, cell[0], cell[1], cell[2], "桨位 " + slot);
+	}
+
+	/** 局部格 → 存储坐标（加 plot 中心块），再交给 {@link NbwNetworking#probe}。 */
+	private static int probeCell(CommandContext<ServerCommandSource> ctx, int team, int lx, int ly, int lz,
+			String what) throws CommandSyntaxException {
+		var world = ctx.getSource().getWorld();
+		UUID raftId = RaftSpawner.raftOf(team);
+		if (raftId == null) {
+			ctx.getSource().sendError(Text.literal("[cww] 队 " + team + " 这一局没有筏，探测个空气"));
+			return 0;
+		}
+		var center = dev.nbw.sable.SableRafts.accessorOrigin(world, raftId);
+		if (center == null) {
+			ctx.getSource().sendError(Text.literal("[cww] 队 " + team + " 的筏读不到 plot 中心（已沉没？）"));
+			return 0;
+		}
+		var pos = new net.minecraft.util.math.BlockPos(center.getX() + lx, center.getY() + ly, center.getZ() + lz);
+		ctx.getSource().sendFeedback(() -> Text.literal("[cww] 探测 " + what + "：局部 (" + lx + "," + ly + "," + lz
+				+ ") → 存储 (" + pos.getX() + "," + pos.getY() + "," + pos.getZ()
+				+ ")（长按包给的就是这一串）"), false);
+		return sendProbe(ctx, StringArgumentType.getString(ctx, "player"), pos);
+	}
+
+	private static int sendProbe(CommandContext<ServerCommandSource> ctx, String player,
+			net.minecraft.util.math.BlockPos pos) {
+		String line = NbwNetworking.probe(ctx.getSource().getServer(), player, pos);
+		ctx.getSource().sendFeedback(() -> Text.literal(line), false);
 		return 1;
 	}
 
