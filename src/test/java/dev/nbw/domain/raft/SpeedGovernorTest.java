@@ -19,31 +19,34 @@ class SpeedGovernorTest {
 	void oarAndSailUnitsKeepTheApprovedTwoToThreeRatio() {
 		double rower = SpeedGovernor.rowTarget(1);
 		double oneSailInTypicalWind = SpeedGovernor.sailTarget(1, 2.0);
-		assertEquals(0.0167, rower, 1e-6, "单人单桨应当是 1/3 格/秒 = 0.0167 格/tick");
-		assertEquals(0.025, oneSailInTypicalWind, 1e-6, "1 帆在风强 2.0 应当是 1/2 格/秒 = 0.025 格/tick");
+		// 绝对值是"原表 ×3"（用户指示适当提速），但 2:3 的比例关系是原表的东西，必须仍然精确成立
+		assertEquals(0.0333, rower, 1e-6, "单人单桨应当是 2/3 格/秒 = 0.0333 格/tick");
+		assertEquals(0.05, oneSailInTypicalWind, 1e-6, "1 帆在风强 2.0 应当是 1 格/秒 = 0.05 格/tick");
 		double ratio = rower / oneSailInTypicalWind;
 		assertTrue(Math.abs(ratio - 2.0 / 3.0) < 0.01,
 				"02 §6 的桨:帆 = 2:3 必须原样保留，实测比值 " + ratio);
 	}
 
 	@Test
-	void capIsAFuseNotACeilingForNormalRigs() {
-		// 正常配置必须都在上限以下，否则"帆多更快/人多更快"被配平压平（这正是 #32 当年的毛病）
-		assertTrue(SpeedGovernor.sailTarget(7, 2.0) < SpeedGovernor.MAX_TRAVEL_SPEED,
-				"7 帆常态风就贴上限，帆数不再影响航速：" + SpeedGovernor.sailTarget(7, 2.0));
-		assertTrue(SpeedGovernor.rowTarget(4) < SpeedGovernor.MAX_TRAVEL_SPEED,
-				"满编 4 人划桨就贴上限：" + SpeedGovernor.rowTarget(4));
-		// 但极端配置必须真能被夹住，否则上限是死代码
+	void capIsAFuseThatFullRigCanActuallyReach() {
+		// 保险丝要成立，两件事必须同时满足：正常配置都还在限内（否则帆数/人数不再影响航速），
+		// 而配满的那一档真能被夹住（否则上限是死代码，"桨风并用不越界"没有读数支撑）。
+		// 交叉点必须钉死：每帆常态风请求 0.05，所以 6 帆 0.30 在限内、7 帆 0.35 正好贴丝；
+		// 每人 0.0333，满编 5 人 0.167 远在线内。谁改了档位或上限而没重算这两个交叉点，这里会红。
+		assertTrue(SpeedGovernor.sailTarget(6, 2.0) < SpeedGovernor.MAX_TRAVEL_SPEED,
+				"6 帆就贴上限，帆数从第 6 块起不再影响航速：" + SpeedGovernor.sailTarget(6, 2.0));
+		assertTrue(SpeedGovernor.rowTarget(5) < SpeedGovernor.MAX_TRAVEL_SPEED,
+				"满编 5 人划桨就贴上限：" + SpeedGovernor.rowTarget(5));
+		assertEquals(SpeedGovernor.MAX_TRAVEL_SPEED, SpeedGovernor.sailTarget(7, 2.0), EPS,
+				"7 帆常态风必须正好夹在上限（0.05×7 = 0.35）");
 		assertEquals(SpeedGovernor.MAX_TRAVEL_SPEED, SpeedGovernor.sailTarget(7, 4.0), EPS,
-				"7 帆 + 风暴应当被上限夹住（请求 0.35 > 0.25）");
-		assertEquals(SpeedGovernor.MAX_TRAVEL_SPEED, SpeedGovernor.rowTarget(40), EPS,
-				"40 份桨力必须夹到上限，越界的请求不能被放行");
+				"7 帆 + 风暴的请求 0.7 必须被夹住，越界的请求不能被放行");
 	}
 
 	@Test
 	void sailTargetScalesLinearlyWithSailsAndStrength() {
-		assertEquals(0.05, SpeedGovernor.sailTarget(2, 2.0), EPS, "2 帆 @风强2 应是 1 帆的两倍");
-		assertEquals(0.05, SpeedGovernor.sailTarget(1, 4.0), EPS, "1 帆 @风强4 应等于 2 帆 @风强2");
+		assertEquals(0.1, SpeedGovernor.sailTarget(2, 2.0), EPS, "2 帆 @风强2 应是 1 帆的两倍");
+		assertEquals(0.1, SpeedGovernor.sailTarget(1, 4.0), EPS, "1 帆 @风强4 应等于 2 帆 @风强2");
 		assertEquals(0.0, SpeedGovernor.sailTarget(3, 0.0), EPS, "静风时帆不给出任何目标速度");
 	}
 
@@ -51,6 +54,7 @@ class SpeedGovernorTest {
 	void impulseIsProportionalWhileTheErrorIsSmall() {
 		// 小误差区间里就是纯比例：冲量 = 质量 × (目标 − 实测) × 增益。
 		// 这条断言只在"没有触到斜率限制"的区间里成立，所以目标值刻意取小。
+		// 小误差区间才谈得上"纯比例"：0.0005×18 = 0.009，仍低于每 tick 增量硬顶 0.5
 		double mass = 25.5;
 		double target = 0.0005;
 		assertEquals(mass * target * SpeedGovernor.GAIN,

@@ -206,6 +206,12 @@ def main():
         p("cww force %s %d" % (name, team))
     keep_alive(p, bots)
     p("cww start %s %s" % (FORMAT, SEA))
+    # 再按一次：cww start 会做赛制变更，而 RoundMachine 在赛制变更时重新分队
+    # （实测把 o..A3 挪去了队 1，表现是"这人不在队 0（他的队号=1）"，
+    # 于是抵消那一档只有 3 个人，看着像桨的抵消失效）。ENROLL 阶段还允许改队，
+    # 进 PLAY 之后就再也改不动了，所以这一遍必须紧跟 start。
+    for name, team in bots:
+        p("cww force %s %d" % (name, team))
     reached, cur = p.wait_phase("PLAY", 200)
     expect(reached, "oar_long 能开整局并进到 PLAY（当前：%s）" % cur[:60])
     if not reached:
@@ -256,8 +262,8 @@ def main():
     held = read_oar(p)
     expect(abs(held["strokes"] - 1.0) < 1e-6,
            "一台朝南的桨在有人划时桨档应当是 1.00，实测 %.2f" % held["strokes"])
-    expect(abs(held["target"] - 0.0167) < 1e-6,
-           "单人单桨的目标位移速度应当是 0.0167 格/tick（02 §6 的 2 格/6 秒），实测 %.4f"
+    expect(abs(held["target"] - 0.0333) < 1e-4,
+           "单人单桨的目标位移速度应当是 0.0333 格/tick（2/3 格/秒；02 §6 折算值的 2 倍），实测 %.4f"
            % held["target"])
     one = sample(p)
     print("      1 人划桨：均值 %.4f 峰值 %.4f 格/tick（%.2f 格/秒）v=(%.3f, %.3f) 漂行 %.0f 格"
@@ -266,9 +272,10 @@ def main():
     expect(one["vz"] > 0 and abs(one["vx"]) < 0.05,
            "朝南的桨必须往 +Z 推（实测 v=(%.3f, %.3f)）；符号反了就是 north/south 换算错了"
            % (one["vx"], one["vz"]))
-    expect(0.008 <= one["speed"] <= 0.030,
-           "单人单桨的「位移」速度要在 0.008..0.030 格/tick（0.16..0.6 格/秒）内，"
-           "对应 02 §6 的 2 格/6 秒；实测 %.4f 格/tick = %.2f 格/秒" % (one["speed"], one["speed"] * 20))
+    expect(0.020 <= one["speed"] <= 0.047,
+           "单人单桨的「位移」速度要在 0.020..0.047 格/tick（0.4..0.94 格/秒）内，"
+           "也就是目标 2/3 格/秒的 -40%%..+40%%；实测 %.4f 格/tick = %.2f 格/秒"
+           % (one["speed"], one["speed"] * 20))
     expect(abs(one["speed"] - one["target"]) <= max(1e-4, 0.20 * one["target"]),
            "控制器必须把位移追上目标（差 20%% 以内）：目标 %.4f 实测 %.4f"
            % (one["target"], one["speed"]))
@@ -322,10 +329,12 @@ def main():
            "走不出去，控制器口径再自洽也没有玩法意义" % (travelled, travelled / seconds))
     # 上界同样要断言：GAIN=20 那次实测 8.4 秒飞了 1475 格（筏子被甩出海域后脱离水阻失控），
     # 而均值采样恰好没抓到那一段，只靠"均值不超上限"根本拦不住 runaway。
-    expect(travelled < 40.0,
-           "满员划桨 8 秒不该飞出海域（实测 %.1f 格 = %.2f 格/秒）——"
-           "4 人的目标是 1.33 格/秒，超过这个量级 3 倍以上就是控制器在甩筏子"
-           % (travelled, travelled / seconds))
+    bound = max(40.0, four["target"] * 20.0 * seconds * 1.6)
+    expect(travelled < bound,
+           "满员划桨 %.1f 秒不该飞出海域（实测 %.1f 格 = %.2f 格/秒，上界 %.0f 格）——"
+           "上界按目标速度推导（目标 ×20 ×时长 ×1.6），留出瞬态余量；"
+           "超出这个量级就是控制器在甩筏子（GAIN=20 那次 8.4 秒飞了 1475 格）"
+           % (seconds, travelled, travelled / seconds, bound))
     runaway = [g for g in [one["peak"], two["peak"], four["peak"]] if g > four["cap"] * 1.5]
     expect(not runaway, "任何一档的单次读数都不该越过上限 1.5 倍（实测 %s，上限 %.3f）"
            % (["%.3f" % x for x in runaway], four["cap"]))
