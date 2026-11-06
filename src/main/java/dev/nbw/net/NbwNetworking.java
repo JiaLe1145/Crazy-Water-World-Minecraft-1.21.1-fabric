@@ -6,6 +6,7 @@ import dev.nbw.content.RaftCoreBlockEntity;
 import dev.nbw.domain.net.HoldPolicy;
 import dev.nbw.raft.OarService;
 import dev.nbw.raft.RaftCoreService;
+import dev.nbw.rescue.RescueService;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.server.MinecraftServer;
@@ -68,6 +69,7 @@ public final class NbwNetworking {
 				// 松手就是"我不再按着了"，不区分对象：两边都清，漏一边会留下过期动力或修复进度
 				RaftCoreService.release(player.getUuid());
 				OarService.release(player.getUuid());
+				RescueService.release(player.getUuid());   // 松手就断扒边续包，窗口过期后人会落回水里
 			}
 			case KEEPALIVE -> {
 				// 同一个包按"点到的方块是什么"分派；身份仍然只从 BE 读，不按坐标查表
@@ -79,7 +81,9 @@ public final class NbwNetworking {
 					// 必须显式接 null：getBlockEntity 对空气与普通方块返回 null，
 					// 而 Java 21 的 switch 碰上 null 选择值会直接 NPE —— 真人长按任意方块就能打崩服务端线程。
 					case null, default -> {
-						// 点到的不是有归属的设施：别的方块、别队的、或手工摆的。静默丢弃
+						// 点到的不是有归属的设施：可能是筏体外壳（水里长按=扒边），
+						// 由 RescueService 自己按"在水里 + 够得着自家船壳"判，别的东西自然判不出来
+						RescueService.keepalive(player.getUuid());
 					}
 				}
 			}

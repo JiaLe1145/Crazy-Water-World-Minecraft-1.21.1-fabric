@@ -5,6 +5,7 @@ import dev.nbw.arena.ArenaChunkLoader;
 import dev.nbw.arena.BuiltinArenaJson;
 import dev.nbw.arena.SeaTerrain;
 import dev.nbw.construct.BuildService;
+import dev.nbw.rescue.RescueService;
 import dev.nbw.cfg.ConfigModels;
 import dev.nbw.cfg.ConfigService;
 import dev.nbw.domain.SpawnGeometry;
@@ -173,6 +174,7 @@ public final class RoundManager {
 			RaftCoreService.onEndTick(srv);
 			WindService.apply(srv);   // 帆：登记风力目标（被动等风）
 			OarService.onEndTick(srv);   // 桨：登记桨力目标（有人持续按着才算）
+			RescueService.onEndTick(srv);   // 扒边：只挪玩家位置，筏的目标仍由下一行合成
 			RaftMotionService.onEndTick(srv);   // 两个目标合成之后，本 tick 只施一发控制冲量
 		}
 		// 恢复出来的这一局必须能晚点认领筏子：重启那一刻 Sable 还没把 sub-level 载进容器，
@@ -650,6 +652,7 @@ public final class RoundManager {
 		OarService.reset();   // 桨位表与"正在划"的人同样是局内状态；残留=下一局白得动力或桨位被占
 		RaftMotionService.reset();   // 位移采样的位姿基线必须重取，否则跨局第一 tick 会算出一个假速度
 		BuildService.reset();   // 建造提示的节流表按玩家 UUID 涨；判定计数是跨局运维量，故意不清
+		RescueService.reset();   // 扒边状态与续包窗口都是局内的：残留=下一局开局就有人在半空爬
 	}
 
 	// ---------------------------------------------------------------- 配置与命令入口

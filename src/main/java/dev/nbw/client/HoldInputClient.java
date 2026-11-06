@@ -69,6 +69,11 @@ public final class HoldInputClient {
 		}
 		final BlockPos pos = ((BlockHitResult) hit).getBlockPos();
 		final BlockState state = client.world.getBlockState(pos);
+		if (client.player.isTouchingWater() && !state.isAir()) {
+			// 泡在水里时把准星对准的实心格也发出去：扒边靠的就是这条包，
+			// 而"是不是自家筏的外壳、够不够得着"一律由服务端判（04 §2 不变式 4，客户端不作数）。
+			return pos;
+		}
 		if (state.getBlock() instanceof OarBlock) {
 			return pos;   // 桨台没有"残骸"这种前置条件，随时可按
 		}

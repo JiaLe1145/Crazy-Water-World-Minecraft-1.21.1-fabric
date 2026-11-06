@@ -272,6 +272,45 @@ public final class SableRafts {
 		return new Scan(blocks, columns, facilities, sl.getPlot().getLoadedChunks().size());
 	}
 
+	/**
+	 * 世界坐标 → 该筏的 plot 局部坐标（与 {@link #setPlotBlock}、建造规则同一个口径）。
+	 *
+	 * <p><b>这是"人在不在筏上"唯一正确的问法。</b>判定必须走 {@code logicalPose} 的逆变换：
+	 * 筏子会开走，用世界坐标或 {@code getContaining}（它只比存储区块）去找"这个玩家所在的筏"
+	 * 一定假阴性。Sable 自己的射线与伸手距离也是这条链
+	 * （{@code BlockGetterMixin:116-117}、{@code interaction_distance/PlayerMixin:41}）。
+	 *
+	 * <p><b>两套"局部"坐标必须分清，这正是我在这里翻过一次车的地点：</b>
+	 * 方块交互事件递交的是<b>存储坐标</b>（量级 2×10^7，换算局部要减 {@code getCenterBlock()}），
+	 * 而玩家/实体的世界坐标经位姿逆变换出来<b>已经是甲板中心为原点的局部坐标</b>，不能再减。
+	 * 两者数值上属于同一帧（甲板中心 = 0），但来源不同，混用会得到天文数字的距离。
+	 * 可验证的锚点：把筏的位姿原点本身喂进来，必须得到 {@code (0, 0, 0)}
+	 * ——因为甲板是写在局部 y=0 这一层、然后整体 teleport 到那个坐标的（探针钉住这条）。
+	 *
+	 * @return {@code {lx, ly, lz}}；筏不存在时返回 NaN 三元组（不返回 null，省得每个调用点都要判空）
+	 */
+	public static double[] worldToLocal(ServerWorld world, UUID raftId, double x, double y, double z) {
+		ServerSubLevel sl = resolve(world, raftId);
+		if (sl == null) {
+			return new double[]{Double.NaN, Double.NaN, Double.NaN};
+		}
+		// 自己做位姿逆变换：Sable 的 transformPositionInverse 声明在 companion 桥上，
+		// 参数表里掺了 intermediary 类名（class_243），yarn 工程编译期看不见（和 raftAt 那次同一堵墙）。
+		// 算法就是标准位姿逆：storage = q⁻¹ · (world − origin)，与 Sable 内部那条完全同义。
+		Vector3d storage = new Vector3d(x, y, z);
+		Vector3d origin = new Vector3d();
+		sl.logicalPose().position().get(origin);
+		storage.sub(origin);
+		org.joml.Quaterniond q = new org.joml.Quaterniond(sl.logicalPose().orientation());
+		q.invert();               // 单位四元数的逆就是共轭；这版 joml 的 Vector3d 没有 rotateConjugate
+		storage.rotate(q);
+		// 不再减 plot 中心块：logicalPose 映射的本来就是"以甲板中心为原点"的那套坐标，
+		// 与 setPlotBlock / neighborMask 用的是同一帧（实测：人站在筏中心时这里必须得 (0,0,0)）。
+		// 之前多减了一次 center，得到的是 ±2×10^7 那种量级的数，
+		// 后果不是报错而是"明明贴着船壳却判够不着"，扒边整条路静默失效。
+		return new double[]{storage.x, storage.y, storage.z};
+	}
+
 	/** 实心 = 非空气且不可替换（水、雪、植被都不算）。 */
 	private static boolean isSolid(BlockState state) {
 		return state != null && !state.isAir() && !state.isReplaceable();

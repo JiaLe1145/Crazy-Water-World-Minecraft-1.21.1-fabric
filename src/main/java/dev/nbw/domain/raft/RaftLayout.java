@@ -50,6 +50,17 @@ public final class RaftLayout {
 		return deckStart(side) + side - 1;
 	}
 
+	/**
+	 * footprint 的半边宽：{@code max(-start, end)}，也就是"最远那一侧到中心的距离"。
+	 * 扒边判定要的是这个，不是 {@code side/2}——偶数边长时两侧并不对称（4 → 一侧 2、一侧 1）。
+	 */
+	public static int halfWidth(int side) {
+		if (side <= 0) {
+			return 0;
+		}
+		return Math.max(-deckStart(side), deckEnd(side));
+	}
+
 	/** 甲板格数（面积）。 */
 	public static int deckCells(int side) {
 		return side <= 0 ? 0 : side * side;

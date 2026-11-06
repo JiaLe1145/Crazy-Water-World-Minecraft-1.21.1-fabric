@@ -20,6 +20,7 @@ import dev.nbw.raft.RaftSinking;
 import dev.nbw.raft.RaftSpawner;
 import dev.nbw.raft.Sailing;
 import dev.nbw.raft.WindService;
+import dev.nbw.rescue.RescueService;
 import dev.nbw.round.RoundManager;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.server.command.CommandManager;
@@ -192,6 +193,16 @@ public final class NbwCommands {
 												IntegerArgumentType.integer(1, 600))
 												.executes(NbwCommands::oarHold))))));
 		root.then(oar);
+
+		// ---- 落水与扒边（M2-8 / 01 §8）：自救时序与拒绝原因的观测面
+		var rescue = admin(CommandManager.literal("rescue"));
+		rescue.then(CommandManager.literal("status").executes(NbwCommands::rescueStatus));
+		rescue.then(CommandManager.literal("last").executes(NbwCommands::rescueLast));
+		rescue.then(CommandManager.literal("hold")
+				.then(CommandManager.argument("player", StringArgumentType.word())
+						.then(CommandManager.argument("ticks", IntegerArgumentType.integer(1, 600))
+								.executes(NbwCommands::rescueHold))));
+		root.then(rescue);
 
 		// ---- 建造规则（M2-6 / 01 §4.2）：上限与归属判定的观测面
 		var build = admin(CommandManager.literal("build"));
@@ -403,6 +414,31 @@ public final class NbwCommands {
 	private static int stateFile(CommandContext<ServerCommandSource> ctx) {
 		String msg = RoundManager.describeStateFile();
 		ctx.getSource().sendFeedback(() -> Text.literal("[cww] " + msg), false);
+		return 1;
+	}
+
+	private static int rescueStatus(CommandContext<ServerCommandSource> ctx) {
+		ctx.getSource().sendFeedback(() -> Text.literal(RescueService.status(ctx.getSource().getServer())), false);
+		return 1;
+	}
+
+	private static int rescueLast(CommandContext<ServerCommandSource> ctx) {
+		List<String> recent = RescueService.recent();
+		if (recent.isEmpty()) {
+			ctx.getSource().sendFeedback(() -> Text.literal("[cww] 还没有救援事件（没人扒过边）"), false);
+			return 0;
+		}
+		for (String line : recent) {
+			ctx.getSource().sendFeedback(() -> Text.literal("[cww] " + line), false);
+		}
+		return recent.size();
+	}
+
+	private static int rescueHold(CommandContext<ServerCommandSource> ctx) {
+		String player = StringArgumentType.getString(ctx, "player");
+		int ticks = IntegerArgumentType.getInteger(ctx, "ticks");
+		String line = RescueService.hold(ctx.getSource().getServer(), player, ticks);
+		ctx.getSource().sendFeedback(() -> Text.literal("[cww] " + line), true);
 		return 1;
 	}
 
