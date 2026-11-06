@@ -126,59 +126,34 @@ class WindModelTest {
 	// ---------------------------------------------------------------- 航速上限
 
 	@Test
-	void headroomIsFullAtRestAndZeroAtCap() {
-		assertEquals(1.0, WindModel.headroom(0.0, WindModel.MAX_SAIL_SPEED), EPS);
-		assertEquals(0.0, WindModel.headroom(WindModel.MAX_SAIL_SPEED, WindModel.MAX_SAIL_SPEED), EPS);
+	void windUnitsIsSailCountTimesWindStrength() {
+		// 航行数值现在只认"迎风帆数 × 风强"这一个无量纲量（SpeedGovernor 的档位输入），
+		// 所以它必须与已批准的 02 §6 比例严格一致，不能偷偷带上 FORCE_PER_SAIL。
+		assertEquals(6.0, WindModel.windUnits(3, 0, 0, 0, new Wind(0.0, -1.0, 2.0)), 1e-9);
+		assertEquals(12.0, WindModel.windUnits(6, 0, 0, 0, new Wind(0.0, -1.0, 2.0)), 1e-9);
+		// 风强翻倍，份数也翻倍（每块帆的份数是 迎风 × 帆数，迎风里已经含了一次风强）：
+		// 风暴事件因此真的能推得更快，这条就是那个断言。
+		assertEquals(12.0, WindModel.windUnits(3, 0, 0, 0, new Wind(0.0, -1.0, 4.0)), 1e-9);
 	}
 
 	@Test
-	void headroomNeverGoesNegativeOrAboveOne() {
-		// 超上限、负速度都不该产出负系数，也不该产出 >1 的"免费加速"
-		assertEquals(0.0, WindModel.headroom(WindModel.MAX_SAIL_SPEED * 3.0, WindModel.MAX_SAIL_SPEED), EPS);
-		assertEquals(1.0, WindModel.headroom(-1.0, WindModel.MAX_SAIL_SPEED), EPS);
-		for (double v = 0.0; v <= WindModel.MAX_SAIL_SPEED * 1.5; v += 0.01) {
-			double h = WindModel.headroom(v, WindModel.MAX_SAIL_SPEED);
-			assertTrue(h >= 0.0 && h <= 1.0, "v=" + v + " 余量越界：" + h);
-		}
+	void windUnitsCancelsLeewardAndCrosswiseSails() {
+		// 背风不受力（不是负数）：北风下 3 块朝南的帆一份都不算，所以 3 北 + 3 南 = 3 北 = 6 份
+		// （每块帆的份数是 迎风 1 × 风强 2）。
+		assertEquals(6.0, WindModel.windUnits(3, 3, 0, 0, new Wind(0.0, -1.0, 2.0)), 1e-9);
+		assertEquals(0.0, WindModel.windUnits(0, 0, 4, 0, new Wind(0.0, -1.0, 2.0)), 1e-9);
+		// 斜风下北与东两块帆都受风，但它们是互相垂直的贡献：档位取的是合矢量的模长，
+		// 不是把份数直接相加（sqrt(1.414²+1.414²)=2.0）。这条断言就是"矢量口径"的证据，
+		// 哪天有人把它改成标量求和，这里会立刻红。
+		double diag = WindModel.windUnits(1, 1, 1, 1, new Wind(0.7071, -0.7071, 2.0));
+		assertEquals(2.0, diag, 1e-3);
 	}
 
 	@Test
-	void headroomDecreasesMonotonicallyWithSpeed() {
-		double prev = 1.0;
-		for (double v = 0.0; v < WindModel.MAX_SAIL_SPEED; v += 0.005) {
-			double h = WindModel.headroom(v, WindModel.MAX_SAIL_SPEED);
-			assertTrue(h <= prev + 1e-12, "v=" + v + " 余量没随速度单调下降：" + h + " > " + prev);
-			prev = h;
-		}
-	}
-
-	@Test
-	void zeroOrNegativeCapStopsThrustInsteadOfProducingNaN() {
-		// 除零会得到 NaN，NaN 乘进推力就是失控的筏子；上限为 0 的语义必须是"不推进"
-		assertEquals(0.0, WindModel.headroom(0.1, 0.0), EPS);
-		assertEquals(0.0, WindModel.headroom(0.1, -1.0), EPS);
-	}
-
-	@Test
-	void softKneeKeepsMidSpeedRangeNearlyUnpenalised() {
-		// 四次方拐点存在的意义：一半速度时几乎不吃力，否则"帆多更快"会被余量提前压平
-		assertTrue(WindModel.headroom(WindModel.MAX_SAIL_SPEED * 0.5, WindModel.MAX_SAIL_SPEED) > 0.9,
-				"半速就收力，帆数差异会被上限抹平");
-		assertTrue(WindModel.headroom(WindModel.MAX_SAIL_SPEED * 0.95, WindModel.MAX_SAIL_SPEED) < 0.2,
-				"逼近上限时收力不够，上限形同虚设");
-	}
-
-	@Test
-	void calibrationTripwireSailCountsSpanTheCap() {
-		// 真机标定（M2-RESULTS §3.8）：水阻 ≈ 3.88 × 速度（3 帆 + 风强 2 时自然终端 1.546 格/tick，
-		// 当时每帆推力系数是 1.0）。用它当绊线：上限既不能高到永远碰不到，也不能低到把所有船压成一个速度。
-		double dragPerSpeed = 3.88;
-		double typicalWind = 2.0;
-		double vOne = 1 * WindModel.FORCE_PER_SAIL * typicalWind / dragPerSpeed;
-		double vSeven = 7 * WindModel.FORCE_PER_SAIL * typicalWind / dragPerSpeed;
-		assertTrue(vOne < WindModel.MAX_SAIL_SPEED * 0.5,
-				"1 帆就已经贴着上限，帆数将不再影响航速：" + vOne);
-		assertTrue(vSeven > WindModel.MAX_SAIL_SPEED,
-				"满帆的自然速度都碰不到上限，上限是死代码：" + vSeven);
+	void windUnitsIsZeroWhenCalmOrUnrigged() {
+		assertEquals(0.0, WindModel.windUnits(5, 0, 0, 0, Wind.none()), 1e-9);
+		assertEquals(0.0, WindModel.windUnits(0, 0, 0, 0, new Wind(0.0, -1.0, 2.0)), 1e-9);
+		assertTrue(!Double.isNaN(WindModel.windUnits(3, 0, 0, 0, new Wind(0.0, -1.0, 0.0))),
+				"静风必须给 0 档，不能给 NaN —— NaN 会一路污染到刚体速度");
 	}
 }

@@ -17,9 +17,12 @@
     速率必须趴在 0；这一段过了，后面的读数才有意义。
   * 风力全程设成 0。桨与风共用同一条航速上限，如果不先关掉风，
     "桨让筏子动了"这个结论就永远分不清是桨还是风。
-  * 上限与单桨推力一律从服务端读数行里取，不在探针里抄常量——
+  * 上限、目标、档位一律从服务端读数行里取，不在探针里抄常量——
     抄一份就可能出现"探针与代码不一致还全绿"。
+  * 断言全部打在「位移」速度上（#39）。施力后那一瞬的峰值只打印出来作诊断：
+    它比位移高一个数量级，拿它当"每秒走几格"会让每一档数值都骗人。
 """
+import io
 import math
 import os
 import re
@@ -27,7 +30,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from sea_probe import P, keep_alive, sweep_stale_bots  # noqa: E402
+from sea_probe import LOG, P, keep_alive, sweep_stale_bots  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SEA = "test_sea"
@@ -107,16 +110,18 @@ def read_oar(p, team=TEAM):
     def num(pattern):
         m = re.search(pattern, line)
         return float(m.group(1)) if m else -1.0
+    # 速度=/速率= 现在是「位移」口径（相邻两 tick 的位姿差），也就是玩家看见的快慢；
+    # 峰值只作诊断——它比位移高一个数量级，以前正是它被当成航速，数值才全错（#39）。
     return {
         "line": line,
         "oars": num(r"桨=(\d+)"),
         "rowers": num(r"在划=(\d+)"),
-        "fx": num(r"合力=\(([-\d.eE+]+),"),
-        "fz": num(r"合力=\([-\d.eE+]+,\s*([-\d.eE+]+)\)"),
+        "strokes": num(r"桨档=([-\d.]+)"),
         "vx": num(r"速度=\(([-\d.eE+]+),"),
         "vz": num(r"速度=\([-\d.eE+]+,\s*([-\d.eE+]+)\)"),
         "speed": num(r"速率=([-\d.eE+]+)"),
-        "per_oar": num(r"单桨推力=([-\d.]+)"),
+        "target": num(r"目标=([-\d.]+)"),
+        "peak": num(r"峰值=([-\d.]+)"),
         "cap": num(r"上限=([-\d.]+)"),
     }
 
@@ -133,6 +138,7 @@ def sample(p, team=TEAM, settle=4.0, reads=4, gap=0.6):
     p("sable teleport %s %d %d %d" % (uuid, START[0], START[1], START[2]))
     p.sleep(settle)
     got = [read_oar(p, team) for _ in range(reads)]
+    # 单次最大值单独留出来：只看均值会把几秒的 runaway 平均掉（GAIN=20 那次就是这么漏掉的）
     pos = raft_xyz(p, uuid) if uuid else (0.0, 0.0)
     drift = math.hypot(pos[0] - START[0], pos[1] - START[2])
     mean = lambda k: sum(g[k] for g in got) / len(got)
@@ -140,14 +146,18 @@ def sample(p, team=TEAM, settle=4.0, reads=4, gap=0.6):
     # 表现成"4 人反而没有 1 人的四倍快"这种其实是采样窗口的问题
     return {"speed": mean("speed"), "peak": max(g["speed"] for g in got),
             "vx": mean("vx"), "vz": mean("vz"),
-            "fx": mean("fx"), "fz": mean("fz"), "cap": max(g["cap"] for g in got),
-            "per_oar": got[0]["per_oar"], "oars": got[0]["oars"], "rowers": got[0]["rowers"],
+            "strokes": mean("strokes"), "target": mean("target"),
+            "impulse_peak": mean("peak"), "cap": max(g["cap"] for g in got),
+            "oars": got[0]["oars"], "rowers": got[0]["rowers"],
             "drift": drift, "line": got[0]["line"]}
 
 
 def main():
     sys.stdout.reconfigure(line_buffering=True)
     p = P()
+    # 连上服务端时的日志末尾位置。用它取"本次运行以来"的完整日志：
+    # 残留清理发生在开局那一刻，而 step 11 的 p.log() 游标早已被 step 1 推进过，只看增量会漏掉。
+    log_base = p.logpos
     ok, bad = [], []
 
     def expect(cond, msg):
@@ -235,18 +245,20 @@ def main():
     rigged = p("cww oar rig %d 1 south" % TEAM)
     r3 = read_oar(p)
     expect("挂上 1 台桨台" in rigged and r3["oars"] == 1, "挂 1 台桨要读数一致（%s）" % rigged[:60])
-    expect(r3["per_oar"] > 0, "读数行要带服务端单桨推力（探针不自己抄常量）：%.4f" % r3["per_oar"])
-    expect(r3["fz"] == 0 and r3["fx"] == 0,
-           "没人划的时候合力必须是 0（实测 (%.3f, %.3f)）—— 这条是桨力的负对照，"
-           "它若恒过，就等于承认「有人没人在划都一样」，整段读数作废" % (r3["fx"], r3["fz"]))
+    expect(r3["cap"] > 0, "读数行要带服务端位移上限（探针不自己抄常量）：%.3f" % r3["cap"])
+    expect(r3["strokes"] == 0 and r3["target"] == 0,
+           "没人划的时候桨档与目标都必须是 0（实测 桨档=%.2f 目标=%.4f）—— 这条是桨力的负对照，"
+           "它若恒过，就等于承认「有人没人在划都一样」，整段读数作废" % (r3["strokes"], r3["target"]))
     first_hold = p("cww oar hold %s %d south 240" % (t0[0], TEAM))
     expect("已登记" in first_hold,
            "队 0 的假玩家必须真的拿到席位（回：%s）—— 拿不到就是夹具席位没配好，"
            "后面每条读数都没有对象" % first_hold[:80])
     held = read_oar(p)
-    expect(abs(held["fz"] - held["per_oar"]) < 1e-3 and abs(held["fx"]) < 1e-3,
-           "一台朝南的桨在有人划时合力应当是 (0, 单桨推力)，实测 (%.3f, %.3f)"
-           % (held["fx"], held["fz"]))
+    expect(abs(held["strokes"] - 1.0) < 1e-6,
+           "一台朝南的桨在有人划时桨档应当是 1.00，实测 %.2f" % held["strokes"])
+    expect(abs(held["target"] - 0.0167) < 1e-6,
+           "单人单桨的目标位移速度应当是 0.0167 格/tick（02 §6 的 2 格/6 秒），实测 %.4f"
+           % held["target"])
     one = sample(p)
     print("      1 人划桨：均值 %.4f 峰值 %.4f 格/tick（%.2f 格/秒）v=(%.3f, %.3f) 漂行 %.0f 格"
           % (one["speed"], one["peak"], one["peak"] * 20, one["vx"], one["vz"], one["drift"]))
@@ -254,8 +266,12 @@ def main():
     expect(one["vz"] > 0 and abs(one["vx"]) < 0.05,
            "朝南的桨必须往 +Z 推（实测 v=(%.3f, %.3f)）；符号反了就是 north/south 换算错了"
            % (one["vx"], one["vz"]))
-    expect(0.02 <= one["speed"] <= 0.20,
-           "单人单桨速率要在桨档 0.02..0.20 格/tick 内（P-01 的 ≈2 格/秒），实测 %.4f" % one["speed"])
+    expect(0.008 <= one["speed"] <= 0.030,
+           "单人单桨的「位移」速度要在 0.008..0.030 格/tick（0.16..0.6 格/秒）内，"
+           "对应 02 §6 的 2 格/6 秒；实测 %.4f 格/tick = %.2f 格/秒" % (one["speed"], one["speed"] * 20))
+    expect(abs(one["speed"] - one["target"]) <= max(1e-4, 0.20 * one["target"]),
+           "控制器必须把位移追上目标（差 20%% 以内）：目标 %.4f 实测 %.4f"
+           % (one["target"], one["speed"]))
 
     print("== 4. 人数↑ 速率↑（桨档玩法成立的前提）")
     p("cww oar strip %d" % TEAM)
@@ -301,9 +317,21 @@ def main():
     print("      位移实测：%.1f 秒走了 %.1f 格 = %.2f 格/秒；同时刻速率读数 %.4f 格/tick（%.2f 格/秒），"
           "读数/位移 = %.1f 倍" % (seconds, travelled, travelled / seconds, read_v, read_v * 20,
                                    (read_v * 20) / max(0.01, travelled / seconds)))
-    expect(travelled > 1.0,
-           "满员划桨 8 秒必须真的走出东西（实测 %.1f 格）—— 走不出去，推力口径再自洽也没有玩法意义"
-           % travelled)
+    expect(travelled > 5.0,
+           "满员划桨 8 秒必须真的走出 5 格以上（实测 %.1f 格 = %.2f 格/秒）——"
+           "走不出去，控制器口径再自洽也没有玩法意义" % (travelled, travelled / seconds))
+    # 上界同样要断言：GAIN=20 那次实测 8.4 秒飞了 1475 格（筏子被甩出海域后脱离水阻失控），
+    # 而均值采样恰好没抓到那一段，只靠"均值不超上限"根本拦不住 runaway。
+    expect(travelled < 40.0,
+           "满员划桨 8 秒不该飞出海域（实测 %.1f 格 = %.2f 格/秒）——"
+           "4 人的目标是 1.33 格/秒，超过这个量级 3 倍以上就是控制器在甩筏子"
+           % (travelled, travelled / seconds))
+    runaway = [g for g in [one["peak"], two["peak"], four["peak"]] if g > four["cap"] * 1.5]
+    expect(not runaway, "任何一档的单次读数都不该越过上限 1.5 倍（实测 %s，上限 %.3f）"
+           % (["%.3f" % x for x in runaway], four["cap"]))
+    expect(abs(four["speed"] - four["target"]) <= max(1e-4, 0.20 * four["target"]),
+           "满员时控制器也要把位移追上目标（差 20%% 以内）：目标 %.4f 实测 %.4f"
+           % (four["target"], four["speed"]))
 
     print("== 6. 反向桨互相抵消：乱装桨不该白得动力")
     p("cww oar strip %d" % TEAM)
@@ -311,14 +339,20 @@ def main():
     p("cww oar rig %d 2 north" % TEAM)
     r6 = read_oar(p)
     expect(r6["oars"] == 4, "两次 rig 应当共 4 台桨（实测 %.0f）" % r6["oars"])
+    registered = []
     for n in range(2):
-        p("cww oar hold %s %d south 240" % (t0[n], TEAM))
-        p("cww oar hold %s %d north 240" % (t0[n + 2], TEAM))
+        for facing, idx in (("south", n), ("north", n + 2)):
+            out = p("cww oar hold %s %d %s 240" % (t0[idx], TEAM, facing))
+            registered.append((t0[idx], facing, "已登记" in out, out[:60]))
+    failed = [r for r in registered if not r[2]]
+    expect(not failed, "四台桨都该登记成功，失败的是：%s" % failed)
     cancel = sample(p, settle=6.0)
-    print("      2 南 + 2 北：合力 (%.3f, %.3f)，速率 %.4f，在划 %.0f"
-          % (cancel["fx"], cancel["fz"], cancel["speed"], cancel["rowers"]))
+    print("      2 南 + 2 北：桨档 %.2f，目标 %.4f，位移速率 %.4f，在划 %.0f"
+          % (cancel["strokes"], cancel["target"], cancel["speed"], cancel["rowers"]))
     expect(cancel["rowers"] == 4, "四台桨都该有人（实测 %.0f）" % cancel["rowers"])
-    expect(abs(cancel["fz"]) < 0.02, "南向与北向桨数相等时合力应当归零（实测 %.3f）" % cancel["fz"])
+    expect(abs(cancel["strokes"]) < 1e-6 and abs(cancel["target"]) < 1e-6,
+           "南向与北向桨数相等时净桨档与目标都必须归零（实测 桨档=%.2f 目标=%.4f）"
+           % (cancel["strokes"], cancel["target"]))
     expect(cancel["peak"] < one["peak"] * 0.5,
            "抵消后的速率应当远低于单人单桨（峰值 %.4f vs %.4f），否则抵消没生效"
            % (cancel["peak"], one["peak"]))
@@ -382,6 +416,24 @@ def main():
     expect(not behind, "整段划桨不该出现 tick 落后（实测 %d 次）" % len(behind))
     if gaps:
         expect(max(gaps) <= 400, "帧时间要用 tick 间隔量，不看门狗累计欠账（实测最大 %d ms）" % max(gaps))
+
+    # 按名字反查筏体必须始终没有歧义。日志里出现过"命中 N 个 sub-level"就说明世界里有同名残骸，
+    # 那么这一轮的漂行距离、桨位归属、票回收全都指向不同个体，结论要整体打折（见 #38）。
+    # RaftSpawner.clearNameSlot 之后这条应该恒绿；它红了就说明残骸又开始累积。
+    with io.open(LOG, encoding="utf-8", errors="replace") as fh:
+        fh.seek(log_base)
+        whole = fh.read()
+    ambiguous = re.findall(r"命中 (\d+) 个 sub-level", whole)
+    cleaned_at = whole.rfind("清掉上一局残留的同名筏")
+    # 一刀切地要求"从来没出现过歧义 WARN"是错的：清理机制第一次按名字找的时候
+    # 本来就会撞上残骸并打出这条 WARN，那正是它在工作的证据。要看的是**最后一次清理之后**
+    # 还有没有歧义 —— 残骸若重新累积，这里就会红。
+    late = whole[cleaned_at:].count("命中") if cleaned_at >= 0 else len(ambiguous)
+    expect(late == 0,
+           "最后一次清理残留之后不应再出现按名字反查歧义（清理后仍出现 %d 次；本次运行累计 %d 次）"
+           % (late, len(ambiguous)))
+    print("      开局清掉的同名残留：%d 次；累计歧义 WARN：%d 次；清理之后仍歧义：%d 次"
+          % (whole.count("清掉上一局残留的同名筏"), len(ambiguous), late))
 
     for name, _ in bots:
         p("player %s kill" % name)

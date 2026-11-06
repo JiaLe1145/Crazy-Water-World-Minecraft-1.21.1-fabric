@@ -68,6 +68,41 @@ public final class RaftSpawner {
 	}
 
 	/**
+	 * 生成新筏之前，先把"这个名字已经被谁占了"处理干净。返回 null 表示可以继续生成。
+	 *
+	 * <p><b>不做这件事的后果是实测过的，不是推测的：</b>上一局如果崩溃或异常收尾，
+	 * {@link #spawned} 里已经没有它，但 Sable 的 sub-level 还活在盘上并继续持有
+	 * {@code nbw:round_active} 票。于是每开一局就多一只同名 {@code nbw_raft_0}
+	 * （最多同时存在 3 只），而 {@link SableRafts#findByName} 与探针的
+	 * {@code @e[name=...]} 都<b>只能取第一只</b> —— 桨位身份、位置读数、加载票回收
+	 * 分别指向不同个体。现场表现有三层：{@code sea_probe} 的"局后不再挂票"断言直接红、
+	 * "重启后桨位自己回来了"是被残骸撑出来的假绿、速率 0.1078 而漂行 0 格。
+	 *
+	 * <p>残留拆不掉时（多半是它所在的区块还没加载）选择<b>放行 + ERROR</b>：
+	 * 为一时清不掉的孤儿把整局开局堵死，运维代价更大。
+	 */
+	private static String clearNameSlot(ServerWorld world, int teamIndex) {
+		UUID tracked = spawned.get(teamIndex);
+		if (tracked != null) {
+			return "队 " + teamIndex + " 本局已经有筏（id=" + tracked
+					+ "），不重复生成——那只会留下一只没人认领的同名筏";
+		}
+		String name = NAME_PREFIX + teamIndex;
+		UUID orphan = SableRafts.findByName(world, name);
+		if (orphan == null) {
+			return null;
+		}
+		if (SableRafts.remove(world, orphan)) {
+			NBW.LOGGER.warn("[raftgen] 清掉上一局残留的同名筏 {}（id={}），队 {} 可以干净地生成新筏",
+					name, orphan, teamIndex);
+			return null;
+		}
+		NBW.LOGGER.error("[raftgen] {} 位置上有只没被记录的残留筏（id={}），现在拆不掉"
+				+ "（可能所在区块未加载）；本局仍会生成新筏，但按名字反查会有歧义，请运维处理", name, orphan);
+		return null;
+	}
+
+	/**
 	 * 给所有"有成员"的队生成筏。空队不生成——生成一艘没人住的筏只是白占 plot 槽位。
 	 *
 	 * @return 一行结论，含成功数与每一条失败原因
@@ -107,6 +142,11 @@ public final class RaftSpawner {
 			// 甲板铺在水面之上一格：贴水铺会让筏子一开局就被浮力顶一下
 			double cx = anchor.x() + 0.5, cy = anchor.y() + 1.0, cz = anchor.z() + 0.5;
 			String name = NAME_PREFIX + index;
+			String occupied = clearNameSlot(world, index);
+			if (occupied != null) {
+				failures.add("队 " + index + " " + occupied);
+				continue;
+			}
 			String[] err = new String[1];
 			UUID id = SableRafts.createRaft(world, cx, cy, cz, radius,
 					block.getDefaultState(), name, err);
@@ -187,6 +227,18 @@ public final class RaftSpawner {
 		var anchor = RoundManager.anchorAt(teamIndex);
 		if (anchor == null) {
 			return "队 " + teamIndex + " 没有出生锚点（先 /cww start 或确认 arena 配了 spawns）";
+		}
+		UUID tracked = spawned.get(teamIndex);
+		if (tracked != null && !SableRafts.present(world, tracked)) {
+			// 记着的那只其实已经没了（沉没 / 被 shatter / 被卸载）。
+			// 不先丢开这条失效映射，运维补生成会被自己的旧账堵死。
+			NBW.LOGGER.warn("[raftgen] 队 {} 记着的筏 {} 已经不在场，丢掉失效映射后重新生成", teamIndex, tracked);
+			spawned.remove(teamIndex);
+			RaftSinking.forget(teamIndex);
+		}
+		String occupied = clearNameSlot(world, teamIndex);
+		if (occupied != null) {
+			return occupied;
 		}
 		String[] err = new String[1];
 		UUID id = SableRafts.createRaft(world, anchor.x() + 0.5, anchor.y() + 1.0, anchor.z() + 0.5,

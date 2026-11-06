@@ -21,9 +21,13 @@ package dev.nbw.domain.raft;
 public final class WindModel {
 
 	/**
-	 * 单块帆在单位风强下的推力。
+	 * 单块帆在单位风强下的推力。<b>现在它只是无量纲换算系数</b>：
+	 * {@code |合力| / FORCE_PER_SAIL} 得到的就是"迎风帆数 × 风强"，
+	 * 那才是 {@link SpeedGovernor} 要的档位输入。
 	 *
-	 * <p><b>0.2 是真机标定值，不是设计值。</b>取 1.0 时实测 3 帆的自然终端速度 = 1.546 格/tick
+	 * <p>历史包袱要说清：0.2 这个数当年是拿"峰值读数"标出来的（1.0 时 3 帆读到 1.546 格/tick，
+	 * 除以 5 收到 0.31）。#39 之后航行数值已经搬到<b>位移</b>口径上，
+	 * 这个系数不再决定快慢，只决定合力方向的大小比例——留着是为了 {@code 合力=} 读数不失真。
 	 * （≈30.9 格/秒）—— 横穿 {@code default_sea} 的 280 格只要 9 秒，12 分钟的局根本没有节奏可言。
 	 * Sable 的水阻是 {@code ∝浸没体积×速度}，所以终端速度随每帆推力线性变化；
 	 * 从 1.0 除以 5 得到 0.2，对应 3 帆 ≈ 0.31 格/tick（≈6.2 格/秒，横穿约 45 秒）。
@@ -34,40 +38,20 @@ public final class WindModel {
 	public static final double MAX_STRENGTH = 4.0;
 
 	/**
-	 * 航速上限（作用在 {@code SableRafts.linearVelocity} 的读数上，格/tick）。取 0.45。
+	 * "迎风帆数 × 风强"的无量纲量：把各朝向帆的迎风贡献加起来。
 	 *
-	 * <p><b>这个数是"读数"，不是"每秒走几格"。</b>实测（{@code tools/oar_probe.py} 第 5 步）：
-	 * 满员划桨 8.1 秒实际只位移 2.4 格 = 0.29 格/秒，而同一时刻读数是 0.3207 格/tick（6.41 格/秒），
-	 * 相差约 22 倍。原因是我们每 tick 用 {@code applyLinearImpulse} 施一次力，
-	 * 读到的正是施完力的瞬时峰值，而 Sable 的水阻（{@code buoyancy.rs} 的 {@code do_drag}）
-	 * 在同一个 tick 内就把绝大部分速度吃掉；位移由积分后的实际运动决定，只能另测。
+	 * <p>为什么用合力反推而不是重写一套计数：{@link #fleetThrust} 已经把
+	 * "背风的帆不受力"和"两面反向的帆互相抵消"算对了，再写一遍迟早两边不一致。
 	 *
-	 * <p>所以：上限作为<b>保险丝</b>（防止任何动力组合把峰值推到失控）是有效且已验证的；
-	 * 但"横穿 280 格要多少秒"这类玩法节奏必须由位移实测重算，别拿这个数推。
-	 * 位移口径的配平是未结案项，见任务 #39。
+	 * @return 0 表示这股风推不动这组帆（静风、或全背风）
 	 */
-	public static final double MAX_SAIL_SPEED = 0.45;
-
-	/**
-	 * 速度余量系数（0..1）：乘到推力上，让航速平滑收敛到上限而不是撞硬墙。
-	 *
-	 * <p>用 (v/cap)^4 而不是"到点砍成 0"：硬切会让筏子在临界速度上
-	 * 一 tick 施加、下一 tick 不施加，读数抖、玩家也能看到一顿一顿。
-	 * 四次方是为了让前 80% 速度段几乎不吃惩罚（保持"帆多更快"），只在逼近上限时才收力。
-	 */
-	public static double headroom(double speed, double cap) {
-		if (cap <= 0.0) {
-			return 0.0;   // 上限设成 0 = 彻底不推进，不能变成除以零算出 NaN
-		}
-		if (speed <= 0.0) {
-			return 1.0;
-		}
-		double r = speed / cap;
-		if (r >= 1.0) {
+	public static double windUnits(int northSouth, int southNorth, int eastWest, int westEast, Wind wind) {
+		double[] f = fleetThrust(northSouth, southNorth, eastWest, westEast, wind);
+		double mag = Math.hypot(f[0], f[1]);
+		if (Double.isNaN(mag) || FORCE_PER_SAIL <= 0.0) {
 			return 0.0;
 		}
-		double r2 = r * r;
-		return 1.0 - r2 * r2;
+		return mag / FORCE_PER_SAIL;
 	}
 
 	/**

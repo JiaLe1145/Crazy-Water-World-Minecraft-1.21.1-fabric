@@ -176,6 +176,25 @@ public final class SableRafts {
 		return new double[]{dest.x, dest.y, dest.z};
 	}
 
+	/**
+	 * 筏子的<b>实时世界坐标</b>（{@code logicalPose}，与 {@link #posY} 同一来源）。
+	 *
+	 * <p>为什么需要它：航速必须按<b>真实位移</b>算。{@link #linearVelocity} 读到的是每 tick
+	 * 施完冲量后的<b>瞬时峰值</b>，Sable 的水阻在同一个 tick 内就把绝大部分速度吃掉 ——
+	 * 实测同一状态下位移只有读数的约 1/22（{@code docs/dev/M2-RESULTS.md} §3.10）。
+	 * 所以推力配平与探针断言都要用逐 tick 位移差，不能拿那个峰值当"每秒走几格"。
+	 *
+	 * @return {@code {x, y, z}}；筏不在场或取不到位姿时三个分量都是 {@code NaN}
+	 */
+	public static double[] position(ServerWorld world, UUID raftId) {
+		ServerSubLevel sl = resolve(world, raftId);
+		if (sl == null) {
+			return new double[]{Double.NaN, Double.NaN, Double.NaN};
+		}
+		Vector3d p = sl.logicalPose().position();
+		return new double[]{p.x, p.y, p.z};
+	}
+
 	/** (2r+1)² —— 纯算式，给日志与单测用。 */
 	public static int deckCount(int radius) {
 		return (2 * radius + 1) * (2 * radius + 1);

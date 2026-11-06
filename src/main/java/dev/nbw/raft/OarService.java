@@ -5,7 +5,7 @@ import dev.nbw.content.NbwContent;
 import dev.nbw.content.OarBlock;
 import dev.nbw.content.OarBlockEntity;
 import dev.nbw.domain.raft.OarModel;
-import dev.nbw.domain.raft.WindModel;
+import dev.nbw.domain.raft.SpeedGovernor;
 import dev.nbw.domain.round.PlayerSession;
 import dev.nbw.round.RoundManager;
 import dev.nbw.sable.SableRafts;
@@ -358,9 +358,10 @@ public final class OarService {
 	// ---------------------------------------------------------------- 每 tick 推进
 
 	/**
-	 * 每 tick 施加，与帆并列在 {@code RoundManager} 的 PLAY 分支里调用。
+	 * 每 tick 登记，与帆并列在 {@code RoundManager} 的 PLAY 分支里调用，
+	 * 且必须早于 {@link RaftMotionService#onEndTick}。
 	 *
-	 * @return 本 tick 实际推了几艘筏（给探针与日志用）
+	 * @return 本 tick 登记了几艘船的桨力目标（给探针与日志用）
 	 */
 	public static int onEndTick(MinecraftServer server) {
 		tick++;
@@ -376,28 +377,28 @@ public final class OarService {
 		if (strokes.isEmpty()) {
 			return 0;
 		}
-		ServerWorld world = server.getOverworld();
 		Map<Integer, double[]> sumByTeam = new LinkedHashMap<>();
 		for (Stroke s : strokes.values()) {
-			sumByTeam.merge(s.team(), OarModel.thrustOf(s.dirX(), s.dirZ()),
+			sumByTeam.merge(s.team(), OarModel.addDirection(null, s.dirX(), s.dirZ()),
 					(a, b) -> new double[]{a[0] + b[0], a[1] + b[1]});
 		}
-		int pushed = 0;
+		int requested = 0;
 		for (Map.Entry<Integer, double[]> e : sumByTeam.entrySet()) {
-			UUID raft = RaftSpawner.raftOf(e.getKey());
-			if (raft == null) {
+			double netStrokes = OarModel.effectiveStrokes(e.getValue()[0], e.getValue()[1]);
+			if (netStrokes <= 0.0) {
+				continue;   // 方向相反刚好抵消干净：净零就不要登记方向不明的请求
+			}
+			if (RaftSpawner.raftOf(e.getKey()) == null) {
 				continue;
 			}
-			double[] v = SableRafts.linearVelocity(world, raft);
-			double[] f = OarModel.scaledByCap(e.getValue()[0], e.getValue()[1], Math.hypot(v[0], v[2]));
-			if (Math.abs(f[0]) < 1e-9 && Math.abs(f[1]) < 1e-9) {
-				continue;   // 方向相反刚好抵消干净：不该再发一次"零力"推挤
-			}
-			if (SableRafts.push(world, raft, f[0], 0.0, f[1])) {
-				pushed++;
-			}
+			double[] unit = OarModel.unit(e.getValue()[0], e.getValue()[1]);
+			// 档位是"每人 1.2 格/秒的位移速度"，施力由 RaftMotionService 闭环给（#39）：
+			// 帆与桨各自施力的话，两个控制器会盯着同一个刚体互相打摆。
+			RaftMotionService.request(e.getKey(), unit[0], unit[1],
+					SpeedGovernor.clampSpeed(SpeedGovernor.ROW_SPEED_PER_ROWER * netStrokes));
+			requested++;
 		}
-		return pushed;
+		return requested;
 	}
 
 	/**
@@ -411,20 +412,18 @@ public final class OarService {
 			if (s.team() != teamIndex) {
 				continue;
 			}
-			double[] t = OarModel.thrustOf(s.dirX(), s.dirZ());
-			sum[0] += t[0];
-			sum[1] += t[1];
+			sum = OarModel.addDirection(sum, s.dirX(), s.dirZ());
 			rowers++;
 		}
 		UUID raft = RaftSpawner.raftOf(teamIndex);
 		double[] v = raft == null ? new double[]{0, 0, 0}
 				: SableRafts.linearVelocity(server.getOverworld(), raft);
-		double speed = Math.hypot(v[0], v[2]);
+		// 速度/速率/目标/上限 由航行读数给出（位移口径，#39）；桨档是"净份数"，反向桨抵消后为 0。
 		return String.format(Locale.ROOT,
-				"[oar] 队%d 桨=%d 在划=%d | 合力=(%.3f, %.3f) | 速度=(%.3f, %.3f) 速率=%.4f"
-						+ " | 单桨推力=%.4f 上限=%.3f 余量=%.2f",
-				teamIndex, oarCount(teamIndex), rowers, sum[0], sum[1], v[0], v[2], speed,
-				OarModel.THRUST_PER_OAR, OarModel.MAX_SPEED, WindModel.headroom(speed, OarModel.MAX_SPEED));
+				"[oar] 队%d 桨=%d 在划=%d | 桨档=%.2f | %s",
+				teamIndex, oarCount(teamIndex), rowers,
+				OarModel.effectiveStrokes(sum[0], sum[1]),
+				RaftMotionService.travelReadout(teamIndex));
 	}
 
 	// ---------------------------------------------------------------- 清理

@@ -16,6 +16,7 @@ import dev.nbw.domain.round.RoundMachine;
 import dev.nbw.domain.round.RoundSnapshot;
 import dev.nbw.raft.OarService;
 import dev.nbw.raft.RaftCoreService;
+import dev.nbw.raft.RaftMotionService;
 import dev.nbw.raft.RaftSinking;
 import dev.nbw.raft.RaftSpawner;
 import dev.nbw.raft.WindService;
@@ -165,8 +166,9 @@ public final class RoundManager {
 			sweepDeaths();
 			RaftSinking.onEndTick(srv);
 			RaftCoreService.onEndTick(srv);
-			WindService.apply(srv);   // 帆：被动等风
-			OarService.onEndTick(srv);   // 桨：有人持续按着才出力（动力第二源）
+			WindService.apply(srv);   // 帆：登记风力目标（被动等风）
+			OarService.onEndTick(srv);   // 桨：登记桨力目标（有人持续按着才算）
+			RaftMotionService.onEndTick(srv);   // 两个目标合成之后，本 tick 只施一发控制冲量
 		}
 		// 恢复出来的这一局必须能晚点认领筏子：重启那一刻 Sable 还没把 sub-level 载进容器，
 		// 一次性 rebindFromWorld 实测就是"重认领 0 艘筏"，之后这一局再也看不见自己的筏。
@@ -608,6 +610,7 @@ public final class RoundManager {
 		RaftCoreService.reset();
 		WindService.set("calm", 0.0);   // 风是局内状态，不许跨局残留成"永久顺风"
 		OarService.reset();   // 桨位表与"正在划"的人同样是局内状态；残留=下一局白得动力或桨位被占
+		RaftMotionService.reset();   // 位移采样的位姿基线必须重取，否则跨局第一 tick 会算出一个假速度
 	}
 
 	// ---------------------------------------------------------------- 配置与命令入口

@@ -464,6 +464,15 @@ def main():
               % (sails, th, v, v * 20, drift, c))
         if drift > 90:
             print("      ⚠ 漂行 %.0f 格，接近 test_sea 边缘 —— 该档读数只作参考" % drift)
+    # 符号必须在真水上单独验一次：上面的曲线全程取绝对值，
+    # 风向 -Z 而筏子往 +Z 跑这种错误，曲线照样"单调不越限"。
+    sign_line = p("cww wind read %s" % team0)
+    sm = re.search(r"速度=\([-\d.eE+]+, ([-\d.eE+]+)\)", sign_line)
+    sign_z = float(sm.group(1)) if sm else 0.0
+    expect(sign_z >= 0.0,
+           "南风的位移 z 分量不能是负的（实测 %.4f）；反了说明帆法向或风矢量符号弄错"
+           % sign_z)
+
     if len(curve) < 4:
         print("      ⚠ 只测到 %d 档，后面按实测档位判" % len(curve))
     ks = sorted(curve)

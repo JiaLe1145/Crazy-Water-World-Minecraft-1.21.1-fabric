@@ -75,7 +75,17 @@ def main():
         print("    %s %s" % ("OK  " if cond else "FAIL", msg))
 
     print("== 0. 清场")
+    # abort 是异步的：它要走过 SETTLE→RETURN 才回到 LOBBY。
+    # 发完就往下走的话，cww start 会被"对局进行中"拒掉，于是整局开不起来，
+    # 后面十几条断言一起红 —— 那是夹具时序，不是产品缺陷（本轮真的这样红过一次）。
     p("cww abort")
+    for _ in range(60):
+        ph = p.cmd("cww phase")
+        if "LOBBY" in ph or "IDLE" in ph:
+            break
+        time.sleep(1)
+    else:
+        print("    ⚠ 遗留对局 60 秒还没收干净：%s —— 后面的读数可能全是假的" % ph[:60])
     for bot, _ in BOTS:
         p("player %s kill" % bot)
     for name in ("nbw_raft_0", "nbw_raft_1"):

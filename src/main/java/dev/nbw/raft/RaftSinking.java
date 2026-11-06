@@ -84,6 +84,21 @@ public final class RaftSinking {
 	}
 
 	/**
+	 * 只丢开这一队的记录。
+	 *
+	 * <p>用在"补生成时发现旧映射指向的筏已经不在场"：新筏一出生不该继承上一只的
+	 * 沉筏倒计时与静止观测窗口，否则现场是"刚发筏就卡在 30 秒倒计时里"，很难归因。
+	 * 局后清理走 {@link #reset()}，不经这里。
+	 */
+	public static void forget(int teamIndex) {
+		rafts.remove(teamIndex);
+		states.remove(teamIndex);
+		windowStartY.remove(teamIndex);
+		windowTicks.remove(teamIndex);
+		resting.remove(teamIndex);
+	}
+
+	/**
 	 * 按 sub-level 名字绑定（名字来自 {@code /sable name set} 或开局生成逻辑）。
 	 *
 	 * <p>命令层只调这里、不调 {@code SableRafts}：Sable 类型必须留在 sable/ 里，

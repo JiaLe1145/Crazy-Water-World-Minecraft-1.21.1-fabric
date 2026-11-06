@@ -4,68 +4,68 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 桨力口径单测（M2-5）。
+ * 桨的方向口径（M2-5，#39 之后的形状）。
  *
- * <p>这里最重要的不是"算得对"，是<b>标定值别被无声改掉</b>：
- * {@code THRUST_PER_OAR} 是从两个实测锚点推出来的，改它等于改玩法档位表。
- * 所以两条绊线一上一下：单桨必须明显低于上限（否则帆数与桨数都不再影响航速），
- * 满员划桨必须能顶到上限（否则上限对桨是死代码）。
+ * <p>桨这一层不再有"推力常数"：快慢由 {@link SpeedGovernor} 的位移档位决定，
+ * 这里只管<b>谁往哪儿划</b>与<b>方向相反的桨要互相抵消</b>。
+ * 抵消是净份数算式自然给出来的结果，所以这几条断言就是那条结果本身。
  */
 class OarModelTest {
 
-	/** 实测水阻（M2-RESULTS §3.9）：1 帆在风强 2 时有效推力 0.4、终端 0.156 格/tick。 */
-	private static final double DRAG_PER_SPEED = 0.4 / 0.156;
-	private static final double MEASURED_ONE_SAIL_SPEED = 0.156;
+	private static final double EPS = 1e-12;
 
-	private static double soloSpeed() {
-		return OarModel.THRUST_PER_OAR / DRAG_PER_SPEED;
+	private static double[] rows(double[][] dirs) {
+		double[] sum = null;
+		for (double[] d : dirs) {
+			sum = OarModel.addDirection(sum, d[0], d[1]);
+		}
+		return sum;
 	}
 
 	@Test
-	void soloRowerIsTwoThirdsOfOneSail() {
-		double expected = MEASURED_ONE_SAIL_SPEED * OarModel.SPEED_RATIO_VS_ONE_SAIL;
-		double actual = soloSpeed();
-		// 0.0 挡不住任何错误，所以带宽取 ±15%：改常数、改比例、改水阻锚点都会掉出去
-		assertTrue(Math.abs(actual - expected) <= expected * 0.15,
-				"单桨终端速度应当是单帆的 2/3（P-01：桨 ≈2 格/秒），实测口径推算=" + actual
-						+ " 期望=" + expected);
-		assertTrue(actual > 0.08 && actual < 0.13,
-				"单桨速度落在 0.08..0.13 格/tick 之外（≈1.6..2.6 格/秒），与 02 §6 的桨档不符：" + actual);
+	void oppositeStrokesCancelToZeroNetStrokes() {
+		double[] sum = rows(new double[][]{{-1, 0}, {-1, 0}, {1, 0}, {1, 0}});
+		assertEquals(0.0, sum[0], EPS, "两西两东必须抵消干净");
+		assertEquals(0.0, OarModel.effectiveStrokes(sum[0], sum[1]), EPS,
+				"抵消干净的桨不能还留出档位请求，否则筏子会朝其中一个方向慢慢偏");
 	}
 
 	@Test
-	void calibrationTripwireBracketsTheCap() {
-		assertTrue(soloSpeed() < OarModel.MAX_SPEED * 0.5,
-				"一个人划就贴着上限，桨数将不再影响航速：" + soloSpeed());
-		// 满员 4 人一队再加码到 8 人（运维手改场地）时，自然速度必须越过上限，
-		// 否则上限对桨是死代码，"桨风并用不越界"这条断言也就是在自说自话
-		double crowded = 8 * OarModel.THRUST_PER_OAR / DRAG_PER_SPEED;
-		assertTrue(crowded > OarModel.MAX_SPEED,
-				"8 人划桨的自然速度都碰不到上限，上限对桨不起作用：" + crowded);
+	void partialCancellationKeepsNetAndSign() {
+		double[] sum = rows(new double[][]{{-1, 0}, {-1, 0}, {1, 0}});
+		assertEquals(1.0, OarModel.effectiveStrokes(sum[0], sum[1]), EPS, "两西一东应当净一份桨力");
+		double[] unit = OarModel.unit(sum[0], sum[1]);
+		assertEquals(-1.0, unit[0], EPS, "净方向必须是西（-X）；符号反了筏子会往后退");
+		assertEquals(0.0, unit[1], EPS, "东西向的划桨不该漏出南北分量");
 	}
 
 	@Test
-	void axisComponentsKeepTheSigns() {
-		// 最容易搞错的一步：north = -Z、west = -X。符号反了不会报错，只会"往后退"
-		assertEquals(-OarModel.THRUST_PER_OAR, OarModel.thrustOf(-1, 0)[0], 1e-12, "west 必须往 -X 推");
-		assertEquals(-OarModel.THRUST_PER_OAR, OarModel.thrustOf(0, -1)[1], 1e-12, "north 必须往 -Z 推");
-		assertEquals(OarModel.THRUST_PER_OAR, OarModel.thrustOf(1, 0)[0], 1e-12, "east 必须往 +X 推");
-		assertEquals(OarModel.THRUST_PER_OAR, OarModel.thrustOf(0, 1)[1], 1e-12, "south 必须往 +Z 推");
+	void sameDirectionStrokesAddUpOnePerRower() {
+		double[] sum = rows(new double[][]{{0, 1}, {0, 1}, {0, 1}, {0, 1}});
+		assertEquals(4.0, OarModel.effectiveStrokes(sum[0], sum[1]), EPS, "4 人同向应当是 4 份桨力");
+		double[] unit = OarModel.unit(sum[0], sum[1]);
+		assertEquals(1.0, unit[1], EPS, "south 是 +Z（Minecraft 的 Z 轴向南）");
 	}
 
 	@Test
-	void dirtyDirectionsYieldNoThrust() {
-		assertEquals(0.0, OarModel.thrustOf(0.7071, 0.7071)[0], 1e-12, "斜向不该出力");
-		assertEquals(0.0, OarModel.thrustOf(0.7071, 0.7071)[1], 1e-12, "斜向不该出力");
-		assertEquals(0.0, OarModel.thrustOf(2, 0)[0], 1e-12, "分量超 1 等于自带放大器，必须拒");
-		assertEquals(0.0, OarModel.thrustOf(0, 0)[0], 1e-12, "全零是无向，不是推力");
-		assertFalse(Double.isNaN(OarModel.THRUST_PER_OAR), "标定值本身不该是 NaN");
-		assertTrue(OarModel.thrustOf(Double.NaN, 0)[0] == 0.0, "NaN 方向必须当没划");
-		assertTrue(OarModel.thrustOf(Double.POSITIVE_INFINITY, 0)[0] == 0.0, "Inf 方向必须当没划");
+	void axisConventionIsNorthNegativeZ() {
+		// 最容易搞错又最难发现的一步：north/south 反了不会报错，只会"往北划却在退"
+		double[] north = OarModel.unit(0, -1);
+		assertEquals(-1.0, north[1], EPS, "north 必须是 -Z");
+		double[] west = OarModel.unit(-1, 0);
+		assertEquals(-1.0, west[0], EPS, "west 必须是 -X");
+	}
+
+	@Test
+	void dirtyDirectionsAreNotCountedAsStrokes() {
+		double[] sum = rows(new double[][]{{0.7071, 0.7071}, {2, 0}, {0, 0},
+				{Double.NaN, 1}, {Double.POSITIVE_INFINITY, 0}});
+		assertEquals(0.0, sum[0], EPS, "脏方向一律不算份数：算进去就等于凭空多出一份动力");
+		assertEquals(0.0, sum[1], EPS);
+		assertEquals(0.0, OarModel.effectiveStrokes(sum[0], sum[1]), EPS);
 	}
 
 	@Test
@@ -73,57 +73,32 @@ class OarModelTest {
 		assertTrue(OarModel.isAxisAligned(-1, 0));
 		assertTrue(OarModel.isAxisAligned(0, 1));
 		assertTrue(OarModel.isAxisAligned(1.0, 0.0));
-		// 这四条全是"看起来像方向"的脏值，放行任何一条都会让合力算式失去意义
-		assertTrue(!OarModel.isAxisAligned(-1, -1), "两个分量都非零就是斜向");
-		assertTrue(!OarModel.isAxisAligned(0, 0), "全零不是方向");
-		assertTrue(!OarModel.isAxisAligned(0.5, 0), "非单位分量会被当成合法方向");
-		assertTrue(!OarModel.isAxisAligned(Double.NaN, 1), "NaN 不能算方向");
+		assertFalse(OarModel.isAxisAligned(-1, -1), "两个分量都非零就是斜向");
+		assertFalse(OarModel.isAxisAligned(0, 0), "全零不是方向");
+		assertFalse(OarModel.isAxisAligned(0.5, 0), "非单位分量会被当成合法方向");
+		assertFalse(OarModel.isAxisAligned(Double.NaN, 1), "NaN 不能算方向");
+		assertFalse(OarModel.isAxisAligned(1.5, 0), "分量超 1 等于自带放大器");
 	}
 
 	@Test
-	void oppositeRowersCancelExactly() {
-		double[] sum = null;
-		sum = OarModel.accumulate(sum, -1, 0);   // 一人往西
-		sum = OarModel.accumulate(sum, 1, 0);    // 一人往东
-		assertEquals(0.0, sum[0], 1e-12, "一西一东必须抵消干净");
-		assertEquals(0.0, sum[1], 1e-12, "抵消不该漏出横向分量");
-		// null 起点是刻意的：命令层拼合力时第一次调用还没有累加器
-		assertNotEquals(0.0, OarModel.accumulate(null, 0, -1)[1], "null 起点应当等价于零起点");
+	void unitHandlesDegenerateInputInsteadOfProducingNan() {
+		double[] zero = OarModel.unit(0, 0);
+		assertEquals(0.0, zero[0], EPS, "零向量的单位化必须是 (0,0)，让调用方跳过施力");
+		assertEquals(0.0, zero[1], EPS);
+		double[] scaled = OarModel.unit(3, 4);
+		assertEquals(0.6, scaled[0], 1e-9, "合方向要归一化，否则档位数会被矢量长度污染");
+		assertEquals(0.8, scaled[1], 1e-9);
+		assertTrue(!Double.isNaN(OarModel.unit(Double.NaN, 1)[0]), "NaN 输入不能把 NaN 传出去");
 	}
 
 	@Test
-	void sameDirectionRowersAddUp() {
-		double[] sum = new double[]{0.0, 0.0};
-		for (int i = 0; i < 4; i++) {
-			sum = OarModel.accumulate(sum, 0, -1);
-		}
-		assertEquals(4 * OarModel.THRUST_PER_OAR, -sum[1], 1e-12, "4 人同向应当等于 4 倍单桨推力");
-	}
-
-	@Test
-	void capIsSharedWithSailsAndConvergesSmoothly() {
-		assertEquals(WindModel.MAX_SAIL_SPEED, OarModel.MAX_SPEED, 1e-12,
-				"上限是船体的属性，桨与帆必须共用同一个数");
-		double[] atRest = OarModel.scaledByCap(OarModel.THRUST_PER_OAR, 0.0, 0.0);
-		assertEquals(OarModel.THRUST_PER_OAR, atRest[0], 1e-12, "静止时不该吃任何收口");
-		double[] atCap = OarModel.scaledByCap(OarModel.THRUST_PER_OAR, 0.0, OarModel.MAX_SPEED);
-		assertEquals(0.0, atCap[0], 1e-12, "到达上限必须归零，否则上限只是软建议");
-		// headroom 用 (v/cap)^4：0.9 倍上限时还剩 1-0.9^4=0.34，0.95 倍时剩 0.19
-		double[] nearCap = OarModel.scaledByCap(OarModel.THRUST_PER_OAR, 0.0, OarModel.MAX_SPEED * 0.9);
-		assertTrue(nearCap[0] > 0.0 && nearCap[0] < OarModel.THRUST_PER_OAR * 0.4,
-				"0.9 倍上限时收力不在 0..0.4 倍推力区间，上限要么形同虚设要么把动力砍死：" + nearCap[0]);
-		double[] almostCap = OarModel.scaledByCap(OarModel.THRUST_PER_OAR, 0.0, OarModel.MAX_SPEED * 0.95);
-		assertTrue(almostCap[0] > 0.0 && almostCap[0] < OarModel.THRUST_PER_OAR * 0.2,
-				"0.95 倍上限时还没进一步收力，说明收口曲线不够陡：" + almostCap[0]);
-	}
-
-	@Test
-	void scaledByCapGuardsAgainstDirtyInputs() {
-		assertEquals(0.0, OarModel.scaledByCap(Double.NaN, 1.0, 0.1)[0], 1e-12, "NaN 推力必须归零");
-		assertEquals(0.0, OarModel.scaledByCap(1.0, 0.0, Double.NaN)[1], 1e-12, "NaN 速度必须归零");
-		// 反向：负速度（读错符号）不该被当成"倒着划得飞快"
-		double[] back = OarModel.scaledByCap(OarModel.THRUST_PER_OAR, 0.0, -0.3);
-		assertTrue(back[0] >= OarModel.THRUST_PER_OAR - 1e-12,
-				"负速度按 headroom 的口径等于静止，不该反过来加力：" + back[0]);
+	void effectiveStrokesIsTheVectorMagnitudeNotHeadcount() {
+		// 净份数用模长：3 人里 2 南 1 北 = 净 1 份，而不是 3 份
+		double[] sum = rows(new double[][]{{0, 1}, {0, 1}, {0, -1}});
+		assertEquals(1.0, OarModel.effectiveStrokes(sum[0], sum[1]), EPS);
+		// 斜交的两股力（南 + 东）各算各的方向，合成后模长是 sqrt(2)：
+		// 这正是"档位是矢量口径"的体现，标量求和会把它算成 2
+		double[] diag = rows(new double[][]{{0, 1}, {1, 0}});
+		assertEquals(Math.sqrt(2.0), OarModel.effectiveStrokes(diag[0], diag[1]), 1e-9);
 	}
 }

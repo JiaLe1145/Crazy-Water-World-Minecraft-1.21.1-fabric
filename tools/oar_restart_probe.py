@@ -45,6 +45,18 @@ def boot():
 
 def start_round(p, names):
     """开一局并把风关掉；两队各一人，缺一队就会立刻判胜（#34 那条坑）。"""
+    # 上一个探针崩在中途时不会走 cww stop，对局会一直挂在 PLAY/RETURN 上；
+    # 那时 cww force 被"禁止中途加入"拒掉，start 也被拒，after 段就会看到一排假的"回填失败"。
+    cur = p("cww phase")
+    if "LOBBY" not in cur and "IDLE" not in cur:
+        print("      检测到遗留对局（%s），先 abort 收场" % cur[:40])
+        p("cww abort")
+        for _ in range(30):
+            if "LOBBY" in p("cww phase") or "IDLE" in p("cww phase"):
+                break
+            p.sleep(2)
+        else:
+            raise RuntimeError("遗留对局收不掉：%s" % p("cww phase")[:80])
     for n in names:
         p("player %s kill" % n)
     for n in names:
@@ -89,7 +101,11 @@ def before():
     expect("已登记" in held, "登记划桨要成功（回：%s）" % held[:70])
     p.sleep(6)
     r = read_oar(p)
-    expect(r["speed"] > 0.02, "重启前必须先划得动（速率 %.4f），否则 after 段的 0 无意义" % r["speed"])
+    # 门槛按位移口径定：1 人 1 桨的实测位移速度是 0.0151 格/tick（目标 0.0167 的 90%，#39 闭环残差）。
+    # 0.010 这个下界仍然有区分度：斜率限制被压小、控制器不工作的那几版实测只有 0.0044。
+    expect(0.010 < r["speed"] < 0.030,
+           "重启前必须先划得动（位移速率 %.4f 格/tick，应在 0.010..0.030）——"
+           "否则 after 段读到 0 就说明不了任何事" % r["speed"])
     with open(HANDOFF, "w", encoding="utf-8") as fh:
         json.dump({"stamp": stamp, "names": names, "team": TEAM, "oars": OARS,
                    "speed_before": r["speed"], "rowers_before": r["rowers"]}, fh, ensure_ascii=False)
