@@ -5,6 +5,7 @@ import dev.nbw.content.NbwContent;
 import dev.nbw.content.OarBlock;
 import dev.nbw.content.OarBlockEntity;
 import dev.nbw.domain.raft.OarModel;
+import dev.nbw.domain.raft.RaftLayout;
 import dev.nbw.domain.raft.SpeedGovernor;
 import dev.nbw.domain.round.PlayerSession;
 import dev.nbw.round.RoundManager;
@@ -125,19 +126,27 @@ public final class OarService {
 				failure = "；已达上限 " + MAX_OARS_PER_TEAM + " 台";
 				break;
 			}
-			int z = slot - 2;   // x=-3 列上 z=-2..2 这五个连续格
-			if (!SableRafts.setPlotBlock(world, raftId, -3, 1, z,
+			// 桨位也不写死 (-3,1,z)：小筏上那一圈在甲板外面，且会与帆抢格子。
+			// RaftLayout 让帆取偶数排、桨取奇数排，两类设施天然不撞。
+			int[] cell = RaftLayout.oarCell(RaftSpawner.deckSide(), slot);
+			if (cell == null) {
+				failure = "；桨位 " + slot + " 在这张筏的甲板上铺不下（边长 "
+						+ RaftSpawner.deckSide() + "）";
+				break;
+			}
+			if (!SableRafts.setPlotBlock(world, raftId, cell[0], cell[1], cell[2],
 					NbwContent.oar.getDefaultState().with(OarBlock.FACING, facing))) {
 				failure = "；桨位 " + slot + " 的 plot 写入失败";
 				break;
 			}
-			if (!(SableRafts.plotBlockEntity(world, raftId, -3, 1, z) instanceof OarBlockEntity be)) {
+			if (!(SableRafts.plotBlockEntity(world, raftId, cell[0], cell[1], cell[2])
+					instanceof OarBlockEntity be)) {
 				// 没有 BE 的桨台永远读不到归属：方块在、看着能按，但一句动力都不会有
 				failure = "；桨位 " + slot + " 的方块实体没被创建（注册或 BE 类型不匹配）";
 				break;
 			}
-			be.setRig(teamIndex, slot, dirX, dirZ, -3, 1, z);
-			cells.add(new OarCell(slot, -3, 1, z, dirX, dirZ));
+			be.setRig(teamIndex, slot, dirX, dirZ, cell[0], cell[1], cell[2]);
+			cells.add(new OarCell(slot, cell[0], cell[1], cell[2], dirX, dirZ));
 			placed++;
 		}
 		NBW.LOGGER.info("[oar] 挂上 {} 台桨 facing={} 队={} 现有 {} 台{}", placed, facing, teamIndex,

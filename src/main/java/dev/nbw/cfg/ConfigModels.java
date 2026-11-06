@@ -86,12 +86,14 @@ public final class ConfigModels {
 			public int maxFacilities;
 			public List<Integer> buildYRange;
 			/**
-			 * 开局发给每队的初始筏半径（方块按 (2r+1)² 铺，r=3 → 7×7=49 格）。
-			 * <p>可选：缺省 0 表示用 {@code RaftSpawner.DEFAULT_RADIUS}。
-			 * 之所以放进 arena 而不是 format——筏子多大属于"这张图"的空间事实，
+			 * 开局发给每队的初始筏<b>边长</b>（甲板铺 side×side，4 → 16 格）。
+			 * <p>可选：缺省 0 表示用 {@code RaftSpawner.DEFAULT_SIDE}。
+			 * 用边长而不是半径：4×4 这种偶数边长用半径表达不出来（半径 2 会铺成 5×5），
+			 * 而格子具体怎么铺由 {@code domain/raft/RaftLayout} 唯一决定。
+			 * <p>之所以放进 arena 而不是 format——筏子多大属于"这张图"的空间事实，
 			 * 而赛制只管时间与人数（03 §2 的字段归属）。
 			 */
-			public int initialRaftRadius;
+			public int initialRaftSide;
 			/** 初始筏的材质，缺省 oak_planks。材质决定质量（#sable:light → 0.5/格）。 */
 			public String initialRaftBlock;
 		}

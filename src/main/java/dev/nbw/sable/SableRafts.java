@@ -1,6 +1,7 @@
 package dev.nbw.sable;
 
 import dev.nbw.NBW;
+import dev.nbw.domain.raft.RaftLayout;
 import dev.ryanhcode.sable.api.physics.handle.RigidBodyHandle;
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
@@ -75,7 +76,7 @@ public final class SableRafts {
 	 *         是为了让调用方既能拿到成功值又能拿到具体原因，而不必再查日志）
 	 */
 	public static @Nullable UUID createRaft(ServerWorld world, double cx, double cy, double cz,
-			int radius, BlockState deck, @Nullable String name, String[] outError) {
+			int side, BlockState deck, @Nullable String name, String[] outError) {
 		ServerSubLevelContainer c = SubLevelContainer.getContainer(world);
 		if (c == null) {
 			outError[0] = "该维度不是 sub-level 承载维度";
@@ -93,7 +94,11 @@ public final class SableRafts {
 		}
 
 		LevelPlot plot = subLevel.getPlot();
-		int radiusChunks = (radius + 8) / 16;
+		// 甲板几何的唯一来源是 RaftLayout：帆位与桨位也从那里取。
+		// 两边各写一遍公式，迟早出现"设施挂在甲板外面"这种 bug——4×4 偶数边长就是这么暴露的。
+		int from = RaftLayout.deckStart(side);
+		int to = RaftLayout.deckEnd(side);
+		int radiusChunks = (side - 1) / 16;
 		ChunkPos center = plot.getCenterChunk();
 		for (int x = -radiusChunks; x <= radiusChunks; x++) {
 			for (int z = -radiusChunks; z <= radiusChunks; z++) {
@@ -101,8 +106,8 @@ public final class SableRafts {
 			}
 		}
 		EmbeddedPlotLevelAccessor accessor = plot.getEmbeddedLevelAccessor();
-		for (int x = -radius; x <= radius; x++) {
-			for (int z = -radius; z <= radius; z++) {
+		for (int x = from; x <= to; x++) {
+			for (int z = from; z <= to; z++) {
 				accessor.setBlockState(new BlockPos(x, 0, z), deck, 2);
 			}
 		}
@@ -114,8 +119,8 @@ public final class SableRafts {
 				new Vector3d(cx, cy, cz), subLevel.logicalPose().orientation());
 
 		UUID id = subLevel.getUniqueId();
-		NBW.LOGGER.info("[sable] 生成筏 '{}' id={} 半径={} 甲板 {} 格，落点=({} {} {})",
-				name, id, radius, deckCount(radius),
+		NBW.LOGGER.info("[sable] 生成筏 '{}' id={} 边长={} 甲板 {} 格，落点=({} {} {})",
+				name, id, side, deckCount(side),
 				String.format(java.util.Locale.ROOT, "%.1f", cx),
 				String.format(java.util.Locale.ROOT, "%.1f", cy),
 				String.format(java.util.Locale.ROOT, "%.1f", cz));
@@ -322,9 +327,9 @@ public final class SableRafts {
 		return new double[]{p.x, p.y, p.z};
 	}
 
-	/** (2r+1)² —— 纯算式，给日志与单测用。 */
-	public static int deckCount(int radius) {
-		return (2 * radius + 1) * (2 * radius + 1);
+	/** 边长 side 的方形甲板格数（可以是偶数；4 → 16 格，就是现在的初始筏）。 */
+	public static int deckCount(int side) {
+		return RaftLayout.deckCells(side);
 	}
 
 	/** 销毁筏。局后清理用；{@code reason} 由 Sable 记录在存储层。 */

@@ -30,6 +30,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOG = os.path.join(ROOT, "run", "server-console.log")
 DRY_ARENA = "flat_test"          # y=148 的旱地基岩平台，天生就是"没有海"的负对照
 SEA = "test_sea"                 # 内置小海域夹具（半径 60）
+SAIL_ARENA = "test_sail7"          # 帆档位夹具：边长 7 的筏，1/3/5/7 帆都合法
 BIG = "default_sea"              # 内置生产形状（半径 140）
 WATER_LEVEL = 62
 # 0.29 来自旱地（筏子搁在基岩上），M2-RESULTS §3.8 已判定它不能当水阻或终端速度基线，故不再用于断言。
@@ -222,12 +223,51 @@ def sweep_stale_bots(p):
     return killed
 
 
+def write_sail_arena():
+    """复制 test_sea，只改 id 与 initialRaftSide=7；坐标不动所以海不需要重建。"""
+    src = os.path.join(ROOT, "src", "main", "resources", "data", "nbw", "arena", "test_sea.json")
+    dst = os.path.join(ROOT, "run", "world", "cww", "arenas", SAIL_ARENA + ".json")
+    with open(src, encoding="utf-8") as fh:
+        arena = json.load(fh)
+    arena["id"] = SAIL_ARENA
+    arena.setdefault("limits", {})["initialRaftSide"] = 7
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    with open(dst, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(arena, ensure_ascii=False, indent=2))
+    return dst
+
+
 def raft_pos(p, team):
     """筏体的世界 XZ（sable info 的 Position 行）。test_sea 半径只有 60，
     漂行距离用来判断这段读数是不是已经撞到海域边缘（撞边后不能当终端速度用）。"""
     out = p("sable info @e[name=nbw_raft_%s]" % team)
     m = re.search(r"Position:\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)", out)
     return (float(m.group(1)), float(m.group(3))) if m else (0.0, 0.0)
+
+
+def wait_clean_lobby(p, fmt=None, tries=40):
+    """等一台真正干净的 LOBBY：既没有对局在跑，也没有会话还挂在队席上。
+
+    为什么不能只等 phase=LOBBY：kill 掉的 Carpet 假玩家不触发 DISCONNECT，而局后清理是按
+    "参战者实体"处理的——实体早没了就一个都处理不到，会话于是继续占着队席，要等报名期兜底
+    （RoundMachine.releaseAbsent，实测约 1 秒一次）才放掉。探针不等这一步，`cww force` 就会
+    撞上"队伍 已满"（2026-11-06 实测：上一支探针的 4 个会话把 2×4 的两个队各挤掉 2 个位置），
+    看着像 #41 复发，其实是谁都没等谁。
+    """
+    st = ""
+    for _ in range(tries):
+        st = p("cww state")
+        if "phase=LOBBY" in st and "queue=0" in st and "teams=0" in st:
+            if fmt:
+                # 报名上限跟着"内存里的赛制"走，而不是跟着下一局要用的赛制走：
+                # 上一局 2x2 时 2x4 的第 3 个玩家起就会被"队伍 已满"拒掉。
+                # 装赛制这件事是 cww format reload 存在的理由。
+                p("cww format reload %s" % fmt)
+            return True, st
+        if "phase=LOBBY" not in st:
+            p("cww abort")
+        p.sleep(1)
+    return False, st
 
 
 def main():
@@ -385,12 +425,18 @@ def main():
     print("== 8. 缺陷 B 的正规测法：不注入冲量，扫帆数量风驱终端速度（0.29 那个基线已作废）")
     team0 = ys[0][0] if ys else "0"
     print("      专测赛制写入 %s（PLAY 900 秒）" % write_long_format())
+    # 档位扫描要 1/3/5/7 帆都能"合法地"挂上去。初始筏削弱到 4×4 之后，
+    # 设施位额度 = min(8, 16/5) = 3，扣掉筏心只剩 2 个位 —— 5 帆、7 帆于是成了
+    # 玩家根本达不到的状态，而实测那种小筏大帆会打转（7 帆 Yaw 变化 -161°），
+    # 曲线不再是配平依据。所以这一档改用边长 7 的夹具图（49 列 → 额度 8，1/3/5/7 全合法），
+    # 坐标与 test_sea 完全一致，因此不需要重新建海。
+    print("      帆档位夹具图写入 %s" % write_sail_arena())
     p("cww abort")
     p.sleep(3)
     for name, team in bots:
         p("cww force %s %d" % (name, team))
     keep_alive(p, bots)
-    started = p("cww start %s %s" % (LONG_FORMAT, SEA))
+    started = p("cww start %s %s" % (LONG_FORMAT, SAIL_ARENA))
     ok_long = p.wait_phase("PLAY", 200)[0]
     expect(ok_long, "专测赛制要能开到 PLAY，否则扫描场上没有活筏子：%s" % started[:90])
     start = raft_pos(p, team0)
@@ -422,8 +468,15 @@ def main():
         ok, why = ensure_playing()
         if not ok:
             return None, None, None, None   # 不 assert 崩掉整个探针：后面的步骤还要跑，这档如实记不可信
-        p("sable teleport @e[name=nbw_raft_%s] %d %d %d" % (team0, -1000, WATER_LEVEL + 1, 946))
-        p.sleep(2)
+        # 复位不消速度（实测每档开头能带着上一档的 4~5 格/tick 与几十度的角速度），
+        # 固定 sleep(2) 会把这些残留算进"这一档的表现"。所以反复复位并等到读数真的静止。
+        for _ in range(25):
+            p("sable teleport @e[name=nbw_raft_%s] %d %d %d" % (team0, -1000, WATER_LEVEL + 1, 946))
+            p.sleep(1.2)
+            line = p("cww wind read %s" % team0)
+            m0 = re.search(r"速率=([\d.]+)", line)
+            if m0 and float(m0.group(1)) < 0.004:
+                break
         p("cww wind set south 0.0")
         p("cww sail strip %s" % team0)
         if sails:
@@ -492,6 +545,48 @@ def main():
                "1 帆必须明显慢于上限，否则帆数不再影响航速：1 帆 %.4f vs 上限 %.3f" % (curve[1], cap))
     p("cww wind set north 0.0")
     p.sleep(3)
+
+    # 8b：回到默认的 4×4 初始筏，量"玩家真能建出来的那一档"是否顺风。
+    #    帆档位扫描用的是 7×7 夹具筏，因为 4×4 的设施位额度只允许 2 面帆；
+    #    而"小筏大帆"（5~7 帆压在 16 列甲板上）实测会打转，那正是设施位规则要挡在门外的状态。
+    #    这一档是给削弱初始筏之后的航向稳定性兜底的：可玩配置必须基本顺风，斜着走就是回炉。
+    print("== 8b. 4×4 初始筏在合法帆数（2 面）下的航向稳定性")
+    p("cww abort")
+    p.wait_phase("LOBBY", 180)
+    for name, team in bots:
+        p("cww force %s %d" % (name, team))
+    keep_alive(p, bots)
+    p("cww start %s %s" % (LONG_FORMAT, SEA))
+    if not p.wait_phase("PLAY", 200)[0]:
+        print("      INCONCLUSIVE 8b 没能进 PLAY，小筏航向稳定性未测成")
+    else:
+        p("cww wind set south 0.0")
+        p("cww sail strip %s" % team0)
+        legal = 2
+        p("cww sail rig %s %d south" % (team0, legal))
+        still = False
+        for _ in range(25):
+            p("sable teleport @e[name=nbw_raft_%s] %d %d %d" % (team0, -1000, WATER_LEVEL + 1, 946))
+            p.sleep(1.2)
+            mm = re.search(r"速率=([\d.]+)", p("cww wind read %s" % team0))
+            if mm and float(mm.group(1)) < 0.004:
+                still = True
+                break
+        p0 = raft_pos(p, team0)
+        p("cww wind set south 2.0")
+        p.sleep(5)
+        p1 = raft_pos(p, team0)
+        if not (still and p0 and p1):
+            print("      INCONCLUSIVE 8b 没能拿到静止基线或位置读数（still=%s）" % still)
+        else:
+            dx, dz = p1[0] - p0[0], p1[1] - p0[1]
+            expect(dz > 0, "南风下 4×4 筏必须往南走（Δz=%.2f）" % dz)
+            ratio = abs(dx) / dz if dz else 99.9
+            print("      Δx=%.2f Δz=%.2f 侧移/顺风=%.3f" % (dx, dz, ratio))
+            expect(ratio <= 0.10,
+                   "可玩配置（2 帆 / 4×4 筏）的侧移比例必须 ≤0.10，实测 %.3f —— 更大帆数属于"
+                   "设施位规则挡在门外的非法状态，见 §3.13" % ratio)
+        p("cww wind set south 0.0")
 
     print("== 9. 没有任何 forceload 的远端：筏子不能被踢出物理管线（Sable 的 inhabit 票）")
     p("cww wind set north 0.0")

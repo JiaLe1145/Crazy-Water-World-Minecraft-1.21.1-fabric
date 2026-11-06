@@ -22,12 +22,19 @@ class BuildRulesTest {
 	private static final int AREA = 96;
 	private static final int MAX_BLOCKS = 3200;
 	private static final int MAX_FACILITIES = 8;
+	/** 默认用例的甲板列数：49 列 → 设施位 min(8, 49/5)=8，让硬上限成为约束。 */
+	private static final int COLUMNS = 49;
 
 	/** 一次"本来就合法"的放置：自家筏、甲板边上贴着一格、数量都在线内。 */
 	private static String place(int lx, int ly, int lz, int neighborMask,
 			int blocks, boolean facility, int facilities) {
+		return place(lx, ly, lz, neighborMask, blocks, facility, facilities, COLUMNS);
+	}
+
+	private static String place(int lx, int ly, int lz, int neighborMask,
+			int blocks, boolean facility, int facilities, int columns) {
 		return BuildRules.checkPlace(true, 0, 0, lx, ly, lz, AREA, neighborMask,
-				blocks, MAX_BLOCKS, facility, facilities, MAX_FACILITIES);
+				blocks, MAX_BLOCKS, columns, facility, facilities, MAX_FACILITIES);
 	}
 
 	@Test
@@ -59,7 +66,7 @@ class BuildRulesTest {
 	void phaseGateWinsOverEverythingElse() {
 		// 大厅里没分队、点的也不是筏：玩家第一句应该听到"现在还不行（阶段）"，不是"超出建造区"
 		String r = BuildRules.checkPlace(false, -1, -1, 999, 999, 999,
-				AREA, 0, MAX_BLOCKS, MAX_BLOCKS, true, MAX_FACILITIES, MAX_FACILITIES);
+				AREA, 0, MAX_BLOCKS, MAX_BLOCKS, 0, true, MAX_FACILITIES, MAX_FACILITIES);
 		assertTrue(r.contains("阶段"), "阶段门应当最先说：" + r);
 	}
 
@@ -114,7 +121,26 @@ class BuildRulesTest {
 		String r = place(4, 1, 0, 1, 49, true, MAX_FACILITIES);
 		assertNotNull(r, "设施位满必须拒绝再来一个设施");
 		assertTrue(r.contains("设施"), "原因要说清是设施位卡的：" + r);
+		assertTrue(r.contains("maxFacilities"), "撞到硬上限时原因要点名 limits.maxFacilities：" + r);
 		assertNull(place(4, 1, 0, 1, 49, true, MAX_FACILITIES - 1), "还剩一个位子时必须放行");
+	}
+
+	@Test
+	void facilitySlotsGrowWithDeckAreaNotWithBlockCount() {
+		// 02 §5 批准的口径：每 5 格甲板 1 位，maxFacilities 只是天花板
+		assertEquals(3, BuildRules.facilitySlots(16, MAX_FACILITIES), "4×4=16 列 → 3 位");
+		assertEquals(5, BuildRules.facilitySlots(25, MAX_FACILITIES), "5×5=25 列 → 5 位");
+		assertEquals(8, BuildRules.facilitySlots(81, MAX_FACILITIES), "81 列本该给 16 位，被硬上限夹在 8");
+		assertEquals(0, BuildRules.facilitySlots(4, MAX_FACILITIES), "不足 5 列一个位都不给");
+		assertEquals(0, BuildRules.facilitySlots(100, 0), "硬上限配成 0 就是不给位（脏配置要 fail closed）");
+		assertEquals(0, BuildRules.facilitySlots(0, MAX_FACILITIES), "读不到列数时不许默认放行");
+
+		// 同样 3 个设施、只有甲板大小不同：小筏被面积卡住，大筏还在限内
+		String small = place(4, 1, 0, 1, 16, true, 3, 16);
+		assertNotNull(small, "16 列的筏只有 3 个位，第 4 个设施必须被拒");
+		assertTrue(small.contains("每 " + BuildRules.DECK_COLUMNS_PER_FACILITY + " 格甲板"),
+				"被面积卡住时原因要说「甲板太小」，不是「撞到 maxFacilities」：" + small);
+		assertNull(place(4, 1, 0, 1, 49, true, 3, 49), "同样 3 个设施在 49 列的筏上限内，必须放行");
 	}
 
 	@Test

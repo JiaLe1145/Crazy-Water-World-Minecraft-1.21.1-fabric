@@ -28,6 +28,11 @@ from oar_probe import FORMAT, SEA, TEAM, read_oar, write_oar_format  # noqa: E40
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HANDOFF = os.path.join(ROOT, "run", "oar_restart_handoff.json")
+# BE 登记的日志行只有一份格式，两个阶段共用同一条正则：
+# before 段曾经自己抄了一份、把 dir=(0.0, 1.0) 的括号漏掉，结果正则恒不匹配，
+# "实测 []" 看起来像回填坏了，其实是探针瞎了。
+OAR_ROW_RE = (r"\[oar\] 桨位回填 team=(-?\d+) slot=(-?\d+) dir=\(([-\d.]+), ([-\d.]+)\)"
+              r" plot 偏移=\((-?\d+),(-?\d+),(-?\d+)\)")
 OARS = 2
 
 
@@ -106,9 +111,22 @@ def before():
     expect(0.020 < r["speed"] < 0.047,
            "重启前必须先划得动（位移速率 %.4f 格/tick，应在 0.020..0.047）——"
            "否则 after 段读到 0 就说明不了任何事" % r["speed"])
+    # 桨位格子由 RaftLayout 按甲板边长推导，会随筏的尺寸变；
+    # 所以这里把"挂上之后 BE 实际登记的格子"记进交接文件，after 段比对的是同一批格子，
+    # 而不是探针里抄死的一组坐标（抄死=每次改筏尺寸都要改探针，而且改错了也不报警）。
+    offs_before = []
+    for _ in range(20):
+        rows_b = re.findall(OAR_ROW_RE, log_text())
+        offs_before = sorted(set((int(x[4]), int(x[5]), int(x[6])) for x in rows_b))
+        if len(offs_before) >= OARS:
+            break
+        p.sleep(1)
+    expect(len(offs_before) == OARS,
+           "挂桨后桨台方块实体要各自登记到不同的格子（实测 %s）" % (offs_before,))
     with open(HANDOFF, "w", encoding="utf-8") as fh:
         json.dump({"stamp": stamp, "names": names, "team": TEAM, "oars": OARS,
-                   "speed_before": r["speed"], "rowers_before": r["rowers"]}, fh, ensure_ascii=False)
+                   "speed_before": r["speed"], "rowers_before": r["rowers"],
+                   "offs_before": offs_before}, fh, ensure_ascii=False)
     p("cww save")
     print("      已落盘：%s（速率 %.4f）" % (os.path.basename(HANDOFF), r["speed"]))
     p("stop")
@@ -138,6 +156,12 @@ def after():
         (ok if cond else bad).append(msg)
         print("    %s %s" % ("OK  " if cond else "FAIL", msg))
 
+    inc = []
+
+    def inconclusive(msg):
+        inc.append(msg)
+        print("    INCONCLUSIVE - %s" % msg)
+
     with open(HANDOFF, encoding="utf-8") as fh:
         hand = json.load(fh)
     print("== after. 不许重新挂桨，桨位表必须自己回来")
@@ -145,8 +169,7 @@ def after():
     # 一次性读会把"还没刷"当成"没有回填"，所以轮询到出现为止（M2-RESULTS 早就记过这条缓冲特性）。
     rows = []
     for _ in range(30):
-        rows = re.findall(r"\[oar\] 桨位回填 team=(-?\d+) slot=(-?\d+) dir=\(([-\d.]+), ([-\d.]+)\)"
-                          r" plot 偏移=\((-?\d+),(-?\d+),(-?\d+)\)", log_text())
+        rows = re.findall(OAR_ROW_RE, log_text())
         if rows:
             break
         p.sleep(2)
@@ -158,8 +181,19 @@ def after():
     dirs = sorted(set((float(r[2]), float(r[3])) for r in rows))
     offs = sorted(set((int(r[4]), int(r[5]), int(r[6])) for r in rows))
     expect(dirs == [(0.0, 1.0)], "朝南的桨回填后方向必须还是 (0, 1)（实测 %s）" % dirs)
-    expect(offs == [(-3, 1, -2), (-3, 1, -1)],
-           "plot 偏移必须原样回来，拆桨就靠它寻址（实测 %s）" % offs)
+    # 回填的正确性 = "重启后每张桨台还认得自己原来那一格"，与布局算法无关。
+    # 所以比的是 before 段实测登记的那批格子；坐标写死的话，每次改筏尺寸都要跟着改探针，
+    # 而且改错了也不会报警（实测 balanced 顺序一改，抄死的坐标就假红了）。
+    want = hand.get("offs_before")
+    if want is not None:
+        expect(offs == sorted(tuple(map(int, w)) for w in want),
+               "plot 偏移必须与重启前登记的那批格子完全一致（重启前 %s，重启后 %s）"
+               % (want, offs))
+    else:
+        inconclusive("交接文件里没有 offs_before（旧版本写的），无法比对重启前后的格子")
+    expect(all(o[1] == 1 for o in offs), "桨台都在甲板面之上一格（y=1）：%s" % (offs,))
+    expect(len(set(offs)) == len(offs), "回填出来的格子互不重复：%s" % (offs,))
+    expect((0, 1, 0) not in offs, "没有桨台抢了筏心那一格：%s" % (offs,))
 
     # 行数多于桨位数 = 同一个桨位被多个 sub-level 认领（dev 世界残留的同号筏体 nbw_raft_N）。
     # 这不是可以忽略的"环境噪声"：产品侧必须把它吵出来，所以两种情形分别断言，都能失败。
@@ -213,6 +247,8 @@ def after():
     p("cww stop")
     p("player %s kill" % old)
     print("satisfied: %d" % len(ok))
+    for m in inc:
+        print("   INCONCLUSIVE - %s" % m)
     for b in bad:
         print("   FAIL - %s" % b)
     print("RESULT: %s" % ("PASS" if not bad else "HAS-FAILURES"))

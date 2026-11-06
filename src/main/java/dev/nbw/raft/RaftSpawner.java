@@ -11,7 +11,6 @@ import net.minecraft.registry.Registries;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.Identifier;
-import net.minecraft.util.math.BlockPos;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -33,8 +32,8 @@ import java.util.UUID;
  */
 public final class RaftSpawner {
 
-	/** arena 没配 initialRaftRadius 时的缺省半径：7×7=49 格甲板。 */
-	public static final int DEFAULT_RADIUS = 3;
+	/** arena 没配 initialRaftSide 时的缺省边长：4×4=16 格甲板（用户 2026-11-06 削弱到这里）。 */
+	public static final int DEFAULT_SIDE = 4;
 	public static final String DEFAULT_BLOCK = "oak_planks";
 	/** 命名约定，与 {@link RaftSinking} 的兜底查找一致。 */
 	public static final String NAME_PREFIX = "nbw_raft_";
@@ -110,8 +109,7 @@ public final class RaftSpawner {
 	public static String generateForTeams(MinecraftServer server) {
 		ServerWorld world = server.getOverworld();
 		ConfigModels.Arena arena = RoundManager.arenaOrNull();
-		int radius = arena == null || arena.limits == null || arena.limits.initialRaftRadius <= 0
-				? DEFAULT_RADIUS : arena.limits.initialRaftRadius;
+		int side = deckSide();
 		String blockId = arena == null || arena.limits == null
 				|| arena.limits.initialRaftBlock == null || arena.limits.initialRaftBlock.isEmpty()
 				? DEFAULT_BLOCK : arena.limits.initialRaftBlock;
@@ -120,11 +118,11 @@ public final class RaftSpawner {
 		if (block == null) {
 			return "初始筏材质无法解析：" + blockId;
 		}
-		int deckBlocks = SableRafts.deckCount(radius);
+		int deckBlocks = SableRafts.deckCount(side);
 		if (arena != null && arena.limits != null && arena.limits.maxBlocksPerRaft > 0
 				&& deckBlocks > arena.limits.maxBlocksPerRaft) {
 			return "初始筏 " + deckBlocks + " 格超过 limits.maxBlocksPerRaft=" + arena.limits.maxBlocksPerRaft
-					+ "，请调小 initialRaftRadius";
+					+ "，请调小 initialRaftSide";
 		}
 
 		List<String> failures = new ArrayList<>();
@@ -148,7 +146,7 @@ public final class RaftSpawner {
 				continue;
 			}
 			String[] err = new String[1];
-			UUID id = SableRafts.createRaft(world, cx, cy, cz, radius,
+			UUID id = SableRafts.createRaft(world, cx, cy, cz, side,
 					block.getDefaultState(), name, err);
 			if (id == null) {
 				failures.add("队 " + index + " 生成失败：" + err[0]);
@@ -167,9 +165,9 @@ public final class RaftSpawner {
 			created++;
 		}
 		String tail = failures.isEmpty() ? "" : "；失败：" + String.join(" | ", failures);
-		NBW.LOGGER.info("[raftgen] 生成 {} 艘初始筏（半径 {}，甲板 {} 格，材质 {}，票已上）{}",
-				created, radius, deckBlocks, blockId, tail);
-		return "生成 " + created + " 艘初始筏，半径 " + radius + "（甲板 " + deckBlocks + " 格，材质 "
+		NBW.LOGGER.info("[raftgen] 生成 {} 艘初始筏（边长 {}，甲板 {} 格，材质 {}，票已上）{}",
+				created, side, deckBlocks, blockId, tail);
+		return "生成 " + created + " 艘初始筏，边长 " + side + "（甲板 " + deckBlocks + " 格，材质 "
 				+ blockId + "）" + tail;
 	}
 
@@ -242,7 +240,7 @@ public final class RaftSpawner {
 		}
 		String[] err = new String[1];
 		UUID id = SableRafts.createRaft(world, anchor.x() + 0.5, anchor.y() + 1.0, anchor.z() + 0.5,
-				DEFAULT_RADIUS, resolveBlock(DEFAULT_BLOCK).getDefaultState(),
+				DEFAULT_SIDE, resolveBlock(DEFAULT_BLOCK).getDefaultState(),
 				NAME_PREFIX + teamIndex, err);
 		if (id == null) {
 			return "生成失败：" + err[0];
@@ -251,7 +249,7 @@ public final class RaftSpawner {
 		RaftSinking.bind(teamIndex, id);
 		RaftCoreService.markIntact(teamIndex);
 		SableRafts.holdLoaded(world, id);
-		return "队 " + teamIndex + " 已生成筏 " + id + "（半径 " + DEFAULT_RADIUS + "，票已上）";
+		return "队 " + teamIndex + " 已生成筏 " + id + "（边长 " + DEFAULT_SIDE + "，票已上）";
 	}
 
 	/**
@@ -353,14 +351,15 @@ public final class RaftSpawner {
 		return key == null ? null : Registries.BLOCK.get(key);
 	}
 
-	/** 给单测与命令层用：把方块 id 解析成 BlockPos 序列这一步不需要真的起服。 */
-	public static List<BlockPos> deckPositions(int radius, int cx, int cy, int cz) {
-		List<BlockPos> out = new ArrayList<>(SableRafts.deckCount(radius));
-		for (int x = -radius; x <= radius; x++) {
-			for (int z = -radius; z <= radius; z++) {
-				out.add(new BlockPos(cx + x, cy, cz + z));
-			}
-		}
-		return out;
+	/**
+	 * 这张图发给每队的初始筏边长（4×4 就是现在的默认）。
+	 *
+	 * <p>帆位、桨位、甲板铺设三处都问这里要同一个数：设施格子由 {@code RaftLayout} 按边长推导，
+	 * 一旦谁自己记住"半径 3"，4×4 的筏上就会出现"帆挂在甲板外面的空气里"这种错。
+	 */
+	public static int deckSide() {
+		ConfigModels.Arena arena = RoundManager.arenaOrNull();
+		return arena == null || arena.limits == null || arena.limits.initialRaftSide <= 0
+				? DEFAULT_SIDE : arena.limits.initialRaftSide;
 	}
 }

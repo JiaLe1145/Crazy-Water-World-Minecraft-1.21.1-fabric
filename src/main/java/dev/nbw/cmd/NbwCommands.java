@@ -97,6 +97,11 @@ public final class NbwCommands {
 		var format = admin(CommandManager.literal("format"));
 		format.then(CommandManager.literal("test").then(CommandManager.argument("id", StringArgumentType.word())
 				.executes(NbwCommands::testFormat)));
+		// 只加载赛制、不开局：报名上限跟着赛制走，没有这一步就只能沿用上一次的规格
+		// （实测探针连着跑：上一局 2x2 规格还在内存里，这一局要 2x4，
+		//   第 3 个玩家起就被"队伍 已满"拒掉，看着像 #41 复发）
+		format.then(CommandManager.literal("reload").then(CommandManager.argument("id", StringArgumentType.word())
+				.executes(NbwCommands::reloadFormat)));
 		root.then(format);
 
 		var lobby = admin(CommandManager.literal("lobby"));
@@ -664,6 +669,33 @@ public final class NbwCommands {
 		ctx.getSource().sendError(Text.literal("[cww] lobby 被拒绝（不自动纠正）：" + detail));
 		NBW.LOGGER.warn("[cww] lobby rejected: {}", detail);
 		return 0;
+	}
+
+	/** 把赛制装进机器但不开局（只在 LOBBY/SETTLE 之外禁止，与 arena 换图的口径一致）。 */
+	private static int reloadFormat(CommandContext<ServerCommandSource> ctx) {
+		String id = StringArgumentType.getString(ctx, "id");
+		String blocker = RoundManager.arenaSwapBlocker();
+		if (blocker != null) {
+			ctx.getSource().sendError(Text.literal("[cww] " + blocker + "（换赛制同样禁止）"));
+			return 0;
+		}
+		ConfigModels.Arena now = RoundManager.arenaOrNull();
+		if (now == null || now.id == null) {
+			ctx.getSource().sendError(Text.literal("[cww] 当前 arena 未知，先用 /cww start <format> <arena> 或"
+					+ " /cww arena reload <id> 定一张图"));
+			return 0;
+		}
+		// loadConfigs 的约定是"成功返回 null，失败返回原因"，别把 null 当空消息打印出去
+		String err = RoundManager.loadConfigs(id, now.id);
+		if (err != null) {
+			ctx.getSource().sendError(Text.literal("[cww] format '" + id + "' 装载失败：" + err));
+			return 0;
+		}
+		var cfg = RoundManager.config();
+		ctx.getSource().sendFeedback(() -> Text.literal("[cww] format '" + id + "' 已装入内存（arena="
+				+ now.id + "，规格 " + cfg.teamCount() + "x" + cfg.teamSize()
+				+ "，下限 " + cfg.minPlayers() + "，容量 " + cfg.capacity() + "）"), true);
+		return 1;
 	}
 
 	private static int testFormat(CommandContext<ServerCommandSource> ctx) throws CommandSyntaxException {

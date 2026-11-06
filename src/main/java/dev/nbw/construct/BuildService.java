@@ -224,7 +224,7 @@ public final class BuildService {
 		}
 		return BuildRules.checkPlace(RoundManager.phase().allowsBuild(), c.playerTeam(), c.raftTeam(),
 				c.lx(), c.ly(), c.lz(), limits.maxRaftArea, neighborMask,
-				scan.blocks(), limits.maxBlocksPerRaft,
+				scan.blocks(), limits.maxBlocksPerRaft, scan.columns(),
 				isFacility(toPlace), scan.facilities(), limits.maxFacilities);
 	}
 
@@ -234,7 +234,7 @@ public final class BuildService {
 	 *
 	 * <p>扫描盒固定为 {@code ±MAX_SCAN_RADIUS × [MIN_LOCAL_Y-1, MAX_LOCAL_Y+1]}（25×25×9）。
 	 * <b>已知边界：筏体比这个盒大时，方块数与设施数会少算，上限因此偏松。</b>
-	 * 现在最大初始筏半径由 {@code limits.initialRaftRadius} 给（实配 3~9），盒足够罩住；
+	 * 初始筏边长的校验水界是 17（{@code limits.initialRaftSide}），12 的扫描盒足够罩住 17×17 的筏；
 	 * 真要支持更大的筏，就把它换成 Sable 自己维护的 plot bounding box（MassTracker 用的就是它），
 	 * 而不是再调这个常量。
 	 */
@@ -308,8 +308,9 @@ public final class BuildService {
 				? null : RoundManager.arenaOrNull().limits;
 		SableRafts.Scan seen = scanRaft(world, raftId);
 		String counts = (seen == null || limits == null) ? "" : String.format(Locale.ROOT,
-				"｜筏体 方块=%d/%d 设施=%d/%d", seen.blocks(), limits.maxBlocksPerRaft,
-				seen.facilities(), limits.maxFacilities);
+				"｜筏体 方块=%d/%d 设施=%d/%d（甲板 %d 列）", seen.blocks(), limits.maxBlocksPerRaft,
+				seen.facilities(), BuildRules.facilitySlots(seen.columns(), limits.maxFacilities),
+				seen.columns());
 		return "要放 " + id + " → " + (reason == null ? "允许" : "拒绝：" + reason) + counts;
 	}
 
@@ -374,11 +375,13 @@ public final class BuildService {
 		}
 		for (Map.Entry<Integer, UUID> e : RaftSpawner.current().entrySet()) {
 			SableRafts.Scan scan = scanRaft(world, e.getValue());
-			sb.append(String.format(Locale.ROOT, "｜队%d 方块=%d 列=%d 设施=%d 加载区块=%d",
+			sb.append(String.format(Locale.ROOT, "｜队%d 方块=%d 列=%d 设施=%d/%d 加载区块=%d",
 					e.getKey(),
 					scan == null ? -1 : scan.blocks(),
 					scan == null ? -1 : scan.columns(),
 					scan == null ? -1 : scan.facilities(),
+					scan == null ? -1
+							: BuildRules.facilitySlots(scan.columns(), arena.limits.maxFacilities),
 					scan == null ? -1 : scan.loadedChunks()));
 		}
 		return sb.toString();

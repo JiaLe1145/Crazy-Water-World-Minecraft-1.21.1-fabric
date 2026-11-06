@@ -108,7 +108,7 @@
       62,
       80
     ],
-    "initialRaftRadius": 3,
+    "initialRaftSide": 4,
     "initialRaftBlock": "oak_planks"
   }
 }

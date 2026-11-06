@@ -3,6 +3,7 @@ package dev.nbw.raft;
 import dev.nbw.NBW;
 import dev.nbw.content.NbwContent;
 import dev.nbw.content.SailBlock;
+import dev.nbw.domain.raft.RaftLayout;
 import dev.nbw.sable.SableRafts;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.world.ServerWorld;
@@ -69,17 +70,32 @@ public final class Sailing {
 		}
 		int teamIndex = RaftSpawner.teamOf(raftId);
 		List<SailCell> cells = sailsByTeam.computeIfAbsent(teamIndex, k -> new ArrayList<>());
-		int half = count / 2;
+		// 帆位不再写死 (i,1,-3)：4×4 的筏上 z=-3 那一圈根本不在甲板上，
+		// 挂上去的帆只是贴在空气里的方块。格子一律由 RaftLayout 按边长推导。
+		int side = RaftSpawner.deckSide();
+		int capacity = RaftLayout.sailCapacity(side);
+		if (cells.size() + count > capacity) {
+			return "这张筏（边长 " + side + "）最多摆 " + capacity + " 面帆，现有 " + cells.size()
+					+ " 面，再加 " + count + " 面塞不下";
+		}
 		int placed = 0;
 		String firstError = null;
-		for (int i = -half; i < count - half; i++) {
-			// z=-3 是甲板靠尾那一排；y=1 在甲板之上，不会埋进甲板方块里
-			if (SableRafts.setPlotBlock(world, raftId, i, 1, -3,
+		// 基准必须在循环外取一次：cells 会在循环里 append，写在循环里取会让
+		// 第 5 面帆拿到序号 8（实测 sea_probe 因此"挂上 4 块帆…帆位 8 算不出格子"）
+		int base = cells.size();
+		for (int i = 0; i < count; i++) {
+			int slot = base + i;
+			int[] cell = RaftLayout.sailCell(side, slot);
+			if (cell == null) {
+				firstError = "帆位 " + slot + " 算不出格子（边长 " + side + " 的甲板铺不下）";
+				break;
+			}
+			if (SableRafts.setPlotBlock(world, raftId, cell[0], cell[1], cell[2],
 					NbwContent.sail.getDefaultState().with(SailBlock.FACING, facing))) {
-				cells.add(new SailCell(i, 1, -3, facing));
+				cells.add(new SailCell(cell[0], cell[1], cell[2], facing));
 				placed++;
 			} else if (firstError == null) {
-				firstError = "plot 写入失败（局部偏移 " + i + ",1,-3）";
+				firstError = "plot 写入失败（局部偏移 " + cell[0] + "," + cell[1] + "," + cell[2] + "）";
 			}
 		}
 		String tail = firstError == null ? "" : "；首个失败：" + firstError;

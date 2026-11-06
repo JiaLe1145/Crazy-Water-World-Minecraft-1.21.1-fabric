@@ -192,9 +192,9 @@ public final class ConfigService {
 		}
 		if (a.limits != null) {
 			// 只在"给了值"时约束：这两个字段是后加的，缺省必须继续能用
-			if (a.limits.initialRaftRadius < 0 || a.limits.initialRaftRadius > 8) {
-				errors.add("limits.initialRaftRadius 必须在 0..8（0=用默认值），实际 "
-						+ a.limits.initialRaftRadius);
+			if (a.limits.initialRaftSide < 0 || a.limits.initialRaftSide > 17) {
+				errors.add("limits.initialRaftSide 必须在 0..17（0=用默认值；边长，17×17=289 是"
+						+ "扫描与浮力负载还合理的水上），实际 " + a.limits.initialRaftSide);
 			}
 			if (a.limits.initialRaftBlock != null && !a.limits.initialRaftBlock.isEmpty()
 					&& !isSafeBlockId(a.limits.initialRaftBlock)) {

@@ -30,7 +30,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from sea_probe import LOG, P, keep_alive, sweep_stale_bots  # noqa: E402
+from sea_probe import LOG, P, keep_alive, sweep_stale_bots, wait_clean_lobby  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SEA = "test_sea"
@@ -186,6 +186,10 @@ def main():
     stale = sweep_stale_bots(p)
     if stale:
         print("      清掉上一轮残留的假玩家：%s" % stale)
+    # 上一支探针（build_probe）的会话可能还挂在队席里：不等到 queue=0/teams=0 就 force，
+    # 2×4 的队会被挤位，报出来的"队伍 已满"看着像产品缺陷复发。
+    clean, st0 = wait_clean_lobby(p, FORMAT)
+    expect(clean, "开局前必须是真正干净的 LOBBY（queue=0 teams=0），实际：%s" % st0[:150])
     write_oar_format()
 
     # 上一轮探针中途崩掉时不会走到 cww stop，对局会一直挂在 PLAY 上。

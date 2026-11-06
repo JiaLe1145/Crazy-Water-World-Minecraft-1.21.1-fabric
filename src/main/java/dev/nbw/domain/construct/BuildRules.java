@@ -13,7 +13,8 @@ package dev.nbw.domain.construct;
  *   <li><b>建造区</b>：水平半径 {@link #buildRadius(int)}（由 {@code limits.maxRaftArea} 换算）+
  *       垂直窗口 [{@link #MIN_LOCAL_Y}, {@link #MAX_LOCAL_Y}]，坐标是<b>相对甲板面的 plot 局部坐标</b>。
  *       "防无限铺地板把服务器 TPS 拖死"靠的就是这条——筏体方块数直接决定 Sable 的物理负载。</li>
- *   <li><b>数量上限</b>：总方块数 ≤ {@code maxBlocksPerRaft}，设施数 ≤ {@code maxFacilities}。</li>
+ *   <li><b>数量上限</b>：总方块数 ≤ {@code maxBlocksPerRaft}；设施数 ≤ 设施位额度
+ *       （见 {@link #facilitySlots(int, int)}）。</li>
  * </ol>
  *
  * <p><b>一条软约束：新方块必须邻接已有方块。</b>plot 是有限存储区，允许隔空造一格会得到
@@ -22,10 +23,12 @@ package dev.nbw.domain.construct;
  * <p><b>破坏只查归属与保护，不查建造区。</b>建造区外可能残留历史方块（改过配置、旧版本留下的），
  * 那时必须还能拆掉它；用建造区挡住拆除，等于让玩家对一个拆不掉的方块干瞪眼。
  *
- * <p><b>刻意没实现的一条</b>：01 §4.2 的"设施位随面积增长（每 9 格甲板 1 个设施位）"。
- * 按那个公式，7×7=49 格的初始筏只给 5 个位，而现在一条 {@code cww oar rig} 就能摆 4 台桨、
- * {@code cww sail rig} 再摆帆，会立刻撞线并让既有探针全红。设施位与面积的绑定是<b>玩法决策</b>
- * （要先重配初始筏尺寸与上限），不是工程决策，留在待批清单里。
+ * <p><b>设施位随筏面积增长</b>（01 §4.2 / 02 §5，用户 2026-11-06 裁决为<b>每 5 格甲板 1 位</b>，
+ * 原稿写的是 9 格）：额度 = {@code min(maxFacilities, 甲板列数 / 5)}。
+ * 面积基准取<b>占用列数</b>而不是方块数——"每 N 格甲板"说的是甲板 footprint，
+ * 两层舱室的方块数会翻倍而footprint不变，用方块数会让"往上盖楼"白送设施位。
+ * 筏心自己占一位（它是设施），所以 4×4=16 列的初始筏给 3 位、实际只剩 2 位能摆帆或桨台，
+ * 想更多就必须先扩甲板——这正是要给玩家的那道"扩筏 vs 建军械"的抉择。
  */
 public final class BuildRules {
 
@@ -41,6 +44,29 @@ public final class BuildRules {
 	 */
 	public static final int MAX_LOCAL_Y = 7;
 
+	/**
+	 * 几个甲板列换 1 个设施位（用户 2026-11-06 裁决：5）。
+	 * 原稿 01 §4.2 / 02 §5 写的是"例如每 9 格"，那个数在 4×4=16 列的初始筏上只给 1 位，
+	 * 而筏心自己就占 1 位 → 帆和一台桨都摆不了，直接把已有的航行玩法锁死，所以调小。
+	 */
+	public static final int DECK_COLUMNS_PER_FACILITY = 5;
+
+	/**
+	 * 设施位额度 = {@code min(maxFacilities, 列数 / 每几位)}。
+	 *
+	 * <p>两条上限并存不是重复：面积那条管"小筏不许堆神装"（玩法），
+	 * {@code maxFacilities} 管"再大的筏也别把 Sable 的物理负载拉爆"（运维）。
+	 * 4×4=16 列 → 3 位；扩到 5×5=25 列 → 5 位；{@code maxRaftArea}=96 那档最多 81 列 → 16 位，
+	 * 于是被 {@code maxFacilities=8} 夹住，硬上限真的会生效。
+	 */
+	public static int facilitySlots(int deckColumns, int maxFacilities) {
+		if (deckColumns <= 0 || maxFacilities <= 0) {
+			return 0;
+		}
+		int byArea = deckColumns / DECK_COLUMNS_PER_FACILITY;
+		return Math.min(maxFacilities, byArea);
+	}
+
 	private BuildRules() {
 	}
 
@@ -50,9 +76,9 @@ public final class BuildRules {
 	 * <p>字段名写的是"最大面积"，判定就不能允许铺出比它更大的 footprint。旧写法
 	 * {@code floor(sqrt(96)) = 9} 会放开 19×19 = 361 列，等于把上限放大 3.7 倍，字段名当场没意义。
 	 * 现在 {@code maxRaftArea=96} → 边长 9 → 半径 4（81 列 ≤ 96）；
-	 * {@code 49} → 半径 3，正好等于 {@code RaftSpawner.DEFAULT_RADIUS} 的初始筏，
-	 * 语义变成"这张图只许在原甲板范围内重建，不许扩建"——配置给多大就只能用多大，
-	 * 小面积自然收敛到半径 0，不需要再写 {@code area<=4} 的特例。
+	 * {@code 16} → 半径 2，正好罩住 4×4 的初始筏（见 {@code RaftLayout}），语义是
+	 * "这张图只许在原甲板范围内重建，不许扩建"；{@code 25} → 半径 2 也够 5×5。
+	 * 配置给多大就只能用多大，小面积自然收敛到半径 0，不需要再写 {@code area<=4} 的特例。
 	 * 边长取奇数是因为甲板在正中间，偶数边长会朝一个方向偏出一格。
 	 */
 	public static int buildRadius(int maxRaftArea) {
@@ -77,12 +103,14 @@ public final class BuildRules {
 	 * @param playerTeam     放置者所在队（-1 = 没分队）
 	 * @param raftTeam       被碰的筏属于哪队（-1 = 这不是筏，是公共海域）
 	 * @param neighborMask   六邻格里"已有实心方块"的位掩码（0 = 悬空）
+	 * @param columns        筏体当前占用的甲板列数（设施位额度的面积基准）
 	 * @param facility       要放的是不是设施方块（帆/桨台/筏心）
 	 * @return null 表示允许；否则是给玩家看的拒绝原因
 	 */
 	public static String checkPlace(boolean phaseAllowsBuild, int playerTeam, int raftTeam,
 			int lx, int ly, int lz, int maxRaftArea, int neighborMask,
-			int blockCount, int maxBlocks, boolean facility, int facilityCount, int maxFacilities) {
+			int blockCount, int maxBlocks, int columns, boolean facility,
+			int facilityCount, int maxFacilities) {
 		String shared = sharedGate(phaseAllowsBuild, playerTeam, raftTeam);
 		if (shared != null) {
 			return shared;
@@ -100,8 +128,12 @@ public final class BuildRules {
 		if (blockCount >= maxBlocks) {
 			return "筏体方块数已达上限 " + blockCount + "/" + maxBlocks + "（limits.maxBlocksPerRaft）";
 		}
-		if (facility && facilityCount >= maxFacilities) {
-			return "设施位已满 " + facilityCount + "/" + maxFacilities + "（limits.maxFacilities），先拆掉旧设施";
+		int slots = facilitySlots(columns, maxFacilities);
+		if (facility && facilityCount >= slots) {
+			String ceiling = slots >= maxFacilities
+					? "已撞到硬上限 limits.maxFacilities=" + maxFacilities
+					: "每 " + DECK_COLUMNS_PER_FACILITY + " 格甲板才给 1 位（现有甲板 " + columns + " 列）";
+			return "设施位已满 " + facilityCount + "/" + slots + "，" + ceiling + "；先扩甲板或拆掉旧设施";
 		}
 		return null;
 	}
