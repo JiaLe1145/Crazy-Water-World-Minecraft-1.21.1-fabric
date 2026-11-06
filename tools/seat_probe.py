@@ -35,6 +35,10 @@ expect("已满" not in f1 and "找不到" not in f1, "h1 指派到队 0（回：
 expect("已满" not in f2 and "找不到" not in f2, "h2 指派到队 0（回：%s）" % f2[:70])
 
 print("== 2. kill 掉 h1（Carpet 不触发 DISCONNECT，会话就此变成幽灵）")
+# 取证游标：只认这个字节位置之后新写入的日志。同一台 dev 服务端上别的探针（build_probe）
+# 也会留下待释放的会话，而 re.search 取的是"第一条同模式的行"——2026-11-06 实测被
+# u5707a0 那一行顶掉，报了个假 FAIL。取证必须知道自己看的是哪一段日志。
+log_cursor = os.path.getsize(LOG)
 p("player h1 kill")
 for _ in range(20):
     if not online("h1"):
@@ -44,18 +48,27 @@ expect(not online("h1"), "h1 确实已下线")
 audit_before = p("cww audit 20")
 print("      kill 后审计尾部：%s" % audit_before[:110])
 
+PATTERN = r"\[round\] 报名期放掉 (\d+) 个不在场的席位（事件漏报兜底）：([^\n]*)"
 released_line = ""
+other_line = ""
 for _ in range(25):
     p.sleep(1)
     with open(LOG, encoding="utf-8", errors="replace") as fh:
+        fh.seek(log_cursor)
         text = fh.read()
-    hit = re.search(r"\[round\] 报名期放掉 (\d+) 个不在场的席位（事件漏报兜底）：([^\n]*)", text)
-    if hit:
-        released_line = hit.group(0)
+    for hit in re.finditer(PATTERN, text):
+        # 一行里可以同时列好几个名字，所以按名字判，不按"是不是这一行"判
+        if "h1" in hit.group(2):
+            released_line = hit.group(0)
+        else:
+            other_line = hit.group(0)
+    if released_line:
         break
-expect(bool(released_line), "报名期兜底必须放掉不在场的席位（日志要有那行 WARN）")
+expect(bool(released_line), "报名期兜底必须放掉不在场的席位（游标之后的新增日志里要有 h1 那行 WARN）；"
+                            "本轮只看到别人的释放：%s" % other_line[:120])
 print("      %s" % released_line[:160])
-expect("h1" in released_line, "被释放的必须是 h1（含队席信息）：%s" % released_line[:120])
+expect("h1" in released_line and "席位已释放" in released_line,
+       "被释放的必须是 h1 并带队席信息：%s" % released_line[:120])
 
 print("== 3. 席位腾出来后，重新上线的 h1 必须能再被指派")
 p("player h1 spawn")

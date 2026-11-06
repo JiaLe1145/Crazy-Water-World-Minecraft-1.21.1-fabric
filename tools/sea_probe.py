@@ -202,7 +202,7 @@ def keep_alive(p, bots):
 
 
 BOT_PREFIXES = ("s", "x", "z", "a", "d", "v", "h", "w", "g", "t", "q",
-                "o", "r", "m")   # o/r/m 是桨的探针（oar_/restart_/motion_）用过的前缀
+                "o", "r", "m", "u", "e", "b")   # o/r/m 桨、u 建造规则、e/b 取证脚本 是桨的探针（oar_/restart_/motion_）用过的前缀
 
 
 def sweep_stale_bots(p):

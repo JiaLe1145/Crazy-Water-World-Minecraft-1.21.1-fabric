@@ -9,6 +9,7 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import dev.nbw.NBW;
 import dev.nbw.arena.BuiltinArenaJson;
 import dev.nbw.arena.SeaTerrain;
+import dev.nbw.construct.BuildService;
 import dev.nbw.cfg.ConfigModels;
 import dev.nbw.cfg.ConfigService;
 import dev.nbw.domain.ZoneModel;
@@ -186,6 +187,32 @@ public final class NbwCommands {
 												IntegerArgumentType.integer(1, 600))
 												.executes(NbwCommands::oarHold))))));
 		root.then(oar);
+
+		// ---- 建造规则（M2-6 / 01 §4.2）：上限与归属判定的观测面
+		var build = admin(CommandManager.literal("build"));
+		build.then(CommandManager.literal("status").executes(NbwCommands::buildStatus));
+		build.then(CommandManager.literal("last").executes(NbwCommands::buildLast));
+		// 按坐标问判定、不写方块：给探针覆盖"越界 / 悬空 / 上限"这几条靠瞄准很难命中的门。
+		// 逐级 then 而不是写成一整条链：这条命令有 6 个必填参数，链式写法上次把 onTeam
+		// 挂成了 check 的并列子节点（asTeam 因此成了叶子节点），命令直接解析不动。
+		var bcAs = CommandManager.argument("asTeam", IntegerArgumentType.integer(0));
+		var bcOn = CommandManager.argument("onTeam", IntegerArgumentType.integer(0));
+		var bcKind = CommandManager.argument("kind", StringArgumentType.word());
+		var bcLx = CommandManager.argument("lx", IntegerArgumentType.integer(-64, 64));
+		var bcLy = CommandManager.argument("ly", IntegerArgumentType.integer(-64, 64));
+		var bcLz = CommandManager.argument("lz", IntegerArgumentType.integer(-64, 64));
+		// block 用 greedyString：Brigadier 的不带引号 string 不接受冒号，
+		// 实测 nbw:sail 会被切成 "nbw" + 尾随数据，而带命名空间正是必传的写法
+		var bcBlock = CommandManager.argument("block", StringArgumentType.greedyString());
+		bcBlock.executes(NbwCommands::buildCheck);
+		bcLz.executes(NbwCommands::buildCheck).then(bcBlock);
+		bcLy.then(bcLz);
+		bcLx.then(bcLy);
+		bcKind.then(bcLx);
+		bcOn.then(bcKind);
+		bcAs.then(bcOn);
+		build.then(CommandManager.literal("check").then(bcAs));
+		root.then(build);
 
 		// ---- 落盘与重启恢复（Gate G1）
 		root.then(admin(CommandManager.literal("save").executes(NbwCommands::saveNow)));
@@ -371,6 +398,43 @@ public final class NbwCommands {
 	private static int stateFile(CommandContext<ServerCommandSource> ctx) {
 		String msg = RoundManager.describeStateFile();
 		ctx.getSource().sendFeedback(() -> Text.literal("[cww] " + msg), false);
+		return 1;
+	}
+
+	private static int buildStatus(CommandContext<ServerCommandSource> ctx) {
+		ctx.getSource().sendFeedback(() -> Text.literal(BuildService.status(ctx.getSource().getWorld())), false);
+		return 1;
+	}
+
+	private static int buildLast(CommandContext<ServerCommandSource> ctx) {
+		List<String> recent = BuildService.recent();
+		if (recent.isEmpty()) {
+			ctx.getSource().sendFeedback(() -> Text.literal("[cww] 还没有建造判定记录（没人放过/拆过方块）"), false);
+			return 0;
+		}
+		for (String line : recent) {
+			ctx.getSource().sendFeedback(() -> Text.literal("[cww] " + line), false);
+		}
+		return recent.size();
+	}
+
+	private static int buildCheck(CommandContext<ServerCommandSource> ctx) {
+		int asTeam = IntegerArgumentType.getInteger(ctx, "asTeam");
+		int onTeam = IntegerArgumentType.getInteger(ctx, "onTeam");
+		String kind = StringArgumentType.getString(ctx, "kind");
+		int lx = IntegerArgumentType.getInteger(ctx, "lx");
+		int ly = IntegerArgumentType.getInteger(ctx, "ly");
+		int lz = IntegerArgumentType.getInteger(ctx, "lz");
+		String block;
+		try {
+			block = StringArgumentType.getString(ctx, "block");
+		} catch (IllegalArgumentException missing) {
+			block = null;   // 这一版 Brigadier 没有 getOptionalArgument，缺省只能这样问
+		}
+		String line = BuildService.check(ctx.getSource().getWorld(), asTeam, onTeam, kind, lx, ly, lz, block);
+		final String text = "[cww] build check 队" + asTeam + " 对 队" + onTeam + " "
+				+ kind + " (" + lx + ", " + ly + ", " + lz + ")：" + line;
+		ctx.getSource().sendFeedback(() -> Text.literal(text), true);
 		return 1;
 	}
 

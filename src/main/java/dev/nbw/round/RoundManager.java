@@ -4,6 +4,7 @@ import dev.nbw.NBW;
 import dev.nbw.arena.ArenaChunkLoader;
 import dev.nbw.arena.BuiltinArenaJson;
 import dev.nbw.arena.SeaTerrain;
+import dev.nbw.construct.BuildService;
 import dev.nbw.cfg.ConfigModels;
 import dev.nbw.cfg.ConfigService;
 import dev.nbw.domain.SpawnGeometry;
@@ -648,6 +649,7 @@ public final class RoundManager {
 		WindService.set("calm", 0.0);   // 风是局内状态，不许跨局残留成"永久顺风"
 		OarService.reset();   // 桨位表与"正在划"的人同样是局内状态；残留=下一局白得动力或桨位被占
 		RaftMotionService.reset();   // 位移采样的位姿基线必须重取，否则跨局第一 tick 会算出一个假速度
+		BuildService.reset();   // 建造提示的节流表按玩家 UUID 涨；判定计数是跨局运维量，故意不清
 	}
 
 	// ---------------------------------------------------------------- 配置与命令入口

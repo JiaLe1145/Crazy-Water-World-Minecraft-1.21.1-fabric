@@ -13,6 +13,7 @@ import dev.ryanhcode.sable.sublevel.plot.EmbeddedPlotLevelAccessor;
 import dev.ryanhcode.sable.sublevel.plot.LevelPlot;
 import dev.ryanhcode.sable.sublevel.storage.SubLevelRemovalReason;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.block.Block;
@@ -27,6 +28,7 @@ import org.joml.Vector3d;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Predicate;
 
 /**
  * Sable 隔离层（01-技术架构：全工程只有这个包允许 import {@code dev.ryanhcode.sable.*}）。
@@ -148,6 +150,131 @@ public final class SableRafts {
 	/** 把 plot 局部偏移上的一格换成空气（拆帆用）。 */
 	public static boolean clearPlotBlock(ServerWorld world, UUID raftId, int lx, int ly, int lz) {
 		return setPlotBlock(world, raftId, lx, ly, lz, Blocks.AIR.getDefaultState());
+	}
+
+	// ---------------------------------------------------------------- 建造规则用的解析与统计
+
+	/**
+	 * 交互坐标落在哪个筏上；不是筏（公共海域、海床）返回 null。
+	 *
+	 * <p><b>这里的 pos 不是玩家眼前的世界坐标。</b>Sable 的射线重写
+	 * （{@code mixin/clip_overwrite/BlockGetterMixin.java:104-131}）先用筏的 {@code logicalPose}
+	 * 把射线反投影进筏自己的<b>存储坐标系</b>，再在存储空间里求交并直接把该空间的命中结果交回去，
+	 * 所以玩家点到的方块一律以存储坐标递交——筏子开出去多远都一样。
+	 * 判定口径跟 Sable 自己对"我点的是不是 plot"的判定同源（{@code mixin/block_placement/
+	 * BlockPlaceContextMixin.java:81} 用的 {@code getContaining} 内部就是比 plot 的区块范围），
+	 * 这里只是换了个 yarn 编得过的写法，不是另发明一套。
+	 */
+	public static @Nullable UUID raftAt(ServerWorld world, BlockPos pos) {
+		// 语义与 Sable 自己的 getContaining 一致（container.getPlot(chunkX, chunkZ) 判的就是
+		// plot 的区块范围，LevelPlot.java:198-205），但绕开它调用：Sable 的 HELPER 走 companion
+		// 桥接层，那里是 intermediary 类名（class_1937），yarn 工程在编译期拿不到那个类。
+		for (ServerSubLevel sl : list(world)) {
+			if (sl.getPlot().contains(pos.getX(), pos.getZ())) {
+				return sl.getUniqueId();
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * 筏 plot 的 accessor 原点在存储坐标系里的位置（Sable 定义为 plot 中心块）。
+	 *
+	 * <p>有了它才能把交互坐标换算成我们全局使用的 plot 局部坐标：
+	 * {@code local = global - center}（{@code EmbeddedPlotLevelAccessor:105} 内部就是
+	 * {@code local.offset(center)}，两侧必须用同一个原点，不能自己另推一个）。
+	 */
+	public static @Nullable BlockPos accessorOrigin(ServerWorld world, UUID raftId) {
+		ServerSubLevel sl = resolve(world, raftId);
+		return sl == null ? null : sl.getPlot().getCenterBlock();
+	}
+
+	/** 读一格 plot 局部坐标上的方块；筏不在时返回 null（与"读到空气"区分开）。 */
+	public static @Nullable BlockState plotBlock(ServerWorld world, UUID raftId, int lx, int ly, int lz) {
+		EmbeddedPlotLevelAccessor a = accessor(world, raftId);
+		return a == null ? null : a.getBlockState(new BlockPos(lx, ly, lz));
+	}
+
+	/**
+	 * 局部坐标六邻格里"实心方块"的位掩码（建造邻接判定用：新方块必须贴着已有筏体）。
+	 *
+	 * <p>可替换的东西不算实心：水、雪、草这类 {@code isReplaceable} 的方块撑不住新方块，
+	 * 把它们算进邻接会让"往水里搁地板"通过检查。
+	 *
+	 * @return 0 = 六个方向都是空的或水；筏不存在时返回 {@code -1}（调用方必须区别对待"查不到"）
+	 */
+	public static int neighborMask(ServerWorld world, UUID raftId, int lx, int ly, int lz) {
+		EmbeddedPlotLevelAccessor a = accessor(world, raftId);
+		if (a == null) {
+			return -1;
+		}
+		int mask = 0;
+		BlockPos base = new BlockPos(lx, ly, lz);
+		for (Direction d : Direction.values()) {
+			if (isSolid(a.getBlockState(base.offset(d)))) {
+				mask |= 1 << d.ordinal();
+			}
+		}
+		return mask;
+	}
+
+	/** 局部建造盒扫描结果：实心方块数、占用的水平列数、设施数。 */
+	public record Scan(int blocks, int columns, int facilities, int loadedChunks) {
+	}
+
+	/**
+	 * 扫描 {@code [-radius, radius]²  ×  [minY, maxY]} 的局部盒子，统计筏体方块。
+	 *
+	 * <p><b>只在事件里调，不在 tick 里调</b>：放置/破坏是玩家动作，频率上限就是人手速；
+	 * 半径 9、y 窗口 [-1,7] 是 19×19×9 = 3249 次读取，和一次 map 查找同数量级地便宜。
+	 * 这条约束写在 {@code BuildService} 的注释里，改动前请先看那里
+	 * （04 §12 性能预算禁的是"每 tick 全图包围盒扫描"，不是"每次点击扫一遍建造区"）。
+	 *
+	 * @param facility 判定"这格算不算设施"（帆/桨台/筏心由上层给，本层不认识内容方块）
+	 */
+	public static @Nullable Scan scan(ServerWorld world, UUID raftId, int radius, int minY, int maxY,
+			Predicate<BlockState> facility) {
+		ServerSubLevel sl = resolve(world, raftId);
+		if (sl == null) {
+			return null;
+		}
+		EmbeddedPlotLevelAccessor a = sl.getPlot().getEmbeddedLevelAccessor();
+		int side = 2 * radius + 1;
+		boolean[] column = new boolean[side * side];
+		int blocks = 0;
+		int facilities = 0;
+		for (int y = minY; y <= maxY; y++) {
+			for (int x = -radius; x <= radius; x++) {
+				for (int z = -radius; z <= radius; z++) {
+					BlockState state = a.getBlockState(new BlockPos(x, y, z));
+					if (!isSolid(state)) {
+						continue;
+					}
+					blocks++;
+					column[(x + radius) * side + (z + radius)] = true;
+					if (facility.test(state)) {
+						facilities++;
+					}
+				}
+			}
+		}
+		int columns = 0;
+		for (boolean c : column) {
+			if (c) {
+				columns++;
+			}
+		}
+		return new Scan(blocks, columns, facilities, sl.getPlot().getLoadedChunks().size());
+	}
+
+	/** 实心 = 非空气且不可替换（水、雪、植被都不算）。 */
+	private static boolean isSolid(BlockState state) {
+		return state != null && !state.isAir() && !state.isReplaceable();
+	}
+
+	private static @Nullable EmbeddedPlotLevelAccessor accessor(ServerWorld world, UUID raftId) {
+		ServerSubLevel sl = resolve(world, raftId);
+		return sl == null ? null : sl.getPlot().getEmbeddedLevelAccessor();
 	}
 
 	/**

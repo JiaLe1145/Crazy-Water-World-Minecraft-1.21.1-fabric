@@ -1,5 +1,6 @@
 package dev.nbw;
 
+import dev.nbw.construct.BuildService;
 import dev.nbw.cmd.NbwCommands;
 import dev.nbw.content.NbwContent;
 import dev.nbw.net.NbwNetworking;
@@ -18,6 +19,7 @@ public class NBW implements ModInitializer {
 		NbwContent.register();
 		NbwNetworking.register();   // 长按输入：codec 必须先于接收器注册，否则服务端解不出包
 		RoundManager.register();
+		BuildService.register();    // 建造规则（01 §4.2）：方块事件必须在阶段系统起来之后挂
 		NbwCommands.register();
 		LOGGER.info("NB-Water-World {} initialized (mc 1.21.1 / loader 0.19.3 / Sable 2.0.6)", MOD_VERSION);
 	}
