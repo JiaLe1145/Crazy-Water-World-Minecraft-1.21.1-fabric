@@ -12,6 +12,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 配置加载与校验（03 §6）。三条硬规则：
@@ -25,9 +26,25 @@ public final class ConfigService {
 	private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH-mm-ss");
 	private static final String NAME_PATTERN = "[a-z0-9_]{1,32}";
 
-	public record Loaded(ConfigModels.Arena arena, ZoneModel zone, List<String> errors) {
+	public record Loaded(ConfigModels.Arena arena, ZoneModel zone, List<String> errors, Source source) {
 		public boolean ok() {
 			return errors.isEmpty();
+		}
+
+		/** 配置来自哪里。归档只对 WORLD 有意义：内置图在 jar 里，挪不动也不该挪。 */
+		public enum Source {
+			WORLD("world/cww/arenas 文件"),
+			BUILTIN("jar 内置默认图");
+
+			private final String label;
+
+			Source(String label) {
+				this.label = label;
+			}
+
+			public String label() {
+				return label;
+			}
 		}
 	}
 
@@ -56,40 +73,66 @@ public final class ConfigService {
 		return true;
 	}
 
-	/** 解析并校验单个 arena 文件；失败时把文件移入 _invalid/ 并返回字段级错误。 */
-	public static Loaded loadArena(Path worldRoot, String id, boolean quarantineOnFailure) {
-		List<String> errors = new ArrayList<>();
+	/**
+	 * 解析并校验单个 arena。两条来源，优先级是刻意的：
+	 * {@code <world>/cww/arenas/<id>.json} 存在就用它（地图作者的本地覆盖永远压过内置图），
+	 * 只有缺文件时才回退读 jar 内置默认图。
+	 * 两条路径走同一套 {@link #validateArena}，内置图不享受"宽松"——否则默认图里的错误会随包分发到每台服。
+	 * 失败时把文件移入 _invalid/ 并返回字段级错误；内置图不归档（在 jar 里挪不动）。
+	 */
+	public static Loaded loadArena(Path worldRoot, String id, boolean quarantineOnFailure, ArenaJsonSource builtin) {
 		if (!isSafeName(id)) {
-			errors.add("arena id 不合法（只允许 [a-z0-9_]{1,32}）：" + id);
-			return new Loaded(null, null, errors);
+			return rejected("arena id 不合法（只允许 [a-z0-9_]{1,32}）：" + id);
 		}
 		Path dir = worldRoot.resolve("cww").resolve("arenas");
 		Path file = dir.resolve(id + ".json");
 		if (!file.startsWith(dir)) {
-			errors.add("路径越界，拒绝读取：" + file);
-			return new Loaded(null, null, errors);
+			return rejected("路径越界，拒绝读取：" + file);
 		}
-		if (!Files.isRegularFile(file)) {
-			errors.add("找不到 arena 文件：" + file);
-			return new Loaded(null, null, errors);
+		if (Files.isRegularFile(file)) {
+			String text;
+			try {
+				text = Files.readString(file);
+			} catch (IOException e) {
+				if (quarantineOnFailure) {
+					quarantine(file);
+				}
+				return new Loaded(null, null, List.of("读取失败：" + e.getMessage()), Loaded.Source.WORLD);
+			}
+			return parse(text, file, quarantineOnFailure, Loaded.Source.WORLD);
 		}
+		// 本地没有这张图：用内置默认图顶上，这样新装的服不会因为缺配置而起不来。
+		// quarantine 传 false —— 把"内置图坏了"伪装成"已归档"只会让人往错误方向找。
+		Optional<String> embedded = builtin.readBuiltin(id);
+		if (embedded.isPresent()) {
+			return parse(embedded.get(), file, false, Loaded.Source.BUILTIN);
+		}
+		return rejected("找不到 arena 文件：" + file + "（内置默认图里也没有 '" + id + "'）");
+	}
 
+	private static Loaded rejected(String error) {
+		return new Loaded(null, null, List.of(error), null);
+	}
+
+	/** 一条文本 → arena + 环带模型 + 字段级错误；两种来源共用，保证校验口径完全一致。 */
+	private static Loaded parse(String text, Path file, boolean quarantineOnFailure, Loaded.Source source) {
+		List<String> errors = new ArrayList<>();
 		ConfigModels.Arena arena;
 		try {
-			arena = GSON.fromJson(Files.readString(file), ConfigModels.Arena.class);
-		} catch (JsonParseException | IOException e) {
+			arena = GSON.fromJson(text, ConfigModels.Arena.class);
+		} catch (JsonParseException e) {
 			errors.add("JSON 解析失败：" + e.getMessage());
 			if (quarantineOnFailure) {
 				quarantine(file);
 			}
-			return new Loaded(null, null, errors);
+			return new Loaded(null, null, errors, source);
 		}
 		if (arena == null) {
 			errors.add("文件内容为空");
 			if (quarantineOnFailure) {
 				quarantine(file);
 			}
-			return new Loaded(null, null, errors);
+			return new Loaded(null, null, errors, source);
 		}
 
 		errors.addAll(validateArena(arena));
@@ -99,7 +142,7 @@ public final class ConfigService {
 		if (!errors.isEmpty() && quarantineOnFailure) {
 			quarantine(file);
 		}
-		return new Loaded(arena, zone, errors);
+		return new Loaded(arena, zone, errors, source);
 	}
 
 	/** 03 §6.1 的结构性校验（圈层与环带的数学部分在 ZoneModel.validate）。 */

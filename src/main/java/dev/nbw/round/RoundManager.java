@@ -1,9 +1,13 @@
 package dev.nbw.round;
 
 import dev.nbw.NBW;
+import dev.nbw.arena.ArenaChunkLoader;
+import dev.nbw.arena.BuiltinArenaJson;
+import dev.nbw.arena.SeaTerrain;
 import dev.nbw.cfg.ConfigModels;
 import dev.nbw.cfg.ConfigService;
 import dev.nbw.domain.SpawnGeometry;
+import dev.nbw.domain.arena.SeaAudit;
 import dev.nbw.domain.round.Phase;
 import dev.nbw.domain.round.PlayerSession;
 import dev.nbw.domain.round.RoundConfig;
@@ -154,6 +158,8 @@ public final class RoundManager {
 			persist("阶段转移");   // 03 §6.1：每次转移落盘
 		}
 		drainPendingPlacements();
+		// 预热队列跨阶段推进（ENROLL 就开始排队），所以不能塞进下面那个 PLAY-only 块里
+		ArenaChunkLoader.tick(srv.getOverworld());
 		if (machine.phase() == Phase.PLAY) {
 			sweepDeaths();
 			RaftSinking.onEndTick(srv);
@@ -236,6 +242,9 @@ public final class RoundManager {
 			}
 			case READY -> {
 				buildAnchors();
+				// 重启恢复 / 中途换图都没走过 start()，这里补一次登记（begin 幂等，不会重复下票）
+				ArenaChunkLoader.begin(server.getOverworld(), arenaId, arena);
+				warnIfSeaMissing();
 				// 先有筏再传人：玩家应当落到自己那艘筏上，而不是落到水裡等筏子凭空出现
 				String gen = RaftSpawner.generateForTeams(server);
 				if (gen.contains("失败")) {
@@ -426,6 +435,33 @@ public final class RoundManager {
 		NBW.LOGGER.info("[round] anchors built: {} 队，最小间距 {}（要求 >= {}）", anchors.size(), separation, minRequired);
 	}
 
+	/**
+	 * READY 前把"配置要的海"和"世界上实际的地形"对读一遍，不一致就写日志。
+	 *
+	 * <p><b>只警告、不阻断转移，这是刻意的：</b>m1_round（120 条断言）与 g1_guards（9 条）都在旱地
+	 * {@code flat_test} 上开整局，它们测的是回合骨架、跟海没关系，硬闸门会把整套回归打红。
+	 * 玩家真被扔进石头里是画面问题，最终得由真人判定；这里的职责是让现场读数先存在、可追溯。
+	 */
+	private static void warnIfSeaMissing() {
+		if (arena == null || server == null) {
+			return;
+		}
+		List<SeaAudit.Reading> readings = SeaTerrain.sample(server.getOverworld(), arena,
+				machine.config().teamCount());
+		List<String> problems = SeaAudit.audit(readings);
+		if (problems.isEmpty()) {
+			NBW.LOGGER.info("[arena] 地形与配置一致：{} 列全过（水面 y={}，海床顶 y={}）",
+					readings.size(), arena.sea.waterLevel, arena.sea.waterLevel - SeaAudit.WATER_DEPTH);
+			return;
+		}
+		NBW.LOGGER.warn("[arena] {} 列里有 {} 列对不上 —— 对局照常开始。实测传送会同步生成未加载的区块，"
+				+ "代价是一次约 2 秒的服务端冻结（2001ms / 40 tick 落后）：",
+				readings.size(), problems.size());
+		for (String line : problems) {
+			NBW.LOGGER.warn("[arena]   {}", line);
+		}
+	}
+
 	private static List<SpawnGeometry.Spot> toSpots() {
 		List<SpawnGeometry.Spot> spots = new ArrayList<>();
 		for (Anchor a : anchors) {
@@ -529,6 +565,8 @@ public final class RoundManager {
 	private static void auditResidue() {
 		List<String> issues = new ArrayList<>(machine.residueReport());
 		issues.addAll(RaftSpawner.auditResidue(server));
+		// 海域预热票一起回收并纳入断言：这类票会跨重启存活，靠"记得撤"永远清不干净
+		issues.addAll(ArenaChunkLoader.release(server.getOverworld()));
 		for (ServerPlayerEntity p : collect(lastParticipants)) {
 			if (!p.getInventory().isEmpty()) {
 				issues.add(p.getNameForScoreboard() + " 物品栏非空");
@@ -710,7 +748,7 @@ public final class RoundManager {
 		if (f == null) {
 			return "format '" + fid + "' 内容为空";
 		}
-		ConfigService.Loaded arenaLoaded = ConfigService.loadArena(root, aid, true);
+		ConfigService.Loaded arenaLoaded = ConfigService.loadArena(root, aid, true, BuiltinArenaJson.SOURCE);
 		if (!arenaLoaded.ok()) {
 			return "arena '" + aid + "' 被拒绝（不自动纠正）：" + String.join(" | ", arenaLoaded.errors());
 		}
@@ -753,6 +791,9 @@ public final class RoundManager {
 		if (!machine.fire(RoundEvent.START)) {
 			return "开局被状态机拒绝（阶段 " + machine.phase() + "）";
 		}
+		// 一开局就把海域区块排队预热：报名那段时间足够吸收生成开销，
+		// 否则这笔账全落在 READY 传送那一刻（实测一次 2001ms / 40 tick 落后）
+		ArenaChunkLoader.begin(server.getOverworld(), aid == null ? arenaId : aid, arena);
 		return null;
 	}
 

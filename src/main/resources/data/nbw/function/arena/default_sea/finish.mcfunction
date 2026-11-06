@@ -1,0 +1,2 @@
+execute if data storage nbw:sea_default_sea job run data remove storage nbw:sea_default_sea job
+tellraw @a [{"text":"[nbw] default_sea ：","color":"green"},{"nbt":"note","storage":"nbw:sea_default_sea","color":"yellow"},{"text":" 队列已跑完。","color":"gray"},{"text":"用 /function nbw:arena/default_sea/status 复查剩余笔数；","color":"gray"},{"text":"建海期间的 forceload 不会自动撤，确认无误后跑 /function nbw:arena/default_sea/release","color":"red"}]

@@ -7,9 +7,12 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import dev.nbw.NBW;
+import dev.nbw.arena.BuiltinArenaJson;
+import dev.nbw.arena.SeaTerrain;
 import dev.nbw.cfg.ConfigModels;
 import dev.nbw.cfg.ConfigService;
 import dev.nbw.domain.ZoneModel;
+import dev.nbw.domain.arena.SeaAudit;
 import dev.nbw.raft.RaftCoreService;
 import dev.nbw.raft.RaftSinking;
 import dev.nbw.raft.RaftSpawner;
@@ -20,6 +23,7 @@ import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.Direction;
 
@@ -84,6 +88,8 @@ public final class NbwCommands {
 				.executes(ctx -> testArena(ctx, StringArgumentType.getString(ctx, "id"), false))));
 		arena.then(CommandManager.literal("reload").then(CommandManager.argument("id", StringArgumentType.word())
 				.executes(ctx -> testArena(ctx, StringArgumentType.getString(ctx, "id"), true))));
+		arena.then(CommandManager.literal("terrain").then(CommandManager.argument("id", StringArgumentType.word())
+				.executes(ctx -> arenaTerrain(ctx, StringArgumentType.getString(ctx, "id")))));
 		root.then(arena);
 
 		var format = admin(CommandManager.literal("format"));
@@ -422,8 +428,22 @@ public final class NbwCommands {
 				return 0;
 			}
 		}
-		ctx.getSource().sendFeedback(() -> Text.literal("[cww] arenas(" + ids.size() + "): " + String.join(", ", ids)), false);
-		return ids.size();
+		ids.sort(null);
+		List<String> builtinOnly = new ArrayList<>();
+		List<String> shadowed = new ArrayList<>();
+		for (String id : BuiltinArenaJson.IDS) {
+			if (ids.contains(id)) {
+				shadowed.add(id);
+			} else {
+				builtinOnly.add(id);
+			}
+		}
+		int total = ids.size() + builtinOnly.size();
+		ctx.getSource().sendFeedback(() -> Text.literal("[cww] arenas(" + total + ") world=[" + String.join(", ", ids)
+				+ "] 内置=[" + String.join(", ", builtinOnly) + "]"
+				+ (shadowed.isEmpty() ? "" : " 内置被本地同名文件覆盖=" + String.join(", ", shadowed)
+						+ "（改内置图不会生效，测的就是这条）")), false);
+		return total;
 	}
 
 	private static int testArena(CommandContext<ServerCommandSource> ctx, String id, boolean reload) {
@@ -434,18 +454,54 @@ public final class NbwCommands {
 				return 0;
 			}
 		}
-		ConfigService.Loaded loaded = ConfigService.loadArena(worldRoot(), id, reload);
+		ConfigService.Loaded loaded = ConfigService.loadArena(worldRoot(), id, reload, BuiltinArenaJson.SOURCE);
 		if (loaded.ok()) {
-			ctx.getSource().sendFeedback(() -> Text.literal("[cww] arena '" + id + "' 校验通过；环带 "
+			ctx.getSource().sendFeedback(() -> Text.literal("[cww] arena '" + id + "' 校验通过；来源="
+					+ loaded.source().label() + "；环带 "
 					+ loaded.zone().rings().size() + " 段，初始半径 " + (int) loaded.zone().baseRadius()
 					+ (reload ? "，已装入内存" : "")), true);
-			NBW.LOGGER.info("[cww] arena '{}' validated (reload={})", id, reload);
+			NBW.LOGGER.info("[cww] arena '{}' validated from {} (reload={})", id, loaded.source(), reload);
 			return 1;
 		}
 		String detail = String.join(" | ", loaded.errors());
 		ctx.getSource().sendError(Text.literal("[cww] arena '" + id + "' 被拒绝（不自动纠正）：" + detail));
 		NBW.LOGGER.warn("[cww] arena '{}' rejected: {}", id, detail);
 		return 0;
+	}
+
+	/**
+	 * /cww arena terrain &lt;id&gt;：把"配置要求的海"和"世界上实际的地形"对着读一遍。
+	 * 只读，不建、不改、不填。返回问题列数（0 = 这张图的地形与配置一致），探针就断这个数。
+	 */
+	private static int arenaTerrain(CommandContext<ServerCommandSource> ctx, String id) throws CommandSyntaxException {
+		ConfigService.Loaded loaded = ConfigService.loadArena(worldRoot(), id, false, BuiltinArenaJson.SOURCE);
+		if (!loaded.ok()) {
+			ctx.getSource().sendError(Text.literal("[cww] arena '" + id + "' 配置本身就没过，先别谈地形："
+					+ String.join(" | ", loaded.errors())));
+			return -1;
+		}
+		ConfigModels.Arena arena = loaded.arena();
+		int teamCount = arena.spawns != null && arena.spawns.teams != null && !arena.spawns.teams.isEmpty()
+				? arena.spawns.teams.size() : 4;
+		ServerWorld world = ctx.getSource().getServer().getOverworld();
+		List<SeaAudit.Reading> readings = SeaTerrain.sample(world, arena, teamCount);
+
+		final int problems = (int) readings.stream().filter(r -> r.verdict().problem()).count();
+		ctx.getSource().sendFeedback(() -> Text.literal("[cww] arena '" + id + "' 地形审计（来源="
+				+ loaded.source().label() + "）：水面 y=" + arena.sea.waterLevel
+				+ "，海床顶 y=" + (arena.sea.waterLevel - SeaAudit.WATER_DEPTH)
+				+ "，采样 " + readings.size() + " 列，问题 " + problems + " 列"), false);
+		for (SeaAudit.Reading r : readings) {
+			final String line = SeaAudit.describe(r);
+			ctx.getSource().sendFeedback(() -> Text.literal("      " + line), false);
+		}
+		if (problems > 0) {
+			ctx.getSource().sendFeedback(() -> Text.literal("[cww] 这张图还没建，或者地形与 JSON 不同源："
+					+ "跑 /function nbw:arena/" + id + "/build（随包地形命令）之后再来看一次。"
+					+ "对局不会因此被拦下；实测传送会同步生成区块，代价是一次约 2 秒的服务端冻结。"), false);
+		}
+		NBW.LOGGER.info("[cww] arena '{}' terrain audit: {} 列 / {} 处问题", id, readings.size(), problems);
+		return problems;
 	}
 
 	/** /cww lobby test|reload：只校验 world/cww/lobby.json（03 §5）；reload 失败才归档。 */
@@ -470,7 +526,8 @@ public final class NbwCommands {
 		String id = StringArgumentType.getString(ctx, "id");
 		try {
 			ConfigModels.Format format = ConfigService.loadFormat(worldRoot(), id);
-			ConfigModels.Arena arena = ConfigService.loadArena(worldRoot(), "default_sea", false).arena();
+			ConfigModels.Arena arena = ConfigService.loadArena(worldRoot(), "default_sea", false,
+					BuiltinArenaJson.SOURCE).arena();
 			ZoneModel zone = ConfigService.toZone(arena, format);
 			List<String> errors = zone.validateStages();
 			if (errors.isEmpty()) {
