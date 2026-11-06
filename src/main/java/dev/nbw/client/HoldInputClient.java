@@ -1,5 +1,6 @@
 package dev.nbw.client;
 
+import dev.nbw.content.OarBlock;
 import dev.nbw.content.RaftCoreBlock;
 import dev.nbw.net.HoldPayload;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -40,7 +41,7 @@ public final class HoldInputClient {
 			return;
 		}
 		final boolean held = client.options.useKey.isPressed();
-		final BlockPos target = held ? wreckageUnderCrosshair(client) : null;
+		final BlockPos target = held ? facilityUnderCrosshair(client) : null;
 		if (held && target != null) {
 			sending = true;
 			lastTarget = target;
@@ -60,14 +61,17 @@ public final class HoldInputClient {
 		}
 	}
 
-	/** 准星指的方块只有在"是我们的筏心且已成残骸"时才值得发包。 */
-	private static BlockPos wreckageUnderCrosshair(MinecraftClient client) {
+	/** 准星指的方块只有在"可长按的设施"时才值得发包：筏心残骸或桨台。 */
+	private static BlockPos facilityUnderCrosshair(MinecraftClient client) {
 		final HitResult hit = client.crosshairTarget;
 		if (client.world == null || hit == null || hit.getType() != HitResult.Type.BLOCK) {
 			return null;
 		}
 		final BlockPos pos = ((BlockHitResult) hit).getBlockPos();
 		final BlockState state = client.world.getBlockState(pos);
+		if (state.getBlock() instanceof OarBlock) {
+			return pos;   // 桨台没有"残骸"这种前置条件，随时可按
+		}
 		if (!(state.getBlock() instanceof RaftCoreBlock)) {
 			return null;
 		}

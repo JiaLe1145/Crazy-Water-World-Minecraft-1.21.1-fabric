@@ -14,6 +14,7 @@ import dev.nbw.domain.round.RoundConfig;
 import dev.nbw.domain.round.RoundEvent;
 import dev.nbw.domain.round.RoundMachine;
 import dev.nbw.domain.round.RoundSnapshot;
+import dev.nbw.raft.OarService;
 import dev.nbw.raft.RaftCoreService;
 import dev.nbw.raft.RaftSinking;
 import dev.nbw.raft.RaftSpawner;
@@ -164,7 +165,14 @@ public final class RoundManager {
 			sweepDeaths();
 			RaftSinking.onEndTick(srv);
 			RaftCoreService.onEndTick(srv);
-			WindService.apply(srv);   // 帆的唯一动力来源；无帆不受力
+			WindService.apply(srv);   // 帆：被动等风
+			OarService.onEndTick(srv);   // 桨：有人持续按着才出力（动力第二源）
+		}
+		// 恢复出来的这一局必须能晚点认领筏子：重启那一刻 Sable 还没把 sub-level 载进容器，
+		// 一次性 rebindFromWorld 实测就是"重认领 0 艘筏"，之后这一局再也看不见自己的筏。
+		// rebind 是幂等的（补 UUID + 绑沉筏 + 补票），所以只在还有队没绑上时按节拍重试。
+		if (machine.phase().matchActive() && machine.tickInPhase() % 20 == 0 && RaftSpawner.needsRebind()) {
+			NBW.LOGGER.info("[state] 延后重试认领：{}", RaftSpawner.rebindFromWorld(srv));
 		}
 		broadcastCountdown();
 	}
@@ -599,6 +607,7 @@ public final class RoundManager {
 		RaftSinking.reset();
 		RaftCoreService.reset();
 		WindService.set("calm", 0.0);   // 风是局内状态，不许跨局残留成"永久顺风"
+		OarService.reset();   // 桨位表与"正在划"的人同样是局内状态；残留=下一局白得动力或桨位被占
 	}
 
 	// ---------------------------------------------------------------- 配置与命令入口

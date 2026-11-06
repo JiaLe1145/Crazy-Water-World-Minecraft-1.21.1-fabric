@@ -34,10 +34,17 @@ public final class WindModel {
 	public static final double MAX_STRENGTH = 4.0;
 
 	/**
-	 * 风驱航速上限（格/tick）。取 0.45 = 9 格/秒：
-	 * 横穿生产海域（280 格）约 31 秒，是"顺风满帆"的天花板；
-	 * 而 1~3 帆的自然终端速度（≈0.10 / 0.31 格/tick）仍在上限以下，
-	 * 所以<b>帆多仍然更快</b> —— 上限只做保险丝，不把玩法压平。
+	 * 航速上限（作用在 {@code SableRafts.linearVelocity} 的读数上，格/tick）。取 0.45。
+	 *
+	 * <p><b>这个数是"读数"，不是"每秒走几格"。</b>实测（{@code tools/oar_probe.py} 第 5 步）：
+	 * 满员划桨 8.1 秒实际只位移 2.4 格 = 0.29 格/秒，而同一时刻读数是 0.3207 格/tick（6.41 格/秒），
+	 * 相差约 22 倍。原因是我们每 tick 用 {@code applyLinearImpulse} 施一次力，
+	 * 读到的正是施完力的瞬时峰值，而 Sable 的水阻（{@code buoyancy.rs} 的 {@code do_drag}）
+	 * 在同一个 tick 内就把绝大部分速度吃掉；位移由积分后的实际运动决定，只能另测。
+	 *
+	 * <p>所以：上限作为<b>保险丝</b>（防止任何动力组合把峰值推到失控）是有效且已验证的；
+	 * 但"横穿 280 格要多少秒"这类玩法节奏必须由位移实测重算，别拿这个数推。
+	 * 位移口径的配平是未结案项，见任务 #39。
 	 */
 	public static final double MAX_SAIL_SPEED = 0.45;
 

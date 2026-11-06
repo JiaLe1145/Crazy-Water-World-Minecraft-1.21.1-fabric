@@ -201,7 +201,8 @@ def keep_alive(p, bots):
         p("effect give %s minecraft:water_breathing infinite 1 true" % name)
 
 
-BOT_PREFIXES = ("s", "x", "z", "a", "d", "v", "h", "w", "g", "t", "q")
+BOT_PREFIXES = ("s", "x", "z", "a", "d", "v", "h", "w", "g", "t", "q",
+                "o", "r", "m")   # o/r/m 是桨的探针（oar_/restart_/motion_）用过的前缀
 
 
 def sweep_stale_bots(p):

@@ -13,6 +13,7 @@ import dev.nbw.cfg.ConfigModels;
 import dev.nbw.cfg.ConfigService;
 import dev.nbw.domain.ZoneModel;
 import dev.nbw.domain.arena.SeaAudit;
+import dev.nbw.raft.OarService;
 import dev.nbw.raft.RaftCoreService;
 import dev.nbw.raft.RaftSinking;
 import dev.nbw.raft.RaftSpawner;
@@ -163,6 +164,29 @@ public final class NbwCommands {
 								.executes(NbwCommands::windSet))));
 		root.then(wind);
 
+		// ---- 桨台（M2-5 动力第二源）：挂桨 / 拆桨 / 读数 / 模拟划桨
+		var oar = admin(CommandManager.literal("oar"));
+		oar.then(CommandManager.literal("read")
+				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
+						.executes(NbwCommands::oarRead)));
+		oar.then(CommandManager.literal("rig")
+				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
+						.then(CommandManager.argument("count",
+								IntegerArgumentType.integer(0, OarService.MAX_OARS_PER_TEAM))
+								.then(CommandManager.argument("facing", StringArgumentType.word())
+										.executes(NbwCommands::oarRig)))));
+		oar.then(CommandManager.literal("strip")
+				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
+						.executes(NbwCommands::oarStrip)));
+		oar.then(CommandManager.literal("hold")
+				.then(CommandManager.argument("player", StringArgumentType.word())
+						.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
+								.then(CommandManager.argument("facing", StringArgumentType.word())
+										.then(CommandManager.argument("ticks",
+												IntegerArgumentType.integer(1, 600))
+												.executes(NbwCommands::oarHold))))));
+		root.then(oar);
+
 		// ---- 落盘与重启恢复（Gate G1）
 		root.then(admin(CommandManager.literal("save").executes(NbwCommands::saveNow)));
 		root.then(admin(CommandManager.literal("statefile").executes(NbwCommands::stateFile)));
@@ -245,6 +269,62 @@ public final class NbwCommands {
 		}
 		int n = Sailing.deRig(ctx.getSource().getServer().getOverworld(), raft);
 		return tell(ctx, "拆掉 " + n + " 块帆 | " + Sailing.readout(ctx.getSource().getServer(), raft));
+	}
+
+	// ---------------------------------------------------------------- 桨台（M2-5 动力第二源）
+
+	private static int oarRead(CommandContext<ServerCommandSource> ctx) {
+		int team = IntegerArgumentType.getInteger(ctx, "team");
+		ctx.getSource().sendFeedback(() -> Text.literal(
+				OarService.readout(ctx.getSource().getServer(), team)), false);
+		return 1;
+	}
+
+	/**
+	 * /cww oar rig &lt;队&gt; &lt;数量&gt; &lt;朝向&gt;
+	 *
+	 * <p>命令层只把字符串解析成 {@code Direction}，<b>不重复校验</b>合法朝向与数量上限：
+	 * 校验口径留在 {@link OarService}，两处各写一份迟早会出现"命令收了、服务不认"的分叉。
+	 */
+	private static int oarRig(CommandContext<ServerCommandSource> ctx) {
+		int team = IntegerArgumentType.getInteger(ctx, "team");
+		int count = IntegerArgumentType.getInteger(ctx, "count");
+		String raw = StringArgumentType.getString(ctx, "facing");
+		Direction facing;
+		try {
+			facing = Direction.byName(raw.toLowerCase(Locale.ROOT));
+		} catch (RuntimeException e) {
+			facing = null;
+		}
+		return tell(ctx, OarService.rig(ctx.getSource().getServer().getOverworld(),
+				RaftSpawner.raftOf(team), team, count, facing)
+				+ " | " + OarService.readout(ctx.getSource().getServer(), team));
+	}
+
+	private static int oarStrip(CommandContext<ServerCommandSource> ctx) {
+		int team = IntegerArgumentType.getInteger(ctx, "team");
+		UUID raft = RaftSpawner.raftOf(team);
+		int n = OarService.strip(ctx.getSource().getServer().getOverworld(), raft, team);
+		return tell(ctx, "拆掉 " + n + " 台桨台 | " + OarService.readout(ctx.getSource().getServer(), team));
+	}
+
+	/**
+	 * /cww oar hold &lt;玩家&gt; &lt;队&gt; &lt;朝向&gt; &lt;tick&gt;
+	 *
+	 * <p>模拟"在某队一台朝该方向的桨上持续按住 N tick"。<b>这不是玩法入口，是自动化测试夹具</b>：
+	 * 真人路径要走长按自定义包（假玩家发不了），但服务端从这里往后的登记与推进完全同一条，
+	 * 所以桨力曲线、方向、断输入即失力这三件事可以不等真人就验完。
+	 */
+	private static int oarHold(CommandContext<ServerCommandSource> ctx) {
+		String name = StringArgumentType.getString(ctx, "player");
+		UUID player = RaftCoreService.playerByName(ctx.getSource().getServer(), name);
+		if (player == null) {
+			return tell(ctx, "找不到在线玩家 " + name + "（假玩家也要先 /player <名> spawn）");
+		}
+		int team = IntegerArgumentType.getInteger(ctx, "team");
+		String facing = StringArgumentType.getString(ctx, "facing");
+		int ticks = IntegerArgumentType.getInteger(ctx, "ticks");
+		return tell(ctx, OarService.hold(player, team, facing, ticks));
 	}
 
 	// ---------------------------------------------------------------- 筏心与残骸修复

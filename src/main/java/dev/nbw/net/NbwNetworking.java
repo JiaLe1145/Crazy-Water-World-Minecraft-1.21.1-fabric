@@ -1,8 +1,10 @@
 package dev.nbw.net;
 
 import dev.nbw.NBW;
+import dev.nbw.content.OarBlockEntity;
 import dev.nbw.content.RaftCoreBlockEntity;
 import dev.nbw.domain.net.HoldPolicy;
+import dev.nbw.raft.OarService;
 import dev.nbw.raft.RaftCoreService;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
@@ -15,8 +17,13 @@ import java.util.Locale;
 /**
  * 长按输入通道的服务端一侧。
  *
- * <p>只做三件事：<b>查归属、判距离、续期或解除</b>。进度仍然由
- * {@link RaftCoreService#onEndTick} 自己数 tick，包里没有任何进度字段可读。
+ * <p>只做三件事：<b>判距离、认方块、续期或解除</b>。包里没有任何进度或动力字段，
+ * 它只表达"我正按着哪个方块"；进度仍然由 {@link RaftCoreService#onEndTick} 数 tick，
+ * 动力仍然由 {@link OarService#onEndTick} 每 tick 重新算 —— 两条各数各的，客户端一句都不算。
+ *
+ * <p>同一个包按<b>点到的 BE 是什么</b>分派给两种设施（筏心修复 / 桨台推进）。
+ * 与其加一个"操作类型"字段让客户端自报干什么，不如直接认方块：
+ * 客户端能撒谎，方块不能。
  *
  * <p>归属从"玩家实际点到的那个 BE"读，不按坐标查表——理由和 {@code RaftCoreBlock.onUse} 一样：
  * BE 在自己 tick 里看到的世界坐标是 plot 局部量（实测 x=20481032 这种量级），
@@ -42,7 +49,7 @@ public final class NbwNetworking {
 			// 自定义包不一定在主线程到达；世界与 BE 只能在服务端线程动。慢一帧远比崩一次好。
 			server.execute(() -> handle(player, payload));
 		});
-		NBW.LOGGER.info("[net] 长按输入通道已注册：{}（可达上限 {} 格，窗口 {} tick）",
+		NBW.LOGGER.info("[net] 长按输入通道已注册：{}（可达上限 {} 格，窗口 {} tick；去向=筏心修复 + 桨台推进）",
 				HoldPayload.CHANNEL_ID, HoldPolicy.REACH_BLOCKS, RaftCoreService.KEEPALIVE_TICKS);
 	}
 
@@ -57,13 +64,24 @@ public final class NbwNetworking {
 						player.getNameForScoreboard(), pos,
 						String.format(Locale.ROOT, "%.1f", dist), reach);
 			}
-			case RELEASE -> RaftCoreService.release(player.getUuid());
+			case RELEASE -> {
+				// 松手就是"我不再按着了"，不区分对象：两边都清，漏一边会留下过期动力或修复进度
+				RaftCoreService.release(player.getUuid());
+				OarService.release(player.getUuid());
+			}
 			case KEEPALIVE -> {
-				if (!(player.getWorld().getBlockEntity(pos) instanceof RaftCoreBlockEntity be)
-						|| be.teamIndex() < 0) {
-					return;   // 点到的不是有归属的筏心：可能是别的方块，也可能是别队的
+				// 同一个包按"点到的方块是什么"分派；身份仍然只从 BE 读，不按坐标查表
+				switch (player.getWorld().getBlockEntity(pos)) {
+					case RaftCoreBlockEntity core when core.teamIndex() >= 0 ->
+							RaftCoreService.keepalive(player.getUuid(), core.teamIndex());
+					case OarBlockEntity oar when oar.isRigged() ->
+							OarService.keepalive(player.getUuid(), oar.teamIndex(), oar.slot());
+					// 必须显式接 null：getBlockEntity 对空气与普通方块返回 null，
+					// 而 Java 21 的 switch 碰上 null 选择值会直接 NPE —— 真人长按任意方块就能打崩服务端线程。
+					case null, default -> {
+						// 点到的不是有归属的设施：别的方块、别队的、或手工摆的。静默丢弃
+					}
 				}
-				RaftCoreService.keepalive(player.getUuid(), be.teamIndex());
 			}
 		}
 	}

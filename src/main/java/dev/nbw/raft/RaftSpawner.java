@@ -42,6 +42,28 @@ public final class RaftSpawner {
 	/** 队号 → 本局为它生成的筏。 */
 	private static final Map<Integer, UUID> spawned = new LinkedHashMap<>();
 
+	/** 已经报过"这队没找到筏"的队号。缺失重试是常态（sub-level 载入晚于恢复），不能每试一次刷一行。 */
+	private static final java.util.Set<Integer> missingReported = new java.util.HashSet<>();
+
+	/**
+	 * 恢复出来的这一局是否还需要重试认领筏子。
+	 *
+	 * <p>存在的理由：实测重启时 {@code rebindFromWorld} 跑在 Sable 把 sub-level 载进容器之前
+	 * （日志顺序：12:20:57 "重认领 0 艘筏"，12:20:59 那些 sub-level 才开始 tick 自己的方块实体）。
+	 * 一次性认领因此必然扑空，恢复出来的对局就"看不见自己的筏"。
+	 */
+	public static boolean needsRebind() {
+		if (RoundManager.machine() == null) {
+			return false;
+		}
+		for (var team : RoundManager.machine().teams()) {
+			if (!spawned.containsKey(team.index())) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	private RaftSpawner() {
 	}
 
@@ -132,6 +154,7 @@ public final class RaftSpawner {
 			Sailing.forget(team);
 		}
 		spawned.clear();
+		missingReported.clear();   // 下一局的缺失必须还能报出来
 		if (!residue.isEmpty()) {
 			NBW.LOGGER.error("[raftgen] 局后清理有残留：{}", residue);
 		}
@@ -201,9 +224,14 @@ public final class RaftSpawner {
 			int index = team.index();
 			UUID id = SableRafts.findByName(world, NAME_PREFIX + index);
 			if (id == null) {
-				missing.add("队 " + index);
+				// 只报第一次缺失：这一步现在会被 tick 循环重试（sub-level 载入比恢复晚），
+				// 不去重的话每 20 tick 就重复一行同样的缺失清单，日志再也读不出东西。
+				if (missingReported.add(index)) {
+					missing.add("队 " + index);
+				}
 				continue;
 			}
+			missingReported.remove(index);
 			spawned.put(index, id);
 			RaftSinking.bind(index, id);
 			SableRafts.holdLoaded(world, id);
