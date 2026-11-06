@@ -21,13 +21,47 @@ package dev.nbw.domain.raft;
 public final class WindModel {
 
 	/**
-	 * 单块帆在单位风强下的推力（格/tick² 的尺度基数）。
-	 * 这个值要靠真机标定，不是设计值：太小则风推不动筏子，太大则帆变成加速器。
+	 * 单块帆在单位风强下的推力。
+	 *
+	 * <p><b>0.2 是真机标定值，不是设计值。</b>取 1.0 时实测 3 帆的自然终端速度 = 1.546 格/tick
+	 * （≈30.9 格/秒）—— 横穿 {@code default_sea} 的 280 格只要 9 秒，12 分钟的局根本没有节奏可言。
+	 * Sable 的水阻是 {@code ∝浸没体积×速度}，所以终端速度随每帆推力线性变化；
+	 * 从 1.0 除以 5 得到 0.2，对应 3 帆 ≈ 0.31 格/tick（≈6.2 格/秒，横穿约 45 秒）。
 	 */
-	public static final double FORCE_PER_SAIL = 1.0;
+	public static final double FORCE_PER_SAIL = 0.2;
 
 	/** 风强上限。超过它，一局里的加速度会盖过桨与水流，风变成唯一答案。 */
 	public static final double MAX_STRENGTH = 4.0;
+
+	/**
+	 * 风驱航速上限（格/tick）。取 0.45 = 9 格/秒：
+	 * 横穿生产海域（280 格）约 31 秒，是"顺风满帆"的天花板；
+	 * 而 1~3 帆的自然终端速度（≈0.10 / 0.31 格/tick）仍在上限以下，
+	 * 所以<b>帆多仍然更快</b> —— 上限只做保险丝，不把玩法压平。
+	 */
+	public static final double MAX_SAIL_SPEED = 0.45;
+
+	/**
+	 * 速度余量系数（0..1）：乘到推力上，让航速平滑收敛到上限而不是撞硬墙。
+	 *
+	 * <p>用 (v/cap)^4 而不是"到点砍成 0"：硬切会让筏子在临界速度上
+	 * 一 tick 施加、下一 tick 不施加，读数抖、玩家也能看到一顿一顿。
+	 * 四次方是为了让前 80% 速度段几乎不吃惩罚（保持"帆多更快"），只在逼近上限时才收力。
+	 */
+	public static double headroom(double speed, double cap) {
+		if (cap <= 0.0) {
+			return 0.0;   // 上限设成 0 = 彻底不推进，不能变成除以零算出 NaN
+		}
+		if (speed <= 0.0) {
+			return 1.0;
+		}
+		double r = speed / cap;
+		if (r >= 1.0) {
+			return 0.0;
+		}
+		double r2 = r * r;
+		return 1.0 - r2 * r2;
+	}
 
 	/**
 	 * 一阵风：水平方向上的单位矢量 × 强度。

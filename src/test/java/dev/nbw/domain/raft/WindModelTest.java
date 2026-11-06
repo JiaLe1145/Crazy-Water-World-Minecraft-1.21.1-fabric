@@ -122,4 +122,63 @@ class WindModelTest {
 		// 风不该吃掉桨与其它动力来源；上限留在个位数是这条约束的直接体现
 		assertTrue(WindModel.MAX_STRENGTH <= 8.0, "风强上限过大：" + WindModel.MAX_STRENGTH);
 	}
+
+	// ---------------------------------------------------------------- 航速上限
+
+	@Test
+	void headroomIsFullAtRestAndZeroAtCap() {
+		assertEquals(1.0, WindModel.headroom(0.0, WindModel.MAX_SAIL_SPEED), EPS);
+		assertEquals(0.0, WindModel.headroom(WindModel.MAX_SAIL_SPEED, WindModel.MAX_SAIL_SPEED), EPS);
+	}
+
+	@Test
+	void headroomNeverGoesNegativeOrAboveOne() {
+		// 超上限、负速度都不该产出负系数，也不该产出 >1 的"免费加速"
+		assertEquals(0.0, WindModel.headroom(WindModel.MAX_SAIL_SPEED * 3.0, WindModel.MAX_SAIL_SPEED), EPS);
+		assertEquals(1.0, WindModel.headroom(-1.0, WindModel.MAX_SAIL_SPEED), EPS);
+		for (double v = 0.0; v <= WindModel.MAX_SAIL_SPEED * 1.5; v += 0.01) {
+			double h = WindModel.headroom(v, WindModel.MAX_SAIL_SPEED);
+			assertTrue(h >= 0.0 && h <= 1.0, "v=" + v + " 余量越界：" + h);
+		}
+	}
+
+	@Test
+	void headroomDecreasesMonotonicallyWithSpeed() {
+		double prev = 1.0;
+		for (double v = 0.0; v < WindModel.MAX_SAIL_SPEED; v += 0.005) {
+			double h = WindModel.headroom(v, WindModel.MAX_SAIL_SPEED);
+			assertTrue(h <= prev + 1e-12, "v=" + v + " 余量没随速度单调下降：" + h + " > " + prev);
+			prev = h;
+		}
+	}
+
+	@Test
+	void zeroOrNegativeCapStopsThrustInsteadOfProducingNaN() {
+		// 除零会得到 NaN，NaN 乘进推力就是失控的筏子；上限为 0 的语义必须是"不推进"
+		assertEquals(0.0, WindModel.headroom(0.1, 0.0), EPS);
+		assertEquals(0.0, WindModel.headroom(0.1, -1.0), EPS);
+	}
+
+	@Test
+	void softKneeKeepsMidSpeedRangeNearlyUnpenalised() {
+		// 四次方拐点存在的意义：一半速度时几乎不吃力，否则"帆多更快"会被余量提前压平
+		assertTrue(WindModel.headroom(WindModel.MAX_SAIL_SPEED * 0.5, WindModel.MAX_SAIL_SPEED) > 0.9,
+				"半速就收力，帆数差异会被上限抹平");
+		assertTrue(WindModel.headroom(WindModel.MAX_SAIL_SPEED * 0.95, WindModel.MAX_SAIL_SPEED) < 0.2,
+				"逼近上限时收力不够，上限形同虚设");
+	}
+
+	@Test
+	void calibrationTripwireSailCountsSpanTheCap() {
+		// 真机标定（M2-RESULTS §3.8）：水阻 ≈ 3.88 × 速度（3 帆 + 风强 2 时自然终端 1.546 格/tick，
+		// 当时每帆推力系数是 1.0）。用它当绊线：上限既不能高到永远碰不到，也不能低到把所有船压成一个速度。
+		double dragPerSpeed = 3.88;
+		double typicalWind = 2.0;
+		double vOne = 1 * WindModel.FORCE_PER_SAIL * typicalWind / dragPerSpeed;
+		double vSeven = 7 * WindModel.FORCE_PER_SAIL * typicalWind / dragPerSpeed;
+		assertTrue(vOne < WindModel.MAX_SAIL_SPEED * 0.5,
+				"1 帆就已经贴着上限，帆数将不再影响航速：" + vOne);
+		assertTrue(vSeven > WindModel.MAX_SAIL_SPEED,
+				"满帆的自然速度都碰不到上限，上限是死代码：" + vSeven);
+	}
 }

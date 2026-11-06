@@ -23,13 +23,18 @@ def _send(sock, req_id, ptype, payload):
 def _recv(sock):
     raw = b""
     while len(raw) < 4:
-        raw += sock.recv(4 - len(raw))
+        chunk = sock.recv(4 - len(raw))
+        if not chunk:
+            # 对端已关闭。原来这里会永远自旋（recv 一直返回 b""），
+            # 于是"连接被服务端掐掉"变成"探针无声卡死"——排查成本高到离谱。
+            raise ConnectionError("rcon connection closed by server")
+        raw += chunk
     size = struct.unpack("<i", raw)[0]
     data = b""
     while len(data) < size:
         chunk = sock.recv(min(4096, size - len(data)))
         if not chunk:
-            break
+            raise ConnectionError("rcon connection closed mid-packet")
         data += chunk
     req_id, ptype = struct.unpack("<ii", data[:8])
     return req_id, ptype, data[8:].decode("utf-8", "replace").strip("\x00")

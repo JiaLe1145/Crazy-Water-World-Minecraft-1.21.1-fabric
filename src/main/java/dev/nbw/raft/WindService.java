@@ -98,7 +98,14 @@ public final class WindService {
 				continue;   // 没帆就不该有风力：帆是受风面，裸筏只能靠桨
 			}
 			double[] f = WindModel.fleetThrust(n, s, e, w, current);
-			if (SableRafts.push(world, raft, f[0], 0.0, f[1])) {
+			// 航速上限：越接近上限推力越小，平滑收敛而不是撞硬墙（见 WindModel.headroom）
+			double[] v = SableRafts.linearVelocity(world, raft);
+			double speed = Math.hypot(v[0], v[2]);
+			double room = WindModel.headroom(speed, WindModel.MAX_SAIL_SPEED);
+			if (room <= 0.0) {
+				continue;
+			}
+			if (SableRafts.push(world, raft, f[0] * room, 0.0, f[1] * room)) {
 				pushed++;
 			}
 		}
@@ -116,9 +123,11 @@ public final class WindService {
 		double[] v = raft == null ? new double[]{0, 0, 0}
 				: SableRafts.linearVelocity(server.getOverworld(), raft);
 		return String.format(Locale.ROOT,
-				"[wind] 风 dir=(%.3f, %.3f) strength=%.2f | 队%d 帆 北%d 南%d 东%d 西%d | 合力=(%.3f, %.3f) | 速度=(%.3f, %.3f)",
+				"[wind] 风 dir=(%.3f, %.3f) strength=%.2f | 队%d 帆 北%d 南%d 东%d 西%d | 合力=(%.3f, %.3f)"
+						+ " | 速度=(%.3f, %.3f) | 上限=%.3f 余量=%.2f",
 				current.dirX(), current.dirZ(), current.strength(), teamIndex, n, s, e, w,
-				f[0], f[1], v[0], v[2]);
+				f[0], f[1], v[0], v[2], WindModel.MAX_SAIL_SPEED,
+				WindModel.headroom(Math.hypot(v[0], v[2]), WindModel.MAX_SAIL_SPEED));
 	}
 
 	private static String fmt(double d) {
