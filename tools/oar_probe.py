@@ -104,6 +104,25 @@ def raft_xyz(p, uuid):
     return (float(m.group(1)), float(m.group(3))) if m else (0.0, 0.0)
 
 
+def force(p, expect, name, team):
+    """指派并自证成功。
+
+    为什么要自证：上一局被 kill 的假玩家不触发 DISCONNECT，幽灵会话会占着队席，
+    于是 cww force 回一句"队伍已满"就完事 —— 探针不检查的话，
+    这个原因要等到"反向抵消那一档少一个人"才浮出来，而归因方向看着像桨的 bug。
+    服务端现在会在报名期每秒放掉不在场的席位（RoundMachine.releaseAbsent），
+    所以这里等一拍再试一次就够了；仍然失败就是真的席位问题，直接红。
+    """
+    out = p("cww force %s %d" % (name, team))
+    for _ in range(6):
+        if "已满" not in out and "不存在" not in out and "先报名" not in out:
+            return out
+        p.sleep(2)   # 等报名期的幽灵席位清扫跑一轮
+        out = p("cww force %s %d" % (name, team))
+    expect(False, "cww force %s -> 队 %d 始终被拒：%s" % (name, team, out[:90]))
+    return out
+
+
 def read_oar(p, team=TEAM):
     """解析 /cww oar read 那一行。缺字段一律返回 -1/None，让断言真的失败。"""
     line = p("cww oar read %d" % team)
@@ -203,7 +222,7 @@ def main():
     else:
         expect(False, "假玩家没能全部上线，只有这些：%s" % p("list")[:200])
     for name, team in bots:
-        p("cww force %s %d" % (name, team))
+        force(p, expect, name, team)
     keep_alive(p, bots)
     p("cww start %s %s" % (FORMAT, SEA))
     # 再按一次：cww start 会做赛制变更，而 RoundMachine 在赛制变更时重新分队
@@ -211,7 +230,7 @@ def main():
     # 于是抵消那一档只有 3 个人，看着像桨的抵消失效）。ENROLL 阶段还允许改队，
     # 进 PLAY 之后就再也改不动了，所以这一遍必须紧跟 start。
     for name, team in bots:
-        p("cww force %s %d" % (name, team))
+        force(p, expect, name, team)
     reached, cur = p.wait_phase("PLAY", 200)
     expect(reached, "oar_long 能开整局并进到 PLAY（当前：%s）" % cur[:60])
     if not reached:

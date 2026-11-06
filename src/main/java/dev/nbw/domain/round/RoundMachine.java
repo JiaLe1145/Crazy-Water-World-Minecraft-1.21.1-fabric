@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -229,6 +230,43 @@ public final class RoundMachine {
 		queueOrder.remove(id);
 		sessions.remove(id);
 		return null;
+	}
+
+	/**
+	 * 报名期（LOBBY/ENROLL）把"人已经不在场"的会话直接放掉，连带释放它占着的队席。
+	 *
+	 * <p><b>为什么必须有这条。</b>实测 Carpet 假玩家被 kill 时既不触发 AFTER_DEATH 也不触发
+	 * DISCONNECT，而对局进行中的兜底（适配层的在场清扫）只在 PLAY 跑 —— 于是反复 kill/spawn
+	 * 之后，上一局的幽灵会话一直占着队席，表现是 {@code cww force} 被"队伍已满"拒掉、
+	 * 这个人还留在上一局的队里，现场看着像"赛制变更把我的分队改了"（真实原因不是重分队）。
+	 *
+	 * <p>PLAY/SETTLE/RETURN 期间<b>不能</b>这么干：那里的掉线要走席位倒计时（05 C18，
+	 * 人可能重连），由 {@link #onDisconnect} 处理；这里只处理"局还没开/已收场"的空档。
+	 *
+	 * @param presentIds 当前在场玩家 UUID，由适配层收集（domain 不碰 MC 类型）
+	 * @return 被释放的条目说明，给日志与审计；调用方不需要它们做任何判断
+	 */
+	public List<String> releaseAbsent(Set<UUID> presentIds) {
+		if (phase.matchActive() || presentIds == null) {
+			return Collections.emptyList();
+		}
+		List<String> released = new ArrayList<>();
+		for (PlayerSession s : new ArrayList<>(sessions.values())) {
+			if (presentIds.contains(s.id())) {
+				continue;
+			}
+			int team = s.teamIndex();
+			if (team >= 0) {
+				MatchTeam t = teamAt(team);
+				if (t != null) {
+					t.remove(s.id());
+				}
+			}
+			queueOrder.remove(s.id());
+			sessions.remove(s.id());
+			released.add(s.name() + (team >= 0 ? "（队 " + team + " 席位已释放）" : "（未在队）"));
+		}
+		return released;
 	}
 
 	/** 自主分队（01 §2 [原方案]）：只在 LOBBY/ENROLL 生效。 */

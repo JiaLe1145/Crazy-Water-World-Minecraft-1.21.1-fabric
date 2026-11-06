@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -510,6 +511,54 @@ class RoundMachineTest {
 			tickUntil(m, Phase.LOBBY, 40);
 		}
 		assertEquals(2, m.matchIndex());
+	}
+
+	// ---------------------------------------------------------------- 报名期的幽灵席位（#41 根因）
+
+	@Test
+	void releaseAbsentFreesSeatSoLaterAssignmentSucceeds() {
+		RoundMachine m = new RoundMachine(cfg(2, 2, 1, 20));
+		UUID ghost = id(1);
+		UUID keeper = id(2);
+		UUID latecomer = id(3);
+		assertNull(m.queue(ghost, "ghost"), "报名不应被拒");
+		assertNull(m.queue(keeper, "keeper"), "报名不应被拒");
+		assertNull(m.queue(latecomer, "latecomer"), "报名不应被拒");
+		assertNull(m.assignTeam(ghost, 0), "预分队不应被拒");
+		assertNull(m.assignTeam(keeper, 0), "预分队不应被拒");
+		// teamSize=2，队 0 此刻是满的 —— 这就是"上一局 kill 掉的假玩家还占着席位"的现场
+		assertNotNull(m.assignTeam(latecomer, 0), "队 0 满时必须拒绝（这条守住『已满』确实会发生）");
+
+		List<String> released = m.releaseAbsent(Set.of(keeper, latecomer));
+		assertEquals(1, released.size(), "只该放掉不在场的那一个：" + released);
+		assertTrue(released.get(0).contains("ghost"), "释放条目要带名字，运维才知道是谁：" + released);
+		assertNull(m.session(ghost), "幽灵会话必须被清掉");
+		assertTrue(m.teams().get(0).membersOrdered().size() == 1,
+				"队 0 应该只剩 keeper：" + m.teams().get(0).membersOrdered());
+
+		// 这一条才是根因证明：席位释放之后，同样的人事指派必须成功
+		assertNull(m.assignTeam(latecomer, 0), "腾出席位后指派必须成功");
+		assertEquals(0, m.session(latecomer).teamIndex(), "迟到者应进到刚腾出来的队 0");
+	}
+
+	@Test
+	void releaseAbsentIsNoOpOnceMatchStarted() {
+		RoundMachine m = new RoundMachine(cfg(2, 2, 2, 20));
+		startMatch(m, 2);
+		runToPlay(m);
+		assertEquals(2, m.sessions().size(), "PLAY 期间两个报名都该在");
+		assertTrue(m.releaseAbsent(Set.of()).isEmpty(),
+				"PLAY 里不在场的人不能走这条路径清会话：掉线要开席位倒计时（05 C18）");
+		assertEquals(2, m.sessions().size(), "对局进行中一个会话都不许被 releaseAbsent 放掉");
+	}
+
+	@Test
+	void releaseAbsentAlsoDropsQueueOnlyGhost() {
+		RoundMachine m = new RoundMachine(cfg(2, 2, 1, 20));
+		UUID ghost = id(7);
+		assertNull(m.queue(ghost, "queued-ghost"), "报名不应被拒");
+		assertEquals(1, m.releaseAbsent(Set.of()).size(), "只在队列里的幽灵也该被放掉");
+		assertTrue(m.sessions().isEmpty(), "会话表必须清空");
 	}
 
 	@Test

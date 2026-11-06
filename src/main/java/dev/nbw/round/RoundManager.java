@@ -75,6 +75,9 @@ public final class RoundManager {
 	private static final Set<UUID> pendingPlacement = new LinkedHashSet<>();
 	private static int placementStallTicks;
 
+	/** 报名期席位清扫的节拍计数（每秒一次就够，不必每 tick 点一遍在场列表）。 */
+	private static int lobbySweepTicks;
+
 	/** 出生锚点：方块坐标 + 朝向圈心的 yaw。 */
 	public record Anchor(int x, int y, int z, float yaw) {
 	}
@@ -162,6 +165,7 @@ public final class RoundManager {
 		drainPendingPlacements();
 		// 预热队列跨阶段推进（ENROLL 就开始排队），所以不能塞进下面那个 PLAY-only 块里
 		ArenaChunkLoader.tick(srv.getOverworld());
+		sweepLobbySeats();   // 报名期的幽灵席位清扫，同理不能塞进 PLAY-only 块里
 		if (machine.phase() == Phase.PLAY) {
 			sweepDeaths();
 			RaftSinking.onEndTick(srv);
@@ -191,15 +195,7 @@ public final class RoundManager {
 		if (server == null) {
 			return;
 		}
-		Set<UUID> present = new HashSet<>();
-		for (ServerPlayerEntity p : server.getPlayerManager().getPlayerList()) {
-			present.add(p.getUuid());
-		}
-		for (ServerWorld world : server.getWorlds()) {
-			for (ServerPlayerEntity p : world.getPlayers()) {
-				present.add(p.getUuid());
-			}
-		}
+		Set<UUID> present = presentIds();
 		for (PlayerSession s : machine.sessions().values()) {
 			if (s.teamIndex() < 0 || s.isEliminated()) {
 				continue;
@@ -215,6 +211,47 @@ public final class RoundManager {
 				NBW.LOGGER.warn("[round] sweep: {} 不在场且未收到 DISCONNECT，按掉线开席位倒计时", s.name());
 				machine.onDisconnect(s.id());
 			}
+		}
+	}
+
+	/**
+	 * 在场玩家 UUID。<b>只用现成列表</b>（PlayerManager + 各世界 getPlayers()），
+	 * 绝不做全图扫描（04 §12 性能预算）。两处兜底共用这一份口径，
+	 * 免得"在场"在两个地方有两种定义。
+	 */
+	private static Set<UUID> presentIds() {
+		Set<UUID> present = new HashSet<>();
+		for (ServerPlayerEntity p : server.getPlayerManager().getPlayerList()) {
+			present.add(p.getUuid());
+		}
+		for (ServerWorld world : server.getWorlds()) {
+			for (ServerPlayerEntity p : world.getPlayers()) {
+				present.add(p.getUuid());
+			}
+		}
+		return present;
+	}
+
+	/**
+	 * 报名期的幽灵席位清扫（每秒一次，只在局没开/已收场时跑）。
+	 *
+	 * <p>存在理由见 {@link RoundMachine#releaseAbsent}：Carpet 假玩家被 kill 时不触发 DISCONNECT，
+	 * 而 PLAY 才有在场兜底，于是 dev 循环里上一局的假玩家一直占着队席，
+	 * 下一局 {@code cww force} 被"队伍已满"拒掉，现场看着像"分队被赛制变更改了"。
+	 */
+	private static void sweepLobbySeats() {
+		if (server == null || machine.phase().matchActive()) {
+			lobbySweepTicks = 0;
+			return;
+		}
+		if (++lobbySweepTicks < 20) {
+			return;   // 每秒一次就够：这不是玩法判定，是漏报兜底
+		}
+		lobbySweepTicks = 0;
+		List<String> released = machine.releaseAbsent(presentIds());
+		if (!released.isEmpty()) {
+			NBW.LOGGER.warn("[round] 报名期放掉 {} 个不在场的席位（事件漏报兜底）：{}",
+					released.size(), String.join("、", released));
 		}
 	}
 
