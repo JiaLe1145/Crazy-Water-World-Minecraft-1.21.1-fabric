@@ -1,7 +1,7 @@
 # AI 交接文档 · 剩余内容、关键点、怎么做
 
 > 写给**下一个接手的 AI 会话**（换模型、换上下文都要读这份）。
-> 编写时间：2026-11-07，代码状态 = 提交 `6cb100e`（M2-8 第二段：伸手救援 + 长按通道坐标空间修复）。
+> 编写时间：2026-11-07。**产品代码**停在 `6cb100e`（M2-8 第二段：伸手救援 + 长按通道坐标空间修复），其后的提交只改文档。开工前一律以 `git log --oneline -3` + `git status` 为准，别信这里写的哈希。
 >
 > **先读这三份，再动手**：
 > 1. `docs/dev/03-里程碑.md` —— 里程碑范围与 Gate 判据（唯一进度基准）
@@ -23,14 +23,14 @@
 | C2 | `~/Desktop/sable-main` 是 Sable 源码，**只读**；命令语法/API 语义/覆盖范围一律从这里取证 | 靠猜 API 写过 → 静默失效反复出现 |
 | C3 | **允许修改 Sable 源码**（旧的"只读不改"已作废），但改前必须说清改哪里、为什么 | 这条是许可，不是鼓励 |
 | C4 | **不许自己发明玩法机制**。自己加的东西必须标 `[待批]` 并写进文档，用户会审 | 历史上被否过多次（体力门槛、玩家随筏缺陷等） |
-| C5 | 分层规矩：`domain/` 零 Minecraft 依赖的纯函数；只有 `sable/` 包允许 `import dev.ryanhcode.sable.*` | 一旦漏出 Sable 类型，"隔离层"当场失效 |
+| C5 | 分层规矩：`domain/` 零 MC/Sable import 的纯函数（本轮已核：`domain/` 下 `import net.minecraft` 与 `import dev.ryanhcode.sable` 各 **0 处**）；Sable 的**调用**只允许出现在 `sable/SableRafts`。**唯一例外是 `content/` 里必须 implements Sable 接口的方块与 BE**：`OarBlockEntity`/`RaftCoreBlockEntity` 实现 `BlockEntitySubLevelActor`，`SailBlock` 实现 `BlockSubLevelLiftProvider` —— Sable 靠 `instanceof` 登记它们，包一层适配器就永远不会被登记 | 漏出 Sable 类型会让"隔离层"当场失效；但把这 3 处也"清理"掉会直接毁掉设施跟随筏子移动与帆的升力 |
 | C6 | 交付前必须真验证（单测 + 探针），**断言必须能失败**；测不出就报 INCONCLUSIVE，不许凑绿灯 | 见 §6，这类假成功已进过文档 |
 
 `RicordRailExpress-BasedOnStarRailExpress`（星铁 Express 项目）可作**只读参考**，不许复制进来当依赖。
 
 ---
 
-## 2. 环境与运行（照抄就能跑，含四个必踩的坑）
+## 2. 环境与运行（照抄就能跑，含六个必踩的坑）
 
 ```
 Minecraft 1.21.1 / yarn 1.21.1+build.3 / Fabric loader + fabric-api 0.116.17+1.21.1
@@ -106,10 +106,11 @@ src/main/java/dev/nbw/
   raft/       RaftCoreService / OarService / RaftMotionService / Sailing / WindService / RaftSinking
   rescue/     RescueService（落水与救援适配层）
   construct/  BuildService（挂方块事件）
-  content/    自定义方块与 BE（OarBlock/OarBlockEntity/RaftCoreBlock/RaftCoreBlockEntity）
+  content/    自定义方块与 BE（NbwContent 注册；OarBlock/OarBlockEntity、RaftCoreBlock/RaftCoreBlockEntity、SailBlock）
+              ★ 其中 3 个类 implements Sable 接口（见 C5 的例外），是刻意的，不是漏改
   net/        HoldPayload（nbw:hold）+ NbwNetworking（服务端接收与判定）
   client/     HoldInputClient（★ 只能在客户端入口注册，服务端类不许引用它）
-  sable/      SableRafts ——★ 全工程唯一允许 import dev.ryanhcode.sable.* 的包
+  sable/      SableRafts ——★ 唯一"调用" Sable 服务/物理/区块 API 的包（例外只有 content/ 那 3 处 implements）
   cmd/        NbwCommands（/cww 命令树；权限 admin()=等级 2；失败一律回字符串不抛异常）
 src/test/java/dev/nbw/domain/...   JUnit5，一个纯规则一个 *Test
 tools/*.py    RCON 端到端探针（Carpet 假玩家驱动）；共享夹具在 sea_probe.py（P/keep_alive/sweep_stale_bots/write_long_format）
@@ -127,14 +128,14 @@ docs/dev/     开发计划 + 实测记录（M2-RESULTS.md 是主日志）
 
 | 里程碑 | 状态 | 已完成 | 还缺 |
 |---|---|---|---|
-| **M0** 可行性 | ✅ 收官（G0 通过） | Sable 四条判定全绿 | — |
+| **M0** 可行性 | ✅ 收官（G0 通过） | M0-1~M0-6 六项全部通过（判词在 `M0-RESULTS.md:142`） | `02-风险` 的 Q8（移动中互动的竞技公平）仍标 ⏭ 推到 M2/M4；Q10 版本锁死是持续监控项 |
 | **M1** 对局骨架 | ✅ 收官（G1 三条全关） | 六阶段状态机、配置校验、**状态落盘 + 重启恢复** | — |
 | **M2** 木筏玩法闭环 | 🟡 **约 78%** | 见下 | **PVP 武器表与伤害口径**、**Gate G2 真人验收**、`m2_round.py` 全量演练探针 |
 | **M3** 黑海+物资+竞技核心 | ⬜ 0% | — | 圈层压缩、圈外伤害与附加效果、预告与可视化、环带品质、物资刷新、防蹲点、埋点配平回路 |
 | **M4** 生存养成 | ⬜ 0% | — | 营养/水分/受伤 + HUD 状态条、生产链 6 设施 + 筏级功率池、武器 12 件 + 平衡护栏 |
 | **M5** 幸存者+事件+运营 | ⬜ 0% | — | 幸存者 6 职业、事件池 6 个、战绩持久化/赛后面板/观战空投、部署运维与开服演练 |
 
-**M2 已交付的六块**（都有实测记录）：
+**M2 已交付的八块**（都有实测记录）：
 沉筏与筏心残骸修复（A2/A2-v2）· 开局发筏（4×4 + 设施位每 5 格 1 位）· 帆（风）推进 · 桨台推进 ·
 航行速度控制器（**位移口径**，实测落目标的 90%）· 真实海域 arena（内置 `default_sea` r=140 + `test_sea` r=60，
 function 分批建海 + `cww arena terrain` 审计 + READY 前逐区块预热）· 长按输入通道 · 建造规则 ·
@@ -175,20 +176,29 @@ function 分批建海 + `cww arena terrain` 审计 + READY 前逐区块预热）
 | **甲板局部帧** | 围绕 0 的小数 | 所有玩法判定（间隙、落点、可达距离） | `local = q⁻¹·(world − origin)` |
 
 - 实体世界坐标过位姿逆变换**出来就是甲板局部，不能再减 plot 中心**；
-  交互事件给的存储坐标**要减中心**、不做旋转。写反的表现是"人贴着船壳、服务端算出 28,966,064 格间隙"。
+  交互事件给的存储坐标**要减中心**、不做旋转。写反的表现不是异常，而是"人明明贴着船壳，
+  服务端算出间隙 **28,966,064 格**"（上一轮扒边那次，量的是**间隙**，`M2-RESULTS.md` §3.14）。
 - **sub-level 的方块实体物理上就在父世界里**（`ServerSubLevelContainer.java:152` 把父 `ServerLevel` 交给 sub-level），
   所以 `overworld.getBlockEntity(存储坐标)` **读得到**我们的 BE —— 认方块那条分派一直是对的。
-- **可达距离必须在甲板局部帧量**：父世界玩家坐标 vs 存储坐标直算 = 28,964,583 格 → `HoldPolicy` 会把
-  **每一个**筏上长按判 REJECT（这就是 M2-8 查出来的那条缺陷）。取证命令：`cww net probe <玩家> deck|oar|at …`。
+- **可达距离必须在甲板局部帧量**：父世界玩家坐标 vs 存储坐标直算 = **28,964,583.3 格** → `HoldPolicy` 会把
+  **每一个**筏上长按判 REJECT（本轮 `cww net probe` 实测，量的是**距离**，§3.15）。
+  上面那两个天文数字是**同一根因下的两次不同测量**（一个间隙、一个距离，不同会话），不是同一个数打错了。
+  取证命令：`cww net probe <玩家> deck|oar|at …`。
 
 ### 5.2 Sable 侧的行为结论
 
-1. **浮力有两条路径**：Java 侧 `FloatingBlockController` 不读世界流体；**Rust 侧 `sable_rapier/.../buoyancy.rs` 逐格采样父世界方块**
-   （`do_float = 10.5 × overlap × voxel`、`do_drag = −v × 1.7 × overlap`）→ **造海会改变航行读数**。
-2. **外层区块不足加载时整艘筏会被踢出物理管线**（`PhysicsChunkTicketManager:165-191`），
-   但**持有强制加载票的 sub-level 由 Sable 自己下 inhabit 票**；我们的筏已持 `nbw:round_active`，**不要再加第二张票**。
-3. **1.21.1 datapack/命令约定**：目录单数 `data/<ns>/function/`；函数宏存在；
-   `return` 只接受裸 `return fail`（**写 `return fail 0` 会让整个函数静默加载失败**）；mod jar 的 `data/` 自动挂成 datapack。
+1. **浮力有两条路径**：Java 侧 `FloatingBlockController` 不读世界流体；**Rust 侧
+   `sable_rapier/src/main/rust/rapier/src/buoyancy.rs` 逐格采样父世界方块**——
+   `do_float = 10.5 × volume × strength`（`:189`）、`do_drag = −velocity × 1.7 × volume × strength`（`:163`），
+   其中 `volume = overlap.volume × voxel.volume` → **造海会改变航行读数**（筏子能漂在水面靠的就是这条）。
+2. **外层区块不足加载时整艘筏会被踢出物理管线**（`PhysicsChunkTicketManager.java` 约 `:160-195` 的双分支：
+   `forceLoaded.contains(subLevel)` 走 `inhabitChunk`，否则 `moveToUnloaded`）。我们的筏已持 `nbw:round_active`，
+   Sable 会自己给外层区块下 inhabit 票，**不要再加第二张票**。（本轮按源码复核过分支；行号只给区间，别当精确引用。）
+3. **1.21.1 datapack/命令约定（这条属于 Minecraft 本身：本轮在 Sable 源码里搜不到 `FunctionLoader`/`MacroException`，
+   当初的取证对象是 MC 的类，别再当成 Sable 的结论）**：目录单数 `data/<ns>/function/` + 后缀 `.mcfunction`；
+   函数宏存在且我们真在用（`tools/gen_sea_function.py:162-178` 发 `function … with storage` 配 `$forceload add $(x0) …`）；
+   `return` 只接受裸 `return fail`——**写 `return fail 0` 会让整个函数静默加载失败**（上一轮取证结论，本轮未复验；
+   我们的产物全是裸 `return fail`，别去动）；mod jar 的 `data/` 会被自动挂载成 datapack（我们的建海函数就是这么发的）。
 4. **Sable 的"sub-level 梯子可爬"在 Fabric 侧不可用**：`SablePlatformImpl.isBlockstateLadder` 直接 `return false`
    （注释 "handled already for fabric" 是别人的说明，不是我们的实测）→ 扒边/拉回是我们自己的服务端状态机。
 5. **交互距离不用我们自己校验**：`interaction_distance/PlayerMixin:38` 已把玩家眼睛反投影进筏空间比过。
@@ -268,7 +278,7 @@ def main():
   说清"这条为什么重要"——将来它红了，看理由就知道要不要慌。
 - **断言比语义，不比整个 record**：`record` 里带着 `tick`，直接比会写成"期望 OFF，实际 State[stage=OFF, tick=0]"
   这种恒不相等的假失败（第一次就踩过）。
-- **不用 `assertThrows`**：这一层的失败是"返回原因字符串"，不是抛异常（和命令层同一个约定）。
+- **接口怎么失败，测试就怎么断，别一刀切**：建造/救援/长按这几条规则是"返回拒绝原因字符串"，所以用 `assertNull`/`assertNotNull` 比原因串；而 `SinkRule`、`RoundSnapshot`、`RoundMachine`、`SpawnGeometry`、`ArenaGeometry` 的非法输入守卫是**真抛异常**——仓库现有 33 处 `assertThrows` 全在这五个文件里。新写规则先定它属于哪一类，再选断法。
 - **每道门单独一条用例**，并且配一条"其他输入都不变时结论仍然成立"的反证（`everyInputAloneCanBreakTheCling`
   那种写法），否则门改成恒真也照样绿。当前最好的例子是 `ReachRuleTest.liftedVictimLeavesTheWaterAndDriftsOutOfReachButStaysPullable`
   ——它钉的就是"起拉与继续是两扇不同的门"这件事。
@@ -292,10 +302,14 @@ def main():
 **接手时要处理的两件事**：
 
 1. **A17 表还没批**。数值、件数、弹药经济都是 `[待批]`，先拿这份表去要裁决，别另起一套。
-2. **ADR-001 的前提在本仓库里没有记录**：`README.md` 与 `docs/dev/00-决策与版本.md` 都找不到 ADR-001
-   （那句"理由见 README ADR-001"是从旧仓库带过来的引用，而旧仓库已废用）。
-   **"玩家是否安装我们的客户端模组"这个前提必须重新向用户确认** —— 它同时决定 M4 的 HUD 能不能做、
-   反作弊假设成不成立、以及武器外观管线走不走自定义模型。
+2. **ADR-001 的"决策条目本体"缺失，但结论被到处引用**：`docs/dev/04-依赖与运维.md:41` 写着
+   「玩家**必须安装客户端模组**（旧计划 ADR-001 已定）」，`01-玩法设计.md:13/14/206/380/392`、`02:109`、`03:208`、
+   `09:21/73/75/127/155` 都按它已定来叙述；但 `README.md` 与 `docs/dev/00-决策与版本.md` 里**没有 ADR 条目**，
+   `09:75` 那句"理由见 README ADR-001"是**悬空引用**。
+   → 该做的是**把 ADR-001 原文补进 `docs/dev/00-决策与版本.md`**，并顺带向用户复核这个前提没被推翻
+   （它同时决定 M4 的 HUD、反作弊假设、武器模型管线走不走自定义 `Item`）。
+   还有一条别漏：`09:21` 的「⚠️ ADR-001 修订」**已经作废 §2 武器表的"原版载体"那一列**——
+   trident 的投掷、crossbow 的装填这些原版行为现在由我们自己实现或复用，读表时不要把那列当成待办。
 
 技术上一条已经踩实的边界：**本版本 Fabric 没有"改伤害数值"的钩子**（§5.2-6），
 所以"水中受伤 −50%/−25%"这类规则**只能走 `attribute_modifiers` 或条件属性修正**，
@@ -356,14 +370,14 @@ def main():
 | # | 事项 | 现状 |
 |---|---|---|
 | 1 | 服务端是否商用、模组用什么许可证（建议 MIT/Apache，避开 GPL） | 未定 |
-| 2 | **P-01 航行数值范式**正式批准（提案在 `docs/dev/PROPOSAL-P01-航行数值范式.md`）；桨与帆的连续推力实现都建立在它上面 | 未批 |
-| 3 | `[A3]` "建材重修重置倒计时一次"与 A2-v2 重叠且更弱，是否整条删掉 | 未裁 |
-| 4 | **`HAND_REACH = 3.5` 格**（伸手上限）与 **`LANDING_INSET = 0.75` 格**（落点内缩） | 待批（我为了让判定可测而定的） |
+| 2 | **P-01 航行数值范式**正式批准（提案 `PROPOSAL-P01-航行数值范式.md:3/:59` 仍写"待你批准"，`M2-RESULTS.md:460` 也记它是待裁决项）| **未批，但代码已经全部按它落地**（帆 §3.8、桨 §3.10、控制器 §3.11）——一旦被否，航行那三块要回炉 |
+| 3 | `[A3]` 本体**已批准**（`01-玩法设计.md:373` 已划掉 ~~A3~~ 并记 A3-v2/v3）；真正开口的是 `01:196-199` 那条合并后的追问：A2-v2 不限量 + A3 的建材重修整条删掉，还是维持现在"合并成一个动作、共享每局 1 次额度" | 未裁（**别当成沉筏改造未批**）|
+| 4 | **`HAND_REACH = 3.5` 格**（伸手上限）与 **`LANDING_INSET = 0.75` 格**（落点内缩）| 待批。归属挂 `02-数值与节奏.md §8` 的 `[新增·待批 A7]`（`01 §12` 那张表里的 A7 讲的是事件池，别混）|
 | 5 | 互救（1 秒）比自救（2 秒）快、以及"正在扒边的人同时能拉别人"要不要收紧 | 待裁 |
 | 6 | 生产环境是否给筏体唯一名 `nbw_raft_<队>_<局>` 彻底避免重名歧义（#38 残留问题） | 待定 |
 | 7 | #39 收尾：**"质量决定速度"这一维在闭环下不再自然涌现**，要不要让档位随质量打折（=新机制） | 待裁 |
 | 8 | **`[A17]` 首发 12 件武器表**（`docs/content/09-武器与美术管线.md §2`）与弹药经济、平衡护栏数值 | **未批，M2 尾巴卡在这儿** |
-| 9 | **ADR-001 的前提：是否让玩家安装我们的 Fabric 客户端模组**（该文档引用它，但本仓库没有任何记录） | **必须重新确认**；它决定 PVP 实现路线、M4 的 HUD、以及反作弊假设 |
+| 9 | **ADR-001「玩家安装我们的 Fabric 客户端模组」**：结论在 `04-依赖与运维.md:41` 与 content 十几处都按"已定"引用，但**决策条目本体不在仓库里**（README/`00-决策与版本.md` 没有 ADR 表），`09:75` 的"理由见 README ADR-001"是悬空引用 | 要补录原文 + 复核前提仍然成立（它决定 PVP 路线、M4 HUD、反作弊假设、武器模型管线）|
 
 ---
 
@@ -385,10 +399,10 @@ def main():
 
 | 位置 | 过期内容 | 现状 |
 |---|---|---|
-| `docs/dev/01-技术架构.md` 第 58–69 行的**能力矩阵** | 五行还写着"待 M0-3/M0-4/M0-6 判定"、"不许进入开发排期" | M0 早已收官：随动、移动中建造、设施可交互都通过；落水自救也已实现；**只有"接舷/登船"确实还没做**。这张表读作历史，分层与数据流那部分仍然有效 |
+| `docs/dev/01-技术架构.md` 第 61–66 行的**能力矩阵** | 五行还写着"待 M0-3/M0-4/M0-6 判定"，`:65` 那行写的是 **"待 M0-4/M0-8"** | M0 早已收官（随动、移动中建造、设施可交互都通过，落水自救与救援也已实现）。**唯一真的没底的是接舷/登船**：`M0-8` 在 `M0-TEST-PLAN.md:288` 其实是"T8 崩溃恢复"（已做，见 `02-风险` Q9），所以这格的 M0-8 引用是错号，**"两个 sub-level 接近时的碰撞与交互"从未被验证过**，做登船/炮塔前要先 spike |
 | `docs/content/09-武器与美术管线.md §4` | "理由见 README ADR-001" | **本仓库 README 与 `00-决策与版本.md` 都没有 ADR-001**（旧仓库带过来的引用）。前提要向用户重新确认（§8 第 9 条） |
-| `docs/content/03-地图与配置规范.md` | 整节仍标 `[新增·待批 A15]` | `cfg/`（`ConfigModels` + `ConfigService` + `cww arena/format` 校验链）**已经实现并在跑**，字段以代码为准；这份规范要反向校对一遍，别照它重写一套 |
-| `docs/dev/02-风险与M0验证.md` | "M0 验证完成前一律视为未知" | 已验证，读作历史；README 的"现在最重要的事"已改指向本文档 |
+| `docs/content/03-地图与配置规范.md` | 待批标记挂在**文档头**（`:4` 一句"本文整节属于我补的规范设计"），逐条其实是 §7 的 `A15a–A15g`（`:253-259`），另有 §4 标 `A12`（`:159`）、§2.1/§6 用无编号 `[新增]` | `cfg/`（`ConfigModels` + `ConfigService` + `cww arena/format` 校验链）**已经实现并在跑**，字段以代码为准；要反向校对这份规范，别照它重写一套 |
+| `docs/dev/02-风险与M0验证.md` | 第 2 节标题已经回填成"关键问题与结论"（`:27-29`：Q1–Q4、Q7 已给结论），**没有**"M0 前一律未知"那句了 | 只有 Q8 竞技公平（⏭ 推到 M2/M4）与 Q10 版本锁死（🔁 持续监控）仍未收口；G0 判词在 `M0-RESULTS.md:142`，README 也已改指向本文档 |
 | `docs/dev/wip-parked/NBWM0Probe.java` | M0 期间的临时 spike | 停在 parked 目录、**不参与构建**，不要接回 `src/` |
 
 ---
