@@ -181,21 +181,19 @@ def main():
     else:
         expect(False, "真实右键没能放进一格（站位扫描全空）——建造的真实事件路径没验到")
 
-    print("\n== 3. 航行（桨推进，量位移不量峰值）")
+    print("\n== 3. 航行（遥控器 W 前进，量位移不量峰值）")
     half = half_width(p)
-    p("cww oar rig 0 1 south")
     start = raft_xyz(p, 0)
-    p("cww oar hold %s 0 south 160" % a0)
+    p("cww remote move 0 w 160")
     p.sleep(8.0)
     end = raft_xyz(p, 0)
-    p("cww oar strip 0")
     if start and end:
         travelled = math.hypot(end[0] - start[0], end[2] - start[2])
         print("      位移 %.2f 格（%s → %s）" % (travelled, start, end))
-        expect(travelled > 2.0, "划桨 8 秒真的走出 2 格以上（实测 %.2f）——走不出去航行就没有玩法意义" % travelled)
+        expect(travelled > 2.0, "遥控前进 8 秒真的走出 2 格以上（实测 %.2f）——走不出去航行就没有玩法意义" % travelled)
         expect(travelled < 55.0, "没飞出 test_sea（半径 60，实测 %.2f）——超出就是控制器甩筏子" % travelled)
     else:
-        inconclusive("读不到筏位姿，航行位移没测成（由 oar_probe 43/43 担保）")
+        inconclusive("读不到筏位姿，航行位移没测成（由 remote_probe 担保）")
 
     print("\n== 4. 落水 + 扒边自救")
     r0 = raft_xyz(p, 0)

@@ -21,12 +21,13 @@ public final class NbwContent {
 	public static final String RAFT_CORE = "raft_core";
 	public static final String SAIL = "sail";
 	public static final String OAR = "oar";
+	public static final String REMOTE = "remote";
 
 	public static RaftCoreBlock raftCore;
 	public static SailBlock sail;
 	public static OarBlock oar;
+	public static Item remote;
 	public static BlockEntityType<RaftCoreBlockEntity> raftCoreEntity;
-	public static BlockEntityType<OarBlockEntity> oarEntity;
 
 	private NbwContent() {
 	}
@@ -46,27 +47,25 @@ public final class NbwContent {
 		Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, SAIL),
 				new BlockItem(sail, new Item.Settings()));
 
-		// 桨台硬度取 2.0：比帆（1.5）耐拆一点，但远不如筏心（8.0/抗爆 12.0）。
-		// 它是"可以被打掉的动力设施"，不该变成第二个队伍命脉——命脉只有一条，那是已批准的设计。
+		// 桨台（问题③起只剩装饰）：推进功能已随遥控器删除，方块与物品注册保留（旧存档不炸），局内拿不到。
 		oar = Registry.register(Registries.BLOCK, Identifier.of(NBW.MOD_ID, OAR),
 				new OarBlock(AbstractBlock.Settings.create().strength(2.0f).requiresTool()));
 		Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, OAR),
 				new BlockItem(oar, new Item.Settings()));
+
+		// 遥控器（问题③）：每筏一个，拿在手上右键进入/退出移动模式。不是武器、不是方块，纯物品。
+		remote = Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, REMOTE),
+				new Item(new Item.Settings().maxCount(1)));
 
 		raftCoreEntity = Registry.register(Registries.BLOCK_ENTITY_TYPE,
 				Identifier.of(NBW.MOD_ID, RAFT_CORE),
 				net.fabricmc.fabric.api.object.builder.v1.block.entity.FabricBlockEntityTypeBuilder
 						.create(RaftCoreBlockEntity::new, raftCore).build());
 
-		oarEntity = Registry.register(Registries.BLOCK_ENTITY_TYPE,
-				Identifier.of(NBW.MOD_ID, OAR),
-				net.fabricmc.fabric.api.object.builder.v1.block.entity.FabricBlockEntityTypeBuilder
-						.create(OarBlockEntity::new, oar).build());
-
-		NBW.LOGGER.info("[content] registered block={} be={} sail={} oar={} oarBe={}",
+		NBW.LOGGER.info("[content] registered block={} be={} sail={} oar={} remote={}",
 				Registries.BLOCK.getId(raftCore), Registries.BLOCK_ENTITY_TYPE.getId(raftCoreEntity),
 				Registries.BLOCK.getId(sail), Registries.BLOCK.getId(oar),
-				Registries.BLOCK_ENTITY_TYPE.getId(oarEntity));
+				Registries.ITEM.getId(remote));
 	}
 
 	/** 给 raft 适配层拿：注册后的方块实例。 */

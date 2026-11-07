@@ -77,7 +77,10 @@ public final class WindService {
 
 	/**
 	 * 每 tick 登记。必须在 {@code RaftMotionService.onEndTick} 之前调用，
-	 * 这样帆与桨的同一份请求能被合成一次施力。
+	 * 这样帆与遥控器的同一份请求能被合成一次施力。
+	 *
+	 * <p>问题③：帆的方向跟随前进方向。所以这里不再按"各朝向帆数"算合力，
+	 * 而是按"风在筏前进方向上的顺风分量 × 帆数"直接登记一个朝前进方向的目标速度。
 	 *
 	 * @return 本 tick 登记了几艘船的风力目标（给探针与日志用）
 	 */
@@ -91,47 +94,34 @@ public final class WindService {
 			if (raft == null) {
 				continue;
 			}
-			int n = Sailing.sailsFacing(team, Direction.NORTH);
-			int s = Sailing.sailsFacing(team, Direction.SOUTH);
-			int e = Sailing.sailsFacing(team, Direction.EAST);
-			int w = Sailing.sailsFacing(team, Direction.WEST);
-			if (n + s + e + w == 0) {
-				continue;   // 没帆就不该有风力：帆是受风面，裸筏只能靠桨
+			int sails = Sailing.sailCount(server.getOverworld(), raft);
+			if (sails == 0) {
+				continue;   // 没帆就不该有风力：帆是受风面，裸筏只能靠遥控器马达
 			}
-			double units = WindModel.windUnits(n, s, e, w, current);
-			if (units <= 0.0) {
-				continue;   // 静风或全背风：帆这一档连目标速度都没有
+			double[] fwd = SableRafts.forward(server.getOverworld(), raft);
+			double tailwind = WindModel.tailwindAlong(current, fwd[0], fwd[1]);
+			if (tailwind <= 0.0) {
+				continue;   // 静风或逆风：帆这一档连目标速度都没有
 			}
-			double[] f = WindModel.fleetThrust(n, s, e, w, current);
-			double mag = Math.hypot(f[0], f[1]);
-			if (mag <= 1e-9) {
-				continue;   // 四个朝向抵消干净了：不该登记一个方向不明的请求
-			}
-			// 只登记"想以多大位移速度往哪儿走"。施力统一交给 RaftMotionService：
-			// 帆与桨各自闭环会让两个控制器盯同一个刚体、在临界速度上互相打摆（#39）。
-			RaftMotionService.request(team, f[0] / mag, f[1] / mag,
-					SpeedGovernor.clampSpeed(SpeedGovernor.SAIL_SPEED_PER_SAIL_PER_WIND * units));
+			// 只登记"想以多大位移速度往前进方向走"。施力统一交给 RaftMotionService。
+			RaftMotionService.request(team, fwd[0], fwd[1],
+					SpeedGovernor.clampSpeed(SpeedGovernor.sailTarget(sails, tailwind)));
 			pushed++;
 		}
 		return pushed;
 	}
 
-	/** 一行读数：风况 + 指定队各朝向帆数 + 算出来的合力。运维与探针都靠它。 */
+	/** 一行读数：风况 + 指定队的帆数/前进方向/顺风分量。运维与探针都靠它。 */
 	public static String readout(MinecraftServer server, int teamIndex) {
-		int n = Sailing.sailsFacing(teamIndex, Direction.NORTH);
-		int s = Sailing.sailsFacing(teamIndex, Direction.SOUTH);
-		int e = Sailing.sailsFacing(teamIndex, Direction.EAST);
-		int w = Sailing.sailsFacing(teamIndex, Direction.WEST);
-		double[] f = WindModel.fleetThrust(n, s, e, w, current);
 		UUID raft = RaftSpawner.raftOf(teamIndex);
-		double[] v = raft == null ? new double[]{0, 0, 0}
-				: SableRafts.linearVelocity(server.getOverworld(), raft);
-		// 速度/速率/目标/上限 由航行读数给出，且都是位移口径（#39）；这里只留风力自身的量。
+		double[] fwd = raft == null ? new double[]{0.0, 1.0}
+				: SableRafts.forward(server.getOverworld(), raft);
+		double tailwind = WindModel.tailwindAlong(current, fwd[0], fwd[1]);
+		int sails = raft == null ? 0 : Sailing.sailCount(server.getOverworld(), raft);
 		return String.format(Locale.ROOT,
-				"[wind] 风 dir=(%.3f, %.3f) strength=%.2f | 队%d 帆 北%d 南%d 东%d 西%d | 合力=(%.3f, %.3f)"
-						+ " | 帆档=%.2f | %s",
-				current.dirX(), current.dirZ(), current.strength(), teamIndex, n, s, e, w,
-				f[0], f[1], WindModel.windUnits(n, s, e, w, current),
+				"[wind] 风 dir=(%.3f, %.3f) strength=%.2f | 队%d 帆=%d 朝向=(%.3f,%.3f) 顺风=%.2f | %s",
+				current.dirX(), current.dirZ(), current.strength(), teamIndex, sails,
+				fwd[0], fwd[1], tailwind,
 				RaftMotionService.travelReadout(teamIndex));
 	}
 

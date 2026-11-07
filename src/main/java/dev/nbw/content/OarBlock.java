@@ -1,39 +1,20 @@
 package dev.nbw.content;
 
-import dev.nbw.NBW;
-import dev.nbw.raft.OarService;
 import net.minecraft.block.Block;
-import net.minecraft.block.BlockEntityProvider;
 import net.minecraft.block.BlockState;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.state.StateManager;
 import net.minecraft.state.property.DirectionProperty;
-import net.minecraft.util.ActionResult;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
-import net.minecraft.world.World;
-import org.jetbrains.annotations.Nullable;
 
 /**
- * 桨台（M2-5 动力第二源，01 §4.4 已批准的"桨台驱动"，02 §6"木桨"行的方块化落点）。
+ * 桨台（遗留装饰方块，问题③：推进功能已删除，只保留注册与外观）。
  *
- * <p><b>方块自己不算力、不持有节奏。</b>推力口径在 {@link OarService}，
- * 数值口径在 {@code domain/raft/OarModel}。这里只回答一个问题：
- * "点我的人属于哪队、用的是第几号桨位"。
- *
- * <p>朝向放在方块属性上（与帆一致），因为"桨朝哪"是玩家能用眼睛核对的信息，必须进
- * 方块状态与渲染。但<b>推力方向以 BE 里那份为准</b>：方块状态负责显示，
- * BE 负责记账（还带着 plot 偏移，拆桨与重启回填都靠它）。
- *
- * <p><b>一次右键 = 一次 keepalive</b>（与 {@link RaftCoreBlock} 同一条纪律）：
- * 真正的"连续划桨"来自客户端长按周期包（{@code dev.nbw.client.HoldInputClient}），
- * 两条输入路径与 dev 入口 {@code /cww oar hold} 最终都汇到 {@link OarService#keepalive}
- * 背后的同一条登记，所以不存在"只有测试能划"的分叉。
+ * <p>2026-11-07 起木筏操控改为"每筏一个遥控器"，原来的"多人站在桨台持续划桨"整套删掉
+ * （{@code OarService}、桨台方块实体都已移除）。按用户裁定<b>不删物品注册</b>——
+ * 方块与物品仍在注册表里（旧世界/旧存档不炸），但不再有任何推进交互，局内也拿不到。
+ * 保留 {@code FACING} 只是为了模型朝向（4 个水平方向），不承载任何玩法。
  */
-public class OarBlock extends Block implements BlockEntityProvider {
+public class OarBlock extends Block {
 
 	public static final DirectionProperty FACING = DirectionProperty.of("facing", Direction.Type.HORIZONTAL);
 
@@ -45,35 +26,5 @@ public class OarBlock extends Block implements BlockEntityProvider {
 	@Override
 	protected void appendProperties(StateManager.Builder<Block, BlockState> builder) {
 		builder.add(FACING);
-	}
-
-	@Override
-	public @Nullable BlockEntity createBlockEntity(BlockPos pos, BlockState state) {
-		return new OarBlockEntity(pos, state);
-	}
-
-	@Override
-	protected ActionResult onUse(BlockState state, World world, BlockPos pos, PlayerEntity player,
-			BlockHitResult hit) {
-		if (world.isClient() || !(player instanceof ServerPlayerEntity sp)) {
-			return ActionResult.PASS;
-		}
-		// 归属与桨位都从"点到的那个 BE"读，不按坐标查表：sub-level 里 BE 的 getPos()
-		// 是 plot 局部量，与交互回调给的坐标不保证同一空间（同 RaftCoreBlock 的理由）。
-		if (!(world.getBlockEntity(pos) instanceof OarBlockEntity be) || !be.isRigged()) {
-			return ActionResult.PASS;   // 手工摆的桨台没有归属：划不动，也不许白得动力
-		}
-		OarService.keepalive(sp.getUuid(), be.teamIndex(), be.slot());
-		return ActionResult.SUCCESS;
-	}
-
-	/** 放/拆桨台各留一条证据，探针数"到底挂上几台"时不用靠肉眼。 */
-	@Override
-	public void onStateReplaced(BlockState state, World world, BlockPos pos,
-			BlockState oldState, boolean moved) {
-		super.onStateReplaced(state, world, pos, oldState, moved);
-		if (!world.isClient() && state.getBlock() != oldState.getBlock()) {
-			NBW.LOGGER.info("[oar] 方块写入 pos={} facing={}（桨位与归属由 rig 负责）", pos, state.get(FACING));
-		}
 	}
 }

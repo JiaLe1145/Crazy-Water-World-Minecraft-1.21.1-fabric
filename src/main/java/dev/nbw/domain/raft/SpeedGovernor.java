@@ -63,6 +63,16 @@ public final class SpeedGovernor {
 	public static final double SAIL_SPEED_PER_SAIL_PER_WIND = 0.025;
 
 	/**
+	 * 遥控器的马达目标位移速度：0.1665 格/tick ≈ 3.33 格/秒。
+	 *
+	 * <p>问题③（2026-11-07）：木浆操控改为每筏一个遥控器。用户把马达速度定为
+	 * <b>对齐满编划桨档</b>（原来 5 人满编 = 5 × {@link #ROW_SPEED_PER_ROWER} = 0.1665），
+	 * 所以从"多人划桨"换成"一人遥控"后航行手感不变。船帆的顺风推进在它之上叠加，
+	 * 两者都被 {@link #MAX_TRAVEL_SPEED} 夹住。
+	 */
+	public static final double REMOTE_SPEED = 0.1665;
+
+	/**
 	 * 比例增益。取 <b>18</b>，依据是"持续施力"那一档实测出来的阻尼。
 	 *
 	 * <p><b>只认这条口径：</b>每 tick 施加的速度增量 {@code dv = GAIN×(目标 − 实测)}，

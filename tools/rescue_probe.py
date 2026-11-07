@@ -404,16 +404,6 @@ def main():
                % (wd, wdec))
         expect(ldec == "KEEPALIVE" and 0 <= ld <= 8.0,
                "换成甲板局部帧，同一个人同一格必须判可达，实测 %.2f 格→%s" % (ld, ldec))
-    rig = p("cww oar rig 0 1 south")
-    print("      挂桨：" + rig[:120])
-    oar = p("cww net probe %s oar 0 0" % rescuer)
-    p("cww oar strip 0")
-    print("      oar 回包：" + oar[:260])
-    expect("归属筏=" in oar and "无（公共地形）" not in oar,
-           "桨台那一格必须认得出属于队 0 的筏：%s" % oar[:120])
-    expect("父世界BE=OarBlockEntity" in oar,
-           "桨台的方块实体必须读得到。这条同时更正一条推断：sub-level 的方块物理上就存在父世界的存储坐标里，"
-           "所以旧代码用父世界 getBlockEntity 认方块从来不是问题，坏的只有距离：%s" % oar[:200])
 
     print("\n== 8. 非 PLAY 阶段不再推进")
     p("cww abort")

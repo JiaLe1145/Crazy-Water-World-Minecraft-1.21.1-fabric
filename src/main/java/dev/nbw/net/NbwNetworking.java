@@ -1,11 +1,10 @@
 package dev.nbw.net;
 
 import dev.nbw.NBW;
-import dev.nbw.content.OarBlockEntity;
 import dev.nbw.content.RaftCoreBlockEntity;
 import dev.nbw.domain.net.HoldPolicy;
-import dev.nbw.raft.OarService;
 import dev.nbw.raft.RaftCoreService;
+import dev.nbw.raft.RemoteService;
 import dev.nbw.rescue.RescueService;
 import dev.nbw.sable.SableRafts;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
@@ -60,9 +59,14 @@ public final class NbwNetworking {
 			// 自定义包不一定在主线程到达；世界与 BE 只能在服务端线程动。慢一帧远比崩一次好。
 			server.execute(() -> handle(player, payload));
 		});
-		NBW.LOGGER.info("[net] 长按输入通道已注册：{}（可达上限 {} 格，窗口 {} tick；去向=筏心修复 + 桨台推进 + 救援；"
-				+ "距离一律在甲板局部帧量）",
-				HoldPayload.CHANNEL_ID, HoldPolicy.REACH_BLOCKS, RaftCoreService.KEEPALIVE_TICKS);
+		PayloadTypeRegistry.playC2S().register(MovePayload.ID, MovePayload.CODEC);
+		ServerPlayNetworking.registerGlobalReceiver(MovePayload.ID, (payload, context) -> {
+			final ServerPlayerEntity player = context.player();
+			final MinecraftServer server = context.server();
+			server.execute(() -> RemoteService.onMove(player,
+					payload.forward(), payload.backward(), payload.left(), payload.right()));
+		});
+		NBW.LOGGER.info("[net] 已注册 nbw:hold（长按：筏心修复/救援，甲板局部帧量距离）+ nbw:move（遥控器 WASD）");
 	}
 
 	private static void handle(ServerPlayerEntity player, HoldPayload payload) {
@@ -84,7 +88,6 @@ public final class NbwNetworking {
 			case RELEASE -> {
 				// 松手就是"我不再按着了"，不区分对象：两边都清，漏一边会留下过期动力或修复进度
 				RaftCoreService.release(player.getUuid());
-				OarService.release(player.getUuid());
 				RescueService.release(player.getUuid());   // 松手就断扒边续包，窗口过期后人会落回水里
 			}
 			case KEEPALIVE -> {
@@ -94,8 +97,6 @@ public final class NbwNetworking {
 				switch (world.getBlockEntity(pos)) {
 					case RaftCoreBlockEntity core when core.teamIndex() >= 0 ->
 							RaftCoreService.keepalive(player.getUuid(), core.teamIndex());
-					case OarBlockEntity oar when oar.isRigged() ->
-							OarService.keepalive(player.getUuid(), oar.teamIndex(), oar.slot());
 					// 必须显式接 null：getBlockEntity 对空气与普通方块返回 null，
 					// 而 Java 21 的 switch 碰上 null 选择值会直接 NPE —— 真人长按任意方块就能打崩服务端线程。
 					case null, default -> {

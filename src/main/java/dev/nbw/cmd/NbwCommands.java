@@ -19,10 +19,10 @@ import dev.nbw.domain.ZoneModel;
 import dev.nbw.domain.arena.SeaAudit;
 import dev.nbw.domain.combat.CombatRule;
 import dev.nbw.net.NbwNetworking;
-import dev.nbw.raft.OarService;
 import dev.nbw.raft.RaftCoreService;
 import dev.nbw.raft.RaftSinking;
 import dev.nbw.raft.RaftSpawner;
+import dev.nbw.raft.RemoteService;
 import dev.nbw.raft.Sailing;
 import dev.nbw.raft.WindService;
 import dev.nbw.rescue.RescueService;
@@ -174,28 +174,21 @@ public final class NbwCommands {
 								.executes(NbwCommands::windSet))));
 		root.then(wind);
 
-		// ---- 桨台（M2-5 动力第二源）：挂桨 / 拆桨 / 读数 / 模拟划桨
-		var oar = admin(CommandManager.literal("oar"));
-		oar.then(CommandManager.literal("read")
+		// ---- 遥控器（问题③）：每筏一个，WASD 开船。give / status 给运维与探针取证
+		var remote = admin(CommandManager.literal("remote"));
+		remote.then(CommandManager.literal("status")
 				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
-						.executes(NbwCommands::oarRead)));
-		oar.then(CommandManager.literal("rig")
-				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
-						.then(CommandManager.argument("count",
-								IntegerArgumentType.integer(0, OarService.MAX_OARS_PER_TEAM))
-								.then(CommandManager.argument("facing", StringArgumentType.word())
-										.executes(NbwCommands::oarRig)))));
-		oar.then(CommandManager.literal("strip")
-				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
-						.executes(NbwCommands::oarStrip)));
-		oar.then(CommandManager.literal("hold")
+						.executes(NbwCommands::remoteStatus)));
+		remote.then(CommandManager.literal("give")
 				.then(CommandManager.argument("player", StringArgumentType.word())
-						.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
-								.then(CommandManager.argument("facing", StringArgumentType.word())
-										.then(CommandManager.argument("ticks",
-												IntegerArgumentType.integer(1, 600))
-												.executes(NbwCommands::oarHold))))));
-		root.then(oar);
+						.executes(NbwCommands::remoteGive)));
+		// dev/自动化夹具：/cww remote move <队> <keys> <tick>，keys 是 w/s/a/d 的组合（如 wa = 前进+左转）
+		remote.then(CommandManager.literal("move")
+				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
+						.then(CommandManager.argument("keys", StringArgumentType.word())
+								.then(CommandManager.argument("ticks", IntegerArgumentType.integer(1, 600))
+										.executes(NbwCommands::remoteMove)))));
+		root.then(remote);
 
 		// ---- 落水与救援（M2-8 / 01 §8）：自救与伸手救援的时序、配对与拒绝原因的观测面
 		var rescue = admin(CommandManager.literal("rescue"));
@@ -222,10 +215,6 @@ public final class NbwCommands {
 		var npDeck = CommandManager.literal("deck")
 				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
 						.executes(NbwCommands::netProbeDeck));
-		var npOar = CommandManager.literal("oar")
-				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
-						.then(CommandManager.argument("slot", IntegerArgumentType.integer(0, 32))
-								.executes(NbwCommands::netProbeOar)));
 		var npAt = CommandManager.literal("at")
 				.then(CommandManager.argument("x", IntegerArgumentType.integer())
 						.then(CommandManager.argument("y", IntegerArgumentType.integer())
@@ -233,7 +222,6 @@ public final class NbwCommands {
 										.executes(NbwCommands::netProbeAt))));
 		var npPlayer = CommandManager.argument("player", StringArgumentType.word());
 		npPlayer.then(npDeck);
-		npPlayer.then(npOar);
 		npPlayer.then(npAt);
 		net.then(CommandManager.literal("probe").then(npPlayer));
 		root.then(net);
@@ -359,60 +347,37 @@ public final class NbwCommands {
 		return tell(ctx, "拆掉 " + n + " 块帆 | " + Sailing.readout(ctx.getSource().getServer(), raft));
 	}
 
-	// ---------------------------------------------------------------- 桨台（M2-5 动力第二源）
+	// ---------------------------------------------------------------- 遥控器（问题③）
 
-	private static int oarRead(CommandContext<ServerCommandSource> ctx) {
+	private static int remoteStatus(CommandContext<ServerCommandSource> ctx) {
 		int team = IntegerArgumentType.getInteger(ctx, "team");
 		ctx.getSource().sendFeedback(() -> Text.literal(
-				OarService.readout(ctx.getSource().getServer(), team)), false);
+				RemoteService.readout(ctx.getSource().getServer(), team)), false);
 		return 1;
 	}
 
-	/**
-	 * /cww oar rig &lt;队&gt; &lt;数量&gt; &lt;朝向&gt;
-	 *
-	 * <p>命令层只把字符串解析成 {@code Direction}，<b>不重复校验</b>合法朝向与数量上限：
-	 * 校验口径留在 {@link OarService}，两处各写一份迟早会出现"命令收了、服务不认"的分叉。
-	 */
-	private static int oarRig(CommandContext<ServerCommandSource> ctx) {
-		int team = IntegerArgumentType.getInteger(ctx, "team");
-		int count = IntegerArgumentType.getInteger(ctx, "count");
-		String raw = StringArgumentType.getString(ctx, "facing");
-		Direction facing;
-		try {
-			facing = Direction.byName(raw.toLowerCase(Locale.ROOT));
-		} catch (RuntimeException e) {
-			facing = null;
-		}
-		return tell(ctx, OarService.rig(ctx.getSource().getServer().getOverworld(),
-				RaftSpawner.raftOf(team), team, count, facing)
-				+ " | " + OarService.readout(ctx.getSource().getServer(), team));
-	}
-
-	private static int oarStrip(CommandContext<ServerCommandSource> ctx) {
-		int team = IntegerArgumentType.getInteger(ctx, "team");
-		UUID raft = RaftSpawner.raftOf(team);
-		int n = OarService.strip(ctx.getSource().getServer().getOverworld(), raft, team);
-		return tell(ctx, "拆掉 " + n + " 台桨台 | " + OarService.readout(ctx.getSource().getServer(), team));
-	}
-
-	/**
-	 * /cww oar hold &lt;玩家&gt; &lt;队&gt; &lt;朝向&gt; &lt;tick&gt;
-	 *
-	 * <p>模拟"在某队一台朝该方向的桨上持续按住 N tick"。<b>这不是玩法入口，是自动化测试夹具</b>：
-	 * 真人路径要走长按自定义包（假玩家发不了），但服务端从这里往后的登记与推进完全同一条，
-	 * 所以桨力曲线、方向、断输入即失力这三件事可以不等真人就验完。
-	 */
-	private static int oarHold(CommandContext<ServerCommandSource> ctx) {
+	private static int remoteGive(CommandContext<ServerCommandSource> ctx) {
 		String name = StringArgumentType.getString(ctx, "player");
-		UUID player = RaftCoreService.playerByName(ctx.getSource().getServer(), name);
-		if (player == null) {
+		ServerPlayerEntity target = ctx.getSource().getServer().getPlayerManager().getPlayer(name);
+		if (target == null) {
 			return tell(ctx, "找不到在线玩家 " + name + "（假玩家也要先 /player <名> spawn）");
 		}
+		if (dev.nbw.content.NbwContent.remote == null) {
+			return tell(ctx, "遥控器还没注册");
+		}
+		if (!target.getInventory().insertStack(new ItemStack(dev.nbw.content.NbwContent.remote))) {
+			return tell(ctx, "背包已满，给不进去");
+		}
+		return tell(ctx, "已给 " + name + " 遥控器（主手拿着右键进入移动模式，WASD 开船）");
+	}
+
+	/** {@code /cww remote move <队> <keys> <tick>}：dev 夹具，模拟"某队按着 w/s/a/d 组合 N tick"。 */
+	private static int remoteMove(CommandContext<ServerCommandSource> ctx) {
 		int team = IntegerArgumentType.getInteger(ctx, "team");
-		String facing = StringArgumentType.getString(ctx, "facing");
+		String keys = StringArgumentType.getString(ctx, "keys").toLowerCase(Locale.ROOT);
 		int ticks = IntegerArgumentType.getInteger(ctx, "ticks");
-		return tell(ctx, OarService.hold(player, team, facing, ticks));
+		return tell(ctx, RemoteService.hold(team, keys.contains("w"), keys.contains("s"),
+				keys.contains("a"), keys.contains("d"), ticks));
 	}
 
 	// ---------------------------------------------------------------- 筏心与残骸修复
@@ -508,19 +473,6 @@ public final class NbwCommands {
 	private static int netProbeDeck(CommandContext<ServerCommandSource> ctx) throws CommandSyntaxException {
 		int team = IntegerArgumentType.getInteger(ctx, "team");
 		return probeCell(ctx, team, 0, 0, 0, "甲板中心");
-	}
-
-	/** 某个桨位：必须认得出 OarBlockEntity，否则"长按桨台推进"这条整条是空的。 */
-	private static int netProbeOar(CommandContext<ServerCommandSource> ctx) throws CommandSyntaxException {
-		int team = IntegerArgumentType.getInteger(ctx, "team");
-		int slot = IntegerArgumentType.getInteger(ctx, "slot");
-		int[] cell = dev.nbw.domain.raft.RaftLayout.oarCell(RaftSpawner.deckSide(), slot);
-		if (cell == null) {
-			ctx.getSource().sendError(Text.literal("[cww] 边长 " + RaftSpawner.deckSide() + " 的甲板塞不下桨位 "
-					+ slot + "，无从探测"));
-			return 0;
-		}
-		return probeCell(ctx, team, cell[0], cell[1], cell[2], "桨位 " + slot);
 	}
 
 	/** 局部格 → 存储坐标（加 plot 中心块），再交给 {@link NbwNetworking#probe}。 */

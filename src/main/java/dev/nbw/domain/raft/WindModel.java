@@ -136,4 +136,19 @@ public final class WindModel {
 	public static boolean strengthInRange(double strength) {
 		return strength >= 0.0 && strength <= MAX_STRENGTH;
 	}
+
+	/**
+	 * 风在给定水平方向上的<b>顺风分量</b>（单位仍是风强，0..{@link #MAX_STRENGTH}）。
+	 *
+	 * <p>问题③（2026-11-07）：船帆方向永远跟随前进方向。所以帆不再按"方块朝哪"算受力，
+	 * 而是按"风在筏的前进方向上有多少分量"算——顺风满额、横风为零、逆风截到 0（帆不把筏子往后吸）。
+	 * {@code fwdX/fwdZ} 是单位矢量（{@code SableRafts.forward} 已经归一化）。
+	 */
+	public static double tailwindAlong(Wind wind, double fwdX, double fwdZ) {
+		if (wind == null || wind.calm()) {
+			return 0.0;
+		}
+		double dot = wind.forceX() * fwdX + wind.forceZ() * fwdZ;
+		return Math.max(0.0, dot);
+	}
 }

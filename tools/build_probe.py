@@ -182,15 +182,11 @@ def live_place(p, name, xyz, item):
 
 
 def rig_facilities(p, team, want):
-    """程序化把设施补到 want 个（帆上限 7、桨上限 4）；回显用的命令输出拼成一行。"""
+    """程序化把帆补到 want 面（帆上限 7；桨台已随遥控器删除，设施只剩帆+筏心）。"""
     sails = min(7, want)
-    oars = max(0, want - sails)
     p("cww sail strip %d" % team)
-    p("cww oar strip %d" % team)
     p.sleep(0.4)
     echo = [p("cww sail rig %d %d north" % (team, sails))[:60]]
-    if oars > 0:
-        echo.append(p("cww oar rig %d %d north" % (team, oars))[:60])
     p.sleep(0.4)
     return echo
 

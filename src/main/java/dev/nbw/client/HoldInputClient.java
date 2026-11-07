@@ -38,6 +38,16 @@ public final class HoldInputClient {
 		if (client.player == null || client.getNetworkHandler() == null) {
 			return;
 		}
+		// 主手拿遥控器时走移动模式那条通道（MoveInputClient），不在这里发长按包：
+		// 否则开船右键会同时触发"按住方块"的修复/扒边判定，两个动作打架。
+		if (client.player.getMainHandStack().getItem() == dev.nbw.content.NbwContent.remote) {
+			if (sending) {
+				sending = false;
+				cooldown = 0;
+				ClientPlayNetworking.send(new HoldPayload(lastTarget != null ? lastTarget : BlockPos.ORIGIN, false));
+			}
+			return;
+		}
 		final boolean held = client.options.useKey.isPressed();
 		final BlockPos target = held ? targetUnderCrosshair(client) : null;
 		if (held && target != null) {

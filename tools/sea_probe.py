@@ -507,7 +507,7 @@ def main():
         for _ in range(4):
             line = p("cww wind read %s" % team0)
             m = re.search(r"速度=\([\d.eE+-]+, ([\d.eE+-]+)\)", line)
-            f = re.search(r"合力=\([\d.eE+-]+, ([\d.eE+-]+)\)", line)
+            f = re.search(r"顺风=([\d.]+)", line)   # 帆跟随前进后，风力读数里是"顺风分量"而不是"合力"
             # 上限从服务端读数里取，不在探针里再抄一遍常量：抄一份就可能出现"探针与代码不一致还全绿"
             c = re.search(r"上限=([\d.]+)", line)
             got.append((abs(float(m.group(1))) if m else -1, abs(float(f.group(1))) if f else -1))

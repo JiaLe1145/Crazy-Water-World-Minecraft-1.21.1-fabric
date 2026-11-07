@@ -576,6 +576,77 @@ public final class SableRafts {
 		return true;
 	}
 
+	/**
+	 * 施加一个绕 Y 轴的角冲量（遥控器 A/D 转向用）。
+	 *
+	 * <p>与线性推力的区别：转向不改变质心速度，只改变朝向。数值是"角冲量"（力×1 tick 的量纲），
+	 * 大小靠 {@code RemoteService} 按"每秒转几度"配平，这里只做无脑转发。
+	 *
+	 * @return 是否真的施到了角冲量；false 说明筏已经不在了
+	 */
+	public static boolean applyYawImpulse(ServerWorld world, UUID raftId, double yawImpulse) {
+		if (yawImpulse == 0.0) {
+			return false;
+		}
+		ServerSubLevel sl = resolve(world, raftId);
+		if (sl == null) {
+			return false;
+		}
+		ServerSubLevelContainer c = SubLevelContainer.getContainer(world);
+		if (c == null) {
+			return false;
+		}
+		RigidBodyHandle handle = c.physicsSystem().getPhysicsHandle(sl);
+		if (handle == null || !handle.isValid()) {
+			return false;
+		}
+		// 绕世界 Y 轴（上）旋转；正负号约定由 RemoteService 负责，这里保持 joml 的原样。
+		handle.applyAngularImpulse(new Vector3d(0.0, yawImpulse, 0.0));
+		return true;
+	}
+
+	/**
+	 * 筏当前的<b>水平朝向单位矢量</b>（世界坐标）：把局部前进方向 (0,0,1) 用位姿旋转后取 XZ。
+	 *
+	 * <p>这是"船帆永远跟随前进方向"与"W 前进该往哪推"的唯一口径——不能拿 {@code FACING} 之类的
+	 * 方块状态顶替，筏子转了那个状态也不会跟着转。返回值已经是单位矢量，方向不明确时退回正南。
+	 *
+	 * @return {@code {dirX, dirZ}}，水平单位矢量
+	 */
+	public static double[] forward(ServerWorld world, UUID raftId) {
+		ServerSubLevel sl = resolve(world, raftId);
+		if (sl == null) {
+			return new double[]{0.0, 1.0};
+		}
+		Vector3d fwd = new Vector3d(0.0, 0.0, 1.0);
+		fwd.rotate(new org.joml.Quaterniond(sl.logicalPose().orientation()));
+		double len = Math.hypot(fwd.x, fwd.z);
+		if (Double.isNaN(len) || len < 1e-9) {
+			return new double[]{0.0, 1.0};
+		}
+		return new double[]{fwd.x / len, fwd.z / len};
+	}
+
+	/** 筏的角速度（世界坐标，绕各轴）。返回 {@code double[3]}；筏不在场时三个分量都是 {@code NaN}。 */
+	public static double[] angularVelocity(ServerWorld world, UUID raftId) {
+		double nan = Double.NaN;
+		ServerSubLevel sl = resolve(world, raftId);
+		if (sl == null) {
+			return new double[]{nan, nan, nan};
+		}
+		ServerSubLevelContainer c = SubLevelContainer.getContainer(world);
+		if (c == null) {
+			return new double[]{nan, nan, nan};
+		}
+		RigidBodyHandle handle = c.physicsSystem().getPhysicsHandle(sl);
+		if (handle == null || !handle.isValid()) {
+			return new double[]{nan, nan, nan};
+		}
+		Vector3d dest = new Vector3d();
+		handle.getAngularVelocity(dest);
+		return new double[]{dest.x, dest.y, dest.z};
+	}
+
 	// ---------------------------------------------------------------- 加载票
 
 	/** 开局发票：对局期间禁止该筏被卸载。 */

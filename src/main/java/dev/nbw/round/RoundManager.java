@@ -17,11 +17,11 @@ import dev.nbw.domain.round.RoundConfig;
 import dev.nbw.domain.round.RoundEvent;
 import dev.nbw.domain.round.RoundMachine;
 import dev.nbw.domain.round.RoundSnapshot;
-import dev.nbw.raft.OarService;
 import dev.nbw.raft.RaftCoreService;
 import dev.nbw.raft.RaftMotionService;
 import dev.nbw.raft.RaftSinking;
 import dev.nbw.raft.RaftSpawner;
+import dev.nbw.raft.RemoteService;
 import dev.nbw.raft.WindService;
 import dev.nbw.domain.round.Transitions;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
@@ -173,10 +173,10 @@ public final class RoundManager {
 			sweepDeaths();
 			RaftSinking.onEndTick(srv);
 			RaftCoreService.onEndTick(srv);
-			WindService.apply(srv);   // 帆：登记风力目标（被动等风）
-			OarService.onEndTick(srv);   // 桨：登记桨力目标（有人持续按着才算）
+			WindService.apply(srv);   // 帆：登记风力目标（被动等风，方向跟随前进）
+			RemoteService.onEndTick(srv);   // 遥控器：登记马达目标 + 施转向角冲量
 			RescueService.onEndTick(srv);   // 扒边：只挪玩家位置，筏的目标仍由下一行合成
-			RaftMotionService.onEndTick(srv);   // 两个目标合成之后，本 tick 只施一发控制冲量
+			RaftMotionService.onEndTick(srv);   // 各目标合成之后，本 tick 只施一发控制冲量
 		}
 		// 恢复出来的这一局必须能晚点认领筏子：重启那一刻 Sable 还没把 sub-level 载进容器，
 		// 一次性 rebindFromWorld 实测就是"重认领 0 艘筏"，之后这一局再也看不见自己的筏。
@@ -301,6 +301,7 @@ public final class RoundManager {
 				if (gen.contains("失败")) {
 					NBW.LOGGER.error("[round] READY 发筏有问题：{}", gen);
 				}
+				RemoteService.distributeRemotes(server);   // 每筏发一个遥控器（问题③）
 				int moved = teleportParticipants();
 				announce("§e进入对局（" + moved + " 人已传送），" + seconds(machine.config().readyTicks()) + " 秒后开局");
 			}
@@ -650,7 +651,7 @@ public final class RoundManager {
 		RaftSinking.reset();
 		RaftCoreService.reset();
 		WindService.set("calm", 0.0);   // 风是局内状态，不许跨局残留成"永久顺风"
-		OarService.reset();   // 桨位表与"正在划"的人同样是局内状态；残留=下一局白得动力或桨位被占
+		RemoteService.reset();   // 遥控器意图是局内的：残留=下一局开局就有一艘筏自己在开
 		RaftMotionService.reset();   // 位移采样的位姿基线必须重取，否则跨局第一 tick 会算出一个假速度
 		BuildService.reset();   // 建造提示的节流表按玩家 UUID 涨；判定计数是跨局运维量，故意不清
 		RescueService.reset();   // 扒边状态与续包窗口都是局内的：残留=下一局开局就有人在半空爬
