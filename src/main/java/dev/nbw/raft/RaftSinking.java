@@ -130,10 +130,10 @@ public final class RaftSinking {
 
 	/** 运维/测试用：跳过 30s 直接判沉。 */
 	public static String forceSink(ServerWorld world, int teamIndex) {
-		if (!rafts.containsKey(teamIndex) && SableRafts.findByName(world, "nbw_raft_" + teamIndex) == null) {
+		if (!rafts.containsKey(teamIndex) && SableRafts.findByName(world, RaftSpawner.raftName(teamIndex)) == null) {
 			return "队 " + teamIndex + " 没有可沉的筏；先 /cww raft bind " + teamIndex;
 		}
-		states.put(teamIndex, new SinkState(SinkState.SinkPhase.SUNK, 0, stateOf(teamIndex).resetsUsed()));
+		states.put(teamIndex, new SinkState(SinkState.SinkPhase.SUNK, 0));
 		NBW.LOGGER.warn("[raft] 队 {} 被运维命令直接判沉（跳过 30s 倒计时）", teamIndex);
 		return "队 " + teamIndex + " 已直接判沉（下一 tick 开始加压）";
 	}
@@ -150,26 +150,6 @@ public final class RaftSinking {
 		windowTicks.clear();
 		resting.clear();
 		warned.clear();
-	}
-
-	/**
-	 * 重修筏心（每局限 1 次）。
-	 *
-	 * @return true 表示倒计时确实被拉回了 30s；false 表示没生效（不在倒计时中，或额度已用完）
-	 */
-	public static boolean repair(int teamIndex) {
-		SinkState current = stateOf(teamIndex);
-		if (!current.countingDown()) {
-			return false;
-		}
-		SinkState after = SinkRule.reset(current);
-		boolean changed = after != current;
-		if (changed) {
-			states.put(teamIndex, after);
-			NBW.LOGGER.info("[raft] 队 {} 重修筏心，沉筏倒计时重置为 {}s（本局已用额度 {}/{}）",
-					teamIndex, after.remainingSeconds(), after.resetsUsed(), SinkRule.MAX_RESETS);
-		}
-		return changed;
 	}
 
 	/**
@@ -200,7 +180,7 @@ public final class RaftSinking {
 			// 所以 teamWiped 等价于"本队玩家全灭"。第二条触发路径来自筏心（A2）。
 			SinkTrigger trigger = new SinkTrigger(!anyPlayerAlive,
 					RaftCoreService.isWreckage(index));
-			SinkState next = SinkRule.tick(stateOf(index), trigger, false);
+			SinkState next = SinkRule.tick(stateOf(index), trigger);
 			if (next != stateOf(index)) {
 				states.put(index, next);
 				if (next.sunk()) {
@@ -249,13 +229,13 @@ public final class RaftSinking {
 		}
 	}
 
-		/** 显式绑定优先；没绑定就按开局生成逻辑的命名约定 {@code nbw_raft_<team>} 兜底。 */
+		/** 显式绑定优先；没绑定就按开局生成逻辑的唯一名 {@code nbw_raft_<队>_<局>} 兜底。 */
 	private static @Nullable UUID resolve(ServerWorld world, int teamIndex) {
 		UUID bound = rafts.get(teamIndex);
 		if (bound != null) {
 			return bound;
 		}
-		String name = "nbw_raft_" + teamIndex;
+		String name = RaftSpawner.raftName(teamIndex);
 		UUID byName = SableRafts.findByName(world, name);
 		if (byName == null) {
 			warnOnce(teamIndex, "找不到名为 " + name + " 的筏；/cww raft bind " + teamIndex + " 可手工绑定");
@@ -284,7 +264,7 @@ public final class RaftSinking {
 			SinkState s = e.getValue();
 			sb.append("队").append(e.getKey()).append('=').append(s.phase());
 			if (s.countingDown()) {
-				sb.append('(').append(s.remainingSeconds()).append("s,重置").append(s.resetsUsed()).append(')');
+				sb.append('(').append(s.remainingSeconds()).append("s)");
 			}
 			sb.append(' ');
 		}

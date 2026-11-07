@@ -237,10 +237,27 @@ def write_sail_arena():
     return dst
 
 
+def raft_name(p, team):
+    """当前对局的筏体唯一名 nbw_raft_<队>_<局>（#38 唯一名：名字带 matchIndex 避免跨局重名）。"""
+    m = re.search(r"match=(\d+)", p("cww state"))
+    match = int(m.group(1)) if m else 0
+    return "nbw_raft_%s_%d" % (team, match)
+
+
+def sweep_raft_residue(p):
+    """移除所有 nbw_raft_ 前缀的残留筏（#38 唯一名后，崩溃残留名是 nbw_raft_<队>_<旧局>，只能按前缀扫）。"""
+    info = p("sable info @e", quiet=True)
+    removed = []
+    for name in sorted(set(re.findall(r"nbw_raft_\d+_\d+", info))):
+        p("sable remove @e[name=%s]" % name, quiet=True)
+        removed.append(name)
+    return removed
+
+
 def raft_pos(p, team):
     """筏体的世界 XZ（sable info 的 Position 行）。test_sea 半径只有 60，
     漂行距离用来判断这段读数是不是已经撞到海域边缘（撞边后不能当终端速度用）。"""
-    out = p("sable info @e[name=nbw_raft_%s]" % team)
+    out = p("sable info @e[name=%s]" % raft_name(p, team))
     m = re.search(r"Position:\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)", out)
     return (float(m.group(1)), float(m.group(3))) if m else (0.0, 0.0)
 
@@ -471,7 +488,7 @@ def main():
         # 复位不消速度（实测每档开头能带着上一档的 4~5 格/tick 与几十度的角速度），
         # 固定 sleep(2) 会把这些残留算进"这一档的表现"。所以反复复位并等到读数真的静止。
         for _ in range(25):
-            p("sable teleport @e[name=nbw_raft_%s] %d %d %d" % (team0, -1000, WATER_LEVEL + 1, 946))
+            p("sable teleport @e[name=%s] %d %d %d" % (raft_name(p, team0), -1000, WATER_LEVEL + 1, 946))
             p.sleep(1.2)
             line = p("cww wind read %s" % team0)
             m0 = re.search(r"速率=([\d.]+)", line)
@@ -566,7 +583,7 @@ def main():
         p("cww sail rig %s %d south" % (team0, legal))
         still = False
         for _ in range(25):
-            p("sable teleport @e[name=nbw_raft_%s] %d %d %d" % (team0, -1000, WATER_LEVEL + 1, 946))
+            p("sable teleport @e[name=%s] %d %d %d" % (raft_name(p, team0), -1000, WATER_LEVEL + 1, 946))
             p.sleep(1.2)
             mm = re.search(r"速率=([\d.]+)", p("cww wind read %s" % team0))
             if mm and float(mm.group(1)) < 0.004:
@@ -592,7 +609,7 @@ def main():
     p("cww wind set north 0.0")
     assert ensure_playing(), "对局已不在 PLAY，第 9 步无法判"
     far_z = 700                      # 海域 z 920..1080 之外，且第 6 步已把票撤干净
-    p("sable teleport @e[name=nbw_raft_%s] -1000 %d %d" % (team0, WATER_LEVEL + 1, far_z), quiet=False)
+    p("sable teleport @e[name=%s] -1000 %d %d" % (raft_name(p, team0), WATER_LEVEL + 1, far_z), quiet=False)
     p.sleep(6)
     pose = re.findall(r"队%s Y=([\d.-]+)" % team0, p("cww raft all"))
     expect(len(pose) == 1, "推到未加载空域后筏子仍在管线里（读数：%s）" % pose)

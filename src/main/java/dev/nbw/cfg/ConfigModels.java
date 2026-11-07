@@ -165,4 +165,24 @@ public final class ConfigModels {
 			public boolean flyAllowed;
 		}
 	}
+
+	/**
+	 * 武器表（09 §2 + §4）的 JSON 结构。字段与 weapons.json 一一对应，
+	 * 数值口径：damage 单位 HP（♥×2）、cooldownTicks 单位 tick（秒×20）、
+	 * knockback 无量纲、coreMultiplier 为对筏心破拆倍率（本轮只随表下发不接判定）。
+	 */
+	public static final class Weapon {
+		public String id;
+		public String kind;
+		public double damage;
+		public int cooldownTicks;
+		public double knockback;
+		public double coreMultiplier = 1.0;
+	}
+
+	/** weapons.json 的顶层结构。 */
+	public static final class WeaponsFile {
+		public int schemaVersion;
+		public java.util.List<Weapon> weapons;
+	}
 }

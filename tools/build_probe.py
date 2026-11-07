@@ -35,7 +35,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sea_probe import (P, keep_alive, sweep_stale_bots, wait_clean_lobby,  # noqa: E402
-                      write_long_format, SEA)
+                      write_long_format, SEA, raft_name)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FORMAT = "sail_long"
@@ -100,7 +100,7 @@ def check(p, as_team, on_team, kind, lx, ly, lz, block=None):
 
 def raft_xyz(p, team):
     m = re.search(r"Position:\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)",
-                  p("sable info @e[name=nbw_raft_%d]" % team))
+                  p("sable info @e[name=%s]" % raft_name(p, team)))
     return tuple(float(g) for g in m.groups()) if m else None
 
 

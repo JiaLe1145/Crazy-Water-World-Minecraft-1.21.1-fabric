@@ -1135,6 +1135,93 @@ Gate G2 的**自动化半边齐了**：一局能跑完、能分出唯一胜负�
 
 ---
 
+## 3.17 批准批次落地：PVP 近战切片 + 筏体唯一名 + A3 删除（2026-11-07）
+
+用户裁决（`docs/计划：批准批次落地 —— … .md`）：**[A17] 武器表批准**、**ADR-001 客户端模组前提确认**、
+P-01 批准、许可证 MIT、**A3 建材重修整条删除**、**筏体唯一名要做**、伸手 3.5/落点 0.75 保留、
+互救不收紧、质量打折暂不做。武器范围定为 **§2.1 的 5 件近战 playable 切片**
+（木桨/砍刀/长矛/铁头锤/弯刀）；远程/控制/设施/流血骨折/弹药/风暴依赖未建的 M3/M4，分批后补。
+
+### Part A — 决策落档（纯文档）
+
+- `docs/dev/00-决策与版本.md` 新增 **ADR-001**（玩家必须装我们的 Fabric 客户端模组；武器/HUD/反作弊都挂它）
+  与 **ADR-002**（本项目代码 MIT），补上 `09:75`「理由见 README ADR-001」的悬空引用本体；
+- 新增 `LICENSE`（MIT，注明第三方依赖各自许可证与 Required Notice）、`README.md` 记许可证裁定；
+- `PROPOSAL-P01` 状态 → 已批准；`09 §2` A17 → 已批准并注明本轮只落 §2.1 近战 5 件；
+- `02 §8` 伸手 3.5/落点 0.75 → 已批准，互救不收紧记一句裁定。
+
+### Part B — 近战武器切片（核心交付）
+
+**分层**：`domain/combat/CombatRule`（纯函数：攻速闸门 + 持有上限 + 数值查表，零 MC import，12 条单测）
+← `cfg/WeaponConfig`（`weapons.json` 加载，world/cww 覆盖 + jar 内置回退，与 `ConfigService.loadArena` 同一纪律）
+← `content/NbwWeapons`（注册 5 件 `WeaponItem`，伤害/攻速走 `attribute_modifiers`）
+← `combat/WeaponService`（挂 `AttackEntityCallback`，服务端记上次有效攻击 tick、超频取消并写审计、按表施击退、只在 PLAY 生效）。
+
+**数值（09 §2.1，伤害 ♥×2=HP、冷却秒×20=tick）**：木桨 3HP/18tick/击退极高/对筏心×1.5、砍刀 9HP/12tick/中、
+长矛 10HP/22tick/高、铁头锤 14HP/32tick/中/对筏心×2.5、弯刀 7HP/7tick/低。
+**本轮明确不做**：流血/骨折/连击移速/射程/风暴减益/对筏心破拆判定（均依赖 M3/M4，字段随表下发但不进判定）。
+
+**已踩实的边界**：这版 Fabric 没有改伤害数值的钩子（§5.2-6），所以伤害由物品 `GENERIC_ATTACK_DAMAGE`
+attribute modifier 交给原版结算（砍刀=+8 → 满冷却 9HP），我们只在服务端闸"能不能打"（超频取消），
+不用"拦掉再补半刀"（会重复触发事件链）。攻速同理走 `GENERIC_ATTACK_SPEED`（=20/冷却 tick），
+让客户端冷却条与表格一致，权威仍由服务端 `lastValidAttack` 闸门说话。
+
+**武器 id 与桨台方块的命名冲突**：`nbw:oar` 已被桨台 BlockItem 占用，木桨武器注册为 **`nbw:paddle`**；
+砍刀 `cutlass`、长矛 `pike`、铁头锤 `warhammer`、弯刀 `twin_blade`。
+
+**命令面**：`/cww weapon list|reload|give <玩家> <id>|status`（admin 闸 + tell/reply 风格）；
+give 时查持有上限（每人 ≤1 近战，09 §5.1），拒绝第二件近战。
+
+**禁原版武器配方**：datapack 覆盖 `data/minecraft/recipe/` 14 件（木/石/铁/金/钻剑斧 + 弓 + 弩 +
+下界合金剑斧 smithing），做法是替换成"barrier → barrier"的不可达配方；**物品本体不禁**（09 §1.5）。
+占位模型/贴图（16×16 PNG）不阻塞判定——渲染失败不影响服务端结算。
+
+### Part C — 筏体唯一名（#38，approved）
+
+`RaftSpawner.raftName(team)` = `nbw_raft_<队>_<局>`（matchIndex 来自 `RoundManager.machine().matchIndex()`）。
+崩溃残留的上一局筏名是 `nbw_raft_<队>_<旧局>`，与下一局不再重名，重名歧义在源头上被掐掉。
+`rebindFromWorld` 按"队号+当前 match"反查（matchIndex 随快照还原，名字一致）；
+残留复检与 `auditResidue` 仍按 `nbw_raft_` 前缀匹配兜底。
+
+**blast radius**：Sable 的 `@e[name=X]` 与 `sable storage find X` 都是**精确匹配**（源码
+`SubLevelNameFilter` = `getName().equals(name)`），所以全部按名字查筏的探针改成了按当前 match 名：
+`sea_probe` 增 `raft_name(p, team)` 共享夹具；`sea/oar/rescue/build/m2_round/raftgen/sail` 逐个更新，
+崩溃残留清理换成 `sweep_raft_residue`（按 `nbw_raft_\d+_\d+` 前缀扫 `sable info @e` 再逐个 remove）。
+`oar_restart_probe` 的重启认领段实测"重启后这队的筏必须被重新认领"——唯一名不影响回填。
+
+### Part D — 删除 A3「建材重修重置倒计时」（approved）
+
+删除 `SinkRule.reset()`/`MAX_RESETS`/`SinkState.resetsUsed`、`RaftSinking.repair()`、
+`/cww raft repair`；`SinkRule.tick` 去掉 `repairedThisTick` 第三参。**保留 A2-v2**：
+`SinkRule.clear()`（残骸修复**解除**倒计时）与 `RaftCoreService.MAX_RESTORES_PER_MATCH`（A2-v2 自己的恢复额度，
+不再与 A3 共享）。`cww raft status` 的倒计时括号里不再有"重置 N"。
+
+### 实测（全绿，两次连续跑的部分已注明）
+
+| 项 | 结果 |
+|---|---|
+| 单测 | **228 个，0 失败**（新增 `CombatRuleTest` 12 条；`SinkRuleTest` 删 7 条 A3 用例） |
+| `pvp_probe.py`（新） | **9/9 PASS**：砍刀一击 ≈9HP（实测 8.2，原版冷却折损）、冷却内连打被拒+审计、第二件近战被拒、非 PLAY 不生效 |
+| `raftgen_probe` | **18/18**：两艘筏按 `nbw_raft_<队>_<局>` 唯一名可查，票/筏零残留 |
+| `core_probe` | **19/19**：A2-v2 恢复**解除**倒计时（IDLE 不是重置），额度语义已更新 |
+| `sink_probe` | **15/15** |
+| `oar_probe` | **43/43**：按名字反查歧义 WARN **0 次**（唯一名生效的直接证据） |
+| `rescue_probe` | **44 PASS + 1 INCONCLUSIVE** |
+| `m2_round` | **31 PASS + 1 INCONCLUSIVE** |
+| `oar_restart_probe` | before 5/5、after **14/14**：重启后唯一名重新认领成功、桨位表回填 |
+| `build_probe` | **60/60** |
+| `sea_probe` | **39/39** |
+
+**`pvp_probe` 的两条夹具教训**：① Carpet 假玩家的攻击冷却进度不会精确停在 1.0（实测 ~0.94），
+原版按 `0.2+g²·0.8` 把 9.0 折到 ~8.2，所以伤害断言用"明显是近战 9HP 档（≥8）而不是拳击（1）"，
+精确值由 `GENERIC_ATTACK_DAMAGE=9.0` attribute 担保；② `data get entity <名> Health` 回包带
+"`<名> has the following entity data: 20.0f`"，正则要锚定末尾的数值，否则会抓到玩家名里的数字。
+
+**唯一名对探针的连带影响**：`sable info @e[name=nbw_raft_0]` 这类精确匹配在唯一名后全部失效，
+所有按名查筏的探针都得改成按当前 match 名——这正是"改动域代码与探针放后面单独验"那条执行顺序的原因。
+
+---
+
 ## 4. Q9 · Sable sub-level 跨重启（顺带拿到数据）
 
 造一艘筏、推开、上加载票、重启：
@@ -1172,10 +1259,11 @@ Gate G2 的**自动化半边齐了**：一局能跑完、能分出唯一胜负�
 | `tools/oar_restart_probe.py` | 桨位身份跨重启（BE NBT 回填）+ 重复认领必须吵出来 + 筏体重新认领 | before 4/4、after **11/11** |
 | `tools/rescue_probe.py` | 落水与救援：坐标口径、爬升采样峰值、四道门、伤害打断、非 PLAY 不推进、**伸手救援（时序 / 动作在救援方 / 敌队与超距拒绝 / 救援方挨刀作废）**、**落点水平实测（起点在甲板外、落点必须明显向内）**、**长按通道两种口径的距离与方块实体读数（`cww net probe`）** | **44 条 PASS**（另有 1 条因假玩家站不住筏面报 INCONCLUSIVE，由单测覆盖；§3.14 + §3.15）|
 | `tools/m2_round.py` | **全量演练（Gate G2 自动化半边）**：一局串起发筏→建造→航行→自救→伸手→筏心摧毁→沉筏→**结算分胜负（WINNER_DECIDED）**→局后零残留；每段独立读回，末尾断言票/筏/会话/席位/救援状态全清 | **31 PASS + 1 INCONCLUSIVE，两次连续绿**（§3.16；结算靠掉线保席 90s 到期自动判胜，不能 `cww stop`）|
+| `tools/pvp_probe.py` | **PVP 近战切片（09 §2.1）**：砍刀一击伤害、冷却内连打被服务端拒并写审计、持有上限拒第二件近战、非 PLAY 不生效 | **9/9 PASS**（§3.17）|
 | `tools/seat_probe.py` | 幽灵席位：kill 假玩家后报名期兜底必须放掉会话与队席，重新上线后可再指派 | **8/8 PASS**（#41 根因）|
 | `tools/build_probe.py` | 建造规则：判定矩阵 + 设施位随面积 + 事件路径真实点击 + 顶格算术 + 扫描口径；几何全部从服务端读数推导 | **60/60 PASS**（§3.12 + §3.13，含真实左右键两段证据；前置要求真的跑过一局把队壳清掉，见 §3.15 夹具那条）|
 | `tools/wind_probe.py` | 风的语义：静风不出力、背风不倒吸、无帆不受风、同局同风、参数校验 | 9/9 PASS。**场地局限**：旱地水池只有 24 格，筏子十几秒就顶壁，所以这里只判"有风相对无风是否更强、是否持续"；绝对档位与受力符号改由 `sea_probe` 第 8 步与 `oar_probe` 第 3 步在真水上判 |
-| 单测 | domain 纯函数 + cfg + 地形函数静态校验 + 区块几何 + 桨力口径 + 速度控制器 + 建造规则 + **扒边状态机与落点夹进甲板 + 伸手救援两扇门 + 长按距离的坐标口径** | **223 个，0 失败** |
+| 单测 | domain 纯函数 + cfg + 地形函数静态校验 + 区块几何 + 桨力口径 + 速度控制器 + 建造规则 + **扒边状态机与落点夹进甲板 + 伸手救援两扇门 + 长按距离的坐标口径 + 近战 CombatRule** | **228 个，0 失败** |
 
 ### 长按输入通道（M2-4 欠的那一半，M2-8 才真的能用）
 

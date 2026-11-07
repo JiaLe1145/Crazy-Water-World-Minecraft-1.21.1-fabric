@@ -21,7 +21,14 @@ import rcon  # noqa: E402
 
 BOTS = (("n0", 0), ("n1", 0), ("n2", 1), ("n3", 1))
 TEAM = 0
-IMPULSE = "sable physics impulse @e[name=nbw_raft_0] linear 0 0 60"
+IMPULSE = "sable physics impulse @e[name=%s] linear 0 0 60"
+
+
+def raft_name(p, team):
+    """当前对局的筏体唯一名 nbw_raft_<队>_<局>（#38 唯一名）。"""
+    m = re.search(r"match=(\d+)", p("cww state"))
+    match = int(m.group(1)) if m else 0
+    return "nbw_raft_%d_%d" % (team, match)
 
 
 class P:
@@ -115,7 +122,7 @@ def main():
     p("cww sail strip %d" % TEAM, quiet=False)
     expect(p.sails() == 0, "拆干净后帆数=0（实际 %d）" % p.sails())
     p.settle()
-    p(IMPULSE)
+    p(IMPULSE % raft_name(p, TEAM))
     base = p.curve(10)
     print("      无帆速率：%s" % ", ".join("%.3f" % v for v in base if v is not None))
     expect(base[0] is not None and base[0] > 0.3,
@@ -143,7 +150,7 @@ def main():
 
     print("== 4. 同样冲量下，带帆是否比无帆减速更快")
     p.settle()
-    p(IMPULSE)
+    p(IMPULSE % raft_name(p, TEAM))
     withsail = p.curve(10)
     print("      有帆速率：%s" % ", ".join("%.3f" % v for v in withsail if v is not None))
     a = [v for v in base if v is not None]

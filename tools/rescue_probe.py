@@ -37,7 +37,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from sea_probe import P, keep_alive, sweep_stale_bots, write_long_format, SEA  # noqa: E402
+from sea_probe import P, keep_alive, sweep_stale_bots, write_long_format, SEA, raft_name  # noqa: E402
 
 ok = []
 bad = []
@@ -91,7 +91,7 @@ def horiz_dist(p, name, raft):
 
 def raft_xyz(p, team):
     m = re.search(r"Position:\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)",
-                  p("sable info @e[name=nbw_raft_%d]" % team))
+                  p("sable info @e[name=%s]" % raft_name(p, team)))
     return tuple(float(g) for g in m.groups()) if m else None
 
 

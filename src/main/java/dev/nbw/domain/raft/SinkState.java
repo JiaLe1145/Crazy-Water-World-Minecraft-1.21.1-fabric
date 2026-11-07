@@ -6,7 +6,7 @@ package dev.nbw.domain.raft;
  * <p>纯数据，不含任何 Minecraft 依赖：可以直接进回合审计日志、可以序列化、可以单测。
  * 真正"把筏压下水"的动作在适配层，本类只决定"该不该压、压之前还剩几 tick"。
  */
-public record SinkState(SinkPhase phase, int remainingTicks, int resetsUsed) {
+public record SinkState(SinkPhase phase, int remainingTicks) {
 
 	public enum SinkPhase {
 		/** 队还活着（或还没打光），无事发生。 */
@@ -18,7 +18,7 @@ public record SinkState(SinkPhase phase, int remainingTicks, int resetsUsed) {
 	}
 
 	public static SinkState fresh() {
-		return new SinkState(SinkPhase.IDLE, 0, 0);
+		return new SinkState(SinkPhase.IDLE, 0);
 	}
 
 	public boolean countingDown() {

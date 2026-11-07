@@ -30,7 +30,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from sea_probe import LOG, P, keep_alive, sweep_stale_bots, wait_clean_lobby  # noqa: E402
+from sea_probe import LOG, P, keep_alive, sweep_stale_bots, wait_clean_lobby, raft_name  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SEA = "test_sea"
@@ -70,15 +70,14 @@ def write_oar_format():
 
 
 def raft_copies(p, team=TEAM):
-    """盘上同名 nbw_raft_N 有几只。
+    """本队当前这只筏的"同名盘上拷贝"数。
 
-    这是"漂行距离能不能信"的前提，不是装饰：同名残骸会让按名字或 UUID 取到的个体不是同一个，
-    现场表现就是速率 0.1078 格/tick 而漂行 0 格（见任务 #38）。
-    速度读数不受它影响（服务端按 UUID 读刚体力学的实时线速度），所以这里只打印可信度、
-    不拿漂行做断言 —— 一条恒过的断言比没有更糟。
+    #38 唯一名后名字带 matchIndex（nbw_raft_<队>_<局>），跨局不再重名，
+    所以同名拷贝恒为 1；只打印可信度、不拿漂行做断言——一条恒过的断言比没有更糟。
     """
-    out = p("sable storage find nbw_raft_%d" % team)
-    return max(1, out.count("nbw_raft_%d:" % team))
+    name = raft_name(p, team)
+    out = p("sable storage find %s" % name)
+    return max(1, out.count("%s:" % name))
 
 
 def raft_uuid(p, team=TEAM):
@@ -250,8 +249,8 @@ def main():
     # 命令必须用 cww raft all：Y= 与质量只在 RaftSpawner.status 里，
     # cww raft status 打的是沉筏相位，永远没有 Y=，用它只会假失败。
     copies = raft_copies(p)
-    print("      盘上 nbw_raft_%d 共 %d 只；漂行距离%s"
-          % (TEAM, copies, "可信" if copies == 1 else "只作参考（同名残骸污染，见 #38）"))
+    print("      盘上 %s 共 %d 只；漂行距离%s"
+          % (raft_name(p, TEAM), copies, "可信" if copies == 1 else "只作参考（同名残骸污染，见 #38）"))
     y = -999.0
     for _ in range(20):
         m = re.search(r"队0 Y=([-\d.]+)", p("cww raft all"))

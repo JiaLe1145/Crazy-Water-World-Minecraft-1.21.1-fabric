@@ -23,7 +23,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sea_probe import (P, keep_alive, sweep_stale_bots, write_long_format,  # noqa: E402
-                       SEA, LONG_FORMAT)
+                       SEA, LONG_FORMAT, raft_name, sweep_raft_residue)
 
 ok, bad, inc = [], [], []
 
@@ -46,7 +46,7 @@ def inconclusive(msg):
 
 def raft_xyz(p, team):
     m = re.search(r"Position:\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)",
-                  p("sable info @e[name=nbw_raft_%d]" % team))
+                  p("sable info @e[name=%s]" % raft_name(p, team)))
     return tuple(float(g) for g in m.groups()) if m else None
 
 
@@ -126,8 +126,7 @@ def main():
             break
         p.sleep(1)
     expect(lobby, "遗留对局收回到 LOBBY（否则后面读数可能全是假的）：%s" % p("cww phase")[:50])
-    for name in ("nbw_raft_0", "nbw_raft_1"):
-        p("sable remove @e[name=%s]" % name)
+    print("      清残留筏：" + repr(sweep_raft_residue(p)))
     for n, _ in bots:
         p("player %s kill" % n)
 
@@ -160,8 +159,8 @@ def main():
     p.sleep(2)
     p.log()                                    # 丢弃开局前的日志，后面只收本局
     info = p("sable info @e")
-    expect("nbw_raft_0" in info and "nbw_raft_1" in info,
-           "两队筏按 nbw_raft_<队> 命名可查：%s" % info[:120])
+    expect(raft_name(p, 0) in info and raft_name(p, 1) in info,
+           "两队筏按 nbw_raft_<队>_<局> 唯一名可查：%s" % info[:120])
     allst = p("cww raft all")
     expect(allst.count("质量=9.0") == 2, "两艘初始筏质量都是 9.0（16 甲板×0.5 + 筏心 1.0）：%s" % allst[:140])
     tickets = p("sable forceload query")

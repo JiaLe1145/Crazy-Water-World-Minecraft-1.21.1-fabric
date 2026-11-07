@@ -66,6 +66,23 @@ class P:
         return False
 
 
+def raft_name(p, team):
+    """当前对局的筏体唯一名 nbw_raft_<队>_<局>（#38 唯一名）。"""
+    m = re.search(r"match=(\d+)", p("cww state"))
+    match = int(m.group(1)) if m else 0
+    return "nbw_raft_%d_%d" % (team, match)
+
+
+def sweep_raft_residue(p):
+    """移除所有 nbw_raft_ 前缀的残留筏（崩溃残留名是 nbw_raft_<队>_<旧局>，按前缀扫）。"""
+    info = p("sable info @e", quiet=True)
+    removed = []
+    for name in sorted(set(re.findall(r"nbw_raft_\d+_\d+", info))):
+        p("sable remove @e[name=%s]" % name, quiet=True)
+        removed.append(name)
+    return removed
+
+
 def main():
     p = P()
     ok, bad = [], []
@@ -88,8 +105,7 @@ def main():
         print("    ⚠ 遗留对局 60 秒还没收干净：%s —— 后面的读数可能全是假的" % ph[:60])
     for bot, _ in BOTS:
         p("player %s kill" % bot)
-    for name in ("nbw_raft_0", "nbw_raft_1"):
-        p("sable remove @e[name=%s]" % name)
+    print("      清残留筏：" + repr(sweep_raft_residue(p)))
     p.log()   # 丢弃历史日志，后面的断言只看这一段
 
     print("== 1. 起一局，READY 应当自动发筏")
@@ -116,8 +132,8 @@ def main():
 
     print("== 3. 命名与加载票")
     info = p("sable info @e")
-    expect("nbw_raft_0" in info and "nbw_raft_1" in info,
-           "两艘筏按 nbw_raft_<队> 命名可查：%s" % info[:150])
+    expect(raft_name(p, 0) in info and raft_name(p, 1) in info,
+           "两艘筏按 nbw_raft_<队>_<局> 唯一名可查：%s" % info[:150])
     tickets = p("sable forceload query")
     expect("2 force-loading ticket" in tickets or "for 2 sub-level" in tickets,
            "上了 2 张加载票：%s" % tickets[:170])

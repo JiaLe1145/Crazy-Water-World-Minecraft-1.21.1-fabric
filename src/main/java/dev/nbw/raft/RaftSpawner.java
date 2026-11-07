@@ -38,6 +38,18 @@ public final class RaftSpawner {
 	/** 命名约定，与 {@link RaftSinking} 的兜底查找一致。 */
 	public static final String NAME_PREFIX = "nbw_raft_";
 
+	/**
+	 * 本局某队的筏体唯一名：{@code nbw_raft_<队>_<局>}。
+	 *
+	 * <p>2026-11-07 起生产环境给筏体唯一名（#38 残留）：崩溃/异常收尾时上一局的
+	 * {@code nbw_raft_<队>} 会留在盘上，下一局再生成同名筏就产生重名歧义（"取第一只"会让
+	 * 桨位身份、位置读数、加载票回收分别指向不同个体）。名字带 {@code matchIndex} 后每一局
+	 * 的名字都不同，重名在源头上被掐掉；残留复检仍按 {@link #NAME_PREFIX} 前缀匹配兜底。
+	 */
+	public static String raftName(int teamIndex) {
+		return NAME_PREFIX + teamIndex + "_" + RoundManager.machine().matchIndex();
+	}
+
 	/** 队号 → 本局为它生成的筏。 */
 	private static final Map<Integer, UUID> spawned = new LinkedHashMap<>();
 
@@ -86,7 +98,7 @@ public final class RaftSpawner {
 			return "队 " + teamIndex + " 本局已经有筏（id=" + tracked
 					+ "），不重复生成——那只会留下一只没人认领的同名筏";
 		}
-		String name = NAME_PREFIX + teamIndex;
+		String name = raftName(teamIndex);
 		UUID orphan = SableRafts.findByName(world, name);
 		if (orphan == null) {
 			return null;
@@ -139,7 +151,7 @@ public final class RaftSpawner {
 			}
 			// 甲板铺在水面之上一格：贴水铺会让筏子一开局就被浮力顶一下
 			double cx = anchor.x() + 0.5, cy = anchor.y() + 1.0, cz = anchor.z() + 0.5;
-			String name = NAME_PREFIX + index;
+			String name = raftName(index);
 			String occupied = clearNameSlot(world, index);
 			if (occupied != null) {
 				failures.add("队 " + index + " " + occupied);
@@ -241,7 +253,7 @@ public final class RaftSpawner {
 		String[] err = new String[1];
 		UUID id = SableRafts.createRaft(world, anchor.x() + 0.5, anchor.y() + 1.0, anchor.z() + 0.5,
 				DEFAULT_SIDE, resolveBlock(DEFAULT_BLOCK).getDefaultState(),
-				NAME_PREFIX + teamIndex, err);
+				raftName(teamIndex), err);
 		if (id == null) {
 			return "生成失败：" + err[0];
 		}
@@ -260,9 +272,10 @@ public final class RaftSpawner {
 	 * 会变成"筏子在水里漂但我们的沉筏/挂帆/清理全找不到它"——
 	 * 而且 {@code /cww sail rig} 只会回一句"队 0 没有筏"，看不出筏子其实就在眼前。
 	 *
-	 * <p>靠命名约定 {@code nbw_raft_<队>} 反查，不额外加一层持久化：
-	 * 名字已经写进 sub-level 的存储里，比再存一份 UUID 更不容易与 Sable 自己的状态漂移。
-	 * 顺手把加载票也补回来——票虽然会跨重启存活，但补一次是幂等的。
+	 * <p>靠命名约定 {@code nbw_raft_<队>_<局>} 反查，不额外加一层持久化：
+	 * 名字已经写进 sub-level 的存储里，比再存一份 UUID 更不容易与 Sable 自己的状态漂移；
+	 * 恢复时 {@code matchIndex} 随快照还原，所以反查名与生成时一致。顺手把加载票也补回来——
+	 * 票虽然会跨重启存活，但补一次是幂等的。
 	 *
 	 * @return 一行结论
 	 */
@@ -272,7 +285,7 @@ public final class RaftSpawner {
 		int found = 0;
 		for (var team : RoundManager.machine().teams()) {
 			int index = team.index();
-			UUID id = SableRafts.findByName(world, NAME_PREFIX + index);
+			UUID id = SableRafts.findByName(world, raftName(index));
 			if (id == null) {
 				// 只报第一次缺失：这一步现在会被 tick 循环重试（sub-level 载入比恢复晚），
 				// 不去重的话每 20 tick 就重复一行同样的缺失清单，日志再也读不出东西。

@@ -4,6 +4,7 @@ import dev.nbw.NBW;
 import dev.nbw.arena.ArenaChunkLoader;
 import dev.nbw.arena.BuiltinArenaJson;
 import dev.nbw.arena.SeaTerrain;
+import dev.nbw.combat.WeaponService;
 import dev.nbw.construct.BuildService;
 import dev.nbw.rescue.RescueService;
 import dev.nbw.cfg.ConfigModels;
@@ -653,6 +654,7 @@ public final class RoundManager {
 		RaftMotionService.reset();   // 位移采样的位姿基线必须重取，否则跨局第一 tick 会算出一个假速度
 		BuildService.reset();   // 建造提示的节流表按玩家 UUID 涨；判定计数是跨局运维量，故意不清
 		RescueService.reset();   // 扒边状态与续包窗口都是局内的：残留=下一局开局就有人在半空爬
+		WeaponService.reset();   // 攻速闸门的"上次有效攻击"是局内的：残留=下一局开局被超频卡住
 	}
 
 	// ---------------------------------------------------------------- 配置与命令入口

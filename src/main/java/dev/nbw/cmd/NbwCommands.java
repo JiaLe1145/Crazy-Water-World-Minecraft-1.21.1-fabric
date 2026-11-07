@@ -9,11 +9,15 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import dev.nbw.NBW;
 import dev.nbw.arena.BuiltinArenaJson;
 import dev.nbw.arena.SeaTerrain;
+import dev.nbw.combat.WeaponService;
 import dev.nbw.construct.BuildService;
+import dev.nbw.content.NbwWeapons;
+import dev.nbw.content.WeaponItem;
 import dev.nbw.cfg.ConfigModels;
 import dev.nbw.cfg.ConfigService;
 import dev.nbw.domain.ZoneModel;
 import dev.nbw.domain.arena.SeaAudit;
+import dev.nbw.domain.combat.CombatRule;
 import dev.nbw.net.NbwNetworking;
 import dev.nbw.raft.OarService;
 import dev.nbw.raft.RaftCoreService;
@@ -24,6 +28,7 @@ import dev.nbw.raft.WindService;
 import dev.nbw.rescue.RescueService;
 import dev.nbw.round.RoundManager;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.minecraft.item.ItemStack;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -123,9 +128,6 @@ public final class NbwCommands {
 						.executes(NbwCommands::raftBindNearest)
 						.then(CommandManager.argument("name", StringArgumentType.word())
 								.executes(NbwCommands::raftBindByName))));
-		raft.then(CommandManager.literal("repair")
-				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
-						.executes(NbwCommands::raftRepair)));
 		raft.then(CommandManager.literal("sink")
 				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
 						.executes(NbwCommands::raftSink)));
@@ -261,6 +263,17 @@ public final class NbwCommands {
 		bcAs.then(bcOn);
 		build.then(CommandManager.literal("check").then(bcAs));
 		root.then(build);
+
+		// ---- 武器（09 §2.1，已批准 A17 近战切片）：list / reload / give / status（审计读数）
+		var weapon = admin(CommandManager.literal("weapon"));
+		weapon.then(CommandManager.literal("list").executes(NbwCommands::weaponList));
+		weapon.then(CommandManager.literal("reload").executes(NbwCommands::weaponReload));
+		weapon.then(CommandManager.literal("status").executes(NbwCommands::weaponStatus));
+		weapon.then(CommandManager.literal("give")
+				.then(CommandManager.argument("player", StringArgumentType.word())
+						.then(CommandManager.argument("id", StringArgumentType.word())
+								.executes(NbwCommands::weaponGive))));
+		root.then(weapon);
 
 		// ---- 落盘与重启恢复（Gate G1）
 		root.then(admin(CommandManager.literal("save").executes(NbwCommands::saveNow)));
@@ -575,6 +588,68 @@ public final class NbwCommands {
 		return 1;
 	}
 
+	private static int weaponList(CommandContext<ServerCommandSource> ctx) {
+		var loaded = WeaponService.current();
+		if (!loaded.ok()) {
+			ctx.getSource().sendError(Text.literal("[cww] 武器表不可用：" + String.join(" | ", loaded.errors())));
+			return 0;
+		}
+		List<String> lines = new ArrayList<>();
+		for (CombatRule.WeaponSpec s : loaded.specs()) {
+			lines.add(String.format(Locale.ROOT, "%s 伤害=%.1fHP 冷却=%dtick 击退=%.1f 对筏心=×%.1f",
+					s.id(), s.damage(), s.cooldownTicks(), s.knockback(), s.coreMultiplier()));
+		}
+		ctx.getSource().sendFeedback(() -> Text.literal("[cww] 武器 " + loaded.specs().size() + " 件："
+				+ String.join("｜", lines)), false);
+		return 1;
+	}
+
+	private static int weaponReload(CommandContext<ServerCommandSource> ctx) {
+		return tell(ctx, WeaponService.reloadWeapons());
+	}
+
+	private static int weaponStatus(CommandContext<ServerCommandSource> ctx) {
+		List<String> recent = WeaponService.recent();
+		StringBuilder sb = new StringBuilder(WeaponService.status());
+		if (!recent.isEmpty()) {
+			sb.append("\n最近判定：\n");
+			for (String line : recent) {
+				sb.append("  ").append(line).append('\n');
+			}
+		}
+		ctx.getSource().sendFeedback(() -> Text.literal(sb.toString().trim()), false);
+		return 1;
+	}
+
+	private static int weaponGive(CommandContext<ServerCommandSource> ctx) {
+		String name = StringArgumentType.getString(ctx, "player");
+		ServerPlayerEntity target = ctx.getSource().getServer().getPlayerManager().getPlayer(name);
+		if (target == null) {
+			return tell(ctx, "找不到在线玩家 " + name + "（假玩家也要先 /player <名> spawn）");
+		}
+		String id = StringArgumentType.getString(ctx, "id");
+		WeaponItem item = NbwWeapons.item(id);
+		if (item == null) {
+			return tell(ctx, "不认识武器 id：" + id + "（近战：paddle/cutlass/pike/warhammer/twin_blade）");
+		}
+		CombatRule.WeaponSpec spec = WeaponService.current().spec(id);
+		if (spec == null) {
+			return tell(ctx, "武器 " + id + " 不在当前武器表里（/cww weapon reload 后重试）");
+		}
+		String violation = CombatRule.holdViolation(WeaponService.meleeHeld(target), spec.kind());
+		if (violation != null) {
+			// 拒绝第二件近战：这是 09 §5.1 的持有上限，不是物品本身被禁
+			NBW.LOGGER.warn("[cmd] weapon give 拒绝 {} 给 {}：{}", id, name, violation);
+			return tell(ctx, "拒绝：" + violation);
+		}
+		if (!target.getInventory().insertStack(new ItemStack(item))) {
+			return tell(ctx, "背包已满，给不进去");
+		}
+		NBW.LOGGER.info("[cmd] weapon give {} 给 {}（{}）", id, name, spec);
+		return tell(ctx, "已给 " + name + " 武器 " + id + "（伤害 " + spec.damage()
+				+ "HP，冷却 " + spec.cooldownTicks() + " tick）");
+	}
+
 	private static int raftStatus(CommandContext<ServerCommandSource> ctx) {
 		ctx.getSource().sendFeedback(() -> Text.literal(RaftSinking.status()), false);
 		return 1;
@@ -591,13 +666,6 @@ public final class NbwCommands {
 		int team = IntegerArgumentType.getInteger(ctx, "team");
 		return tell(ctx, RaftSinking.bindByName(ctx.getSource().getWorld(), team,
 				StringArgumentType.getString(ctx, "name")));
-	}
-
-	private static int raftRepair(CommandContext<ServerCommandSource> ctx) {
-		int team = IntegerArgumentType.getInteger(ctx, "team");
-		return tell(ctx, RaftSinking.repair(team)
-				? "队 " + team + " 筏心已重修，沉筏倒计时回到 30s（每局限 1 次）"
-				: "队 " + team + " 重修未生效：要么不在倒计时中，要么本局额度已用完");
 	}
 
 	private static int raftSink(CommandContext<ServerCommandSource> ctx) {

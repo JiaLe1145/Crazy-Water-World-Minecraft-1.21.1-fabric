@@ -2,5 +2,10 @@
   "block.nbw.raft_core": "筏心",
   "death.attack.nbw_raft_core": "%1$s 的筏心被摧毁了",
   "block.nbw.sail": "帆",
-  "block.nbw.oar": "桨台"
+  "block.nbw.oar": "桨台",
+  "item.nbw.paddle": "木桨",
+  "item.nbw.cutlass": "砍刀",
+  "item.nbw.pike": "长矛",
+  "item.nbw.warhammer": "铁头锤",
+  "item.nbw.twin_blade": "弯刀"
 }

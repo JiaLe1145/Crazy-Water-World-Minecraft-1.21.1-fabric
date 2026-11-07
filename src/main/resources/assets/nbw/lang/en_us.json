@@ -2,5 +2,10 @@
   "block.nbw.raft_core": "Raft Core",
   "death.attack.nbw_raft_core": "%1$s's raft core was destroyed",
   "block.nbw.sail": "Sail",
-  "block.nbw.oar": "Oar Station"
+  "block.nbw.oar": "Oar Station",
+  "item.nbw.paddle": "Paddle",
+  "item.nbw.cutlass": "Cutlass",
+  "item.nbw.pike": "Pike",
+  "item.nbw.warhammer": "Warhammer",
+  "item.nbw.twin_blade": "Twin Blade"
 }

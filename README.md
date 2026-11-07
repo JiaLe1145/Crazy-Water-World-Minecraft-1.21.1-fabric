@@ -3,6 +3,12 @@
 Minecraft **1.21.1 / Fabric** 海上木筏生存竞技小游戏。
 本仓库是**推倒重来**的新起点：内容设计沿用旧方案，技术路线改为**优先依赖成熟模组**而非自研。
 
+> **许可证**：本项目自研代码采用 **MIT**（见 [`LICENSE`](LICENSE) 与
+> [`docs/dev/00-决策与版本.md`](docs/dev/00-决策与版本.md) ADR-002）。
+> 依赖 Sable 是 PolyForm Shield 1.0.0（禁竞争性分发、不禁商用），分发须随附 Required Notice，
+> 其余第三方依赖各自保持许可证（Fabric API Apache-2.0、ImGuiMC/Veil LGPL、Forge Config API Port MPL）。
+> 完整清单见 `docs/dev/04-依赖与运维.md`。
+
 ## 核心决策（已定）
 
 | # | 决策 |
