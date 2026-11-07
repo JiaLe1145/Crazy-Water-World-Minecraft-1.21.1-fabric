@@ -324,7 +324,8 @@ public final class SableRafts {
 	 * （{@code domain/net/HoldPolicy.localDistance}）。
 	 *
 	 * <p>减的那个原点只能是 {@code plot.getCenterBlock()}：accessor 内部就是
-	 * {@code blockPos.offset(center)}（{@code EmbeddedPlotLevelAccessor.java:91}），
+	 * {@code blockPos.offset(this.center)}（{@code EmbeddedPlotLevelAccessor.java:100} 取 BE、
+	 * {@code :105} 取方块，类注释 §47 也写明 "(0,0,0) at the plot center"），
 	 * 换任何一个原点都会得到"读出来全是空气"这种静默失效。
 	 *
 	 * @return 方块<b>角</b>的局部坐标 {@code {lx, ly, lz}}；筏不在场时返回 NaN 三元组
