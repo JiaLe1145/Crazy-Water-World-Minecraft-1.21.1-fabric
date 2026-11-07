@@ -61,7 +61,7 @@ sleep 90 && grep -n "Done (\|rescue] 落水\|FAILURE" run/server-console.log
 PYTHONIOENCODING=utf-8 RCON_PORT=25576 RCON_PASSWORD=nbwm0 python tools/rescue_probe.py
 ```
 
-### 四个已经踩过、必须避开的坑
+### 六个已经踩过、必须避开的坑
 
 1. **`seat_probe`（以及任何读日志的探针）的证据通道是 `run/server-console.log`**，按字节游标只读新增段。
    起服时把 stdout 重定向到别的文件 → WARN 明明在日志里，探针读不到 → **报假 FAIL**。
@@ -73,8 +73,19 @@ PYTHONIOENCODING=utf-8 RCON_PORT=25576 RCON_PASSWORD=nbwm0 python tools/rescue_p
 4. **`run/server-console.log` 是 Gradle 缓冲的 stdout**，成批到达。
    **不要用它的时间戳量耗时**；`Can't keep up! Running Nms` 里的 N 是**累计欠账**不是单次阻塞时长
    （误读一次，立过一条不存在的"6.1 秒冻结"缺陷）。判卡顿看 `ArenaChunkLoader.maxTickGapMs`。
+5. **RCON 传输层有三条坑，`sea_probe.P` 已经处理掉了——新探针请复用它，不要自己拿 `rcon.py` 裸连**：
+   - 鉴权会**多回一个空包**，只读一个包就开工 → 从第一条命令起**永久错位一包**，读数会串到上一步；
+     `P.attach()` 用 `select` 确认数据已到再读完整一包排干净（带短 timeout 硬读会把流读歪，实测直接卡死）。
+   - **一条命令 ≠ 一个包**：被 `schedule` 的 function 会在后续 tick 补发多个包；
+     等待期间必须持续 `pump()` 排空，否则服务端写缓冲被撑满**直接掐线**（实测探针死在开局中途）。
+     也别在同一条连接上连着发"命令 + 哨兵"，实测同样会被掐。
+   - 世界目录这件事：`worldRoot()`（`RoundManager`）与**所有探针都把世界写死成 `run/world`**，
+     临时改 `level-name` 跑探针，夹具赛制会被写进旧目录，**整段读数变成假的**。
+6. **`PYTHONIOENCODING=utf-8` 是必需的**：Windows 控制台默认 GBK，不加它探针输出全是乱码，
+   而**很多断言就是靠匹配中文回包做的**（`已登记伸手`、`报名期放掉`），乱码会让断言静默失效。
 
-另：探针的 stdout 在管道里全缓冲，长任务开头要 `sys.stdout.reconfigure(line_buffering=True)`。
+> **本文件里所有"N/N PASS"的结论都不带证据文件**：`run/` 整个被 `.gitignore` 忽略，探针输出不进版本库。
+> 所以要引用某个读数，**先复跑再写进文档**；只看到本文的数字，请当作"当时成立"。
 
 ---
 
@@ -211,6 +222,43 @@ function 分批建海 + `cww arena terrain` 审计 + READY 前逐区块预热）
    一次是没读 `force` 的返回值就下结论，一次是断定父世界读不出 BE 而被实测否掉）。
 4. **环境残留会造出假成功**：同名的历史 sub-level、上一支探针的会话与队壳，都会让断言"看起来通过"。
    先量环境（数同名对象、在线人数、`cww state`）再下结论，并把环境量打印进输出。
+
+### 6.1 新探针的骨架（照 `rescue_probe.py` 抄，别自创一套）
+
+```python
+import os, re, sys, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from sea_probe import P, keep_alive, sweep_stale_bots, write_long_format, SEA   # 共享夹具，别裸连 rcon.py
+
+ok, bad, inc = [], [], []
+
+def expect(cond, msg):                       # 每条断言都要带"为什么这条重要"
+    (ok if cond else bad).append(msg)
+    print("  %s - %s" % ("PASS" if cond else "FAIL", msg))
+
+def inconclusive(msg):                        # 夹具限制导致的测不出：不算失败，但必须说清原因
+    inc.append(msg)
+    print("  INCONCLUSIVE - %s" % msg)
+
+def main():
+    sys.stdout.reconfigure(line_buffering=True)     # 全缓冲的话被杀掉一行进度都留不下
+    p = P()
+    # 开局三件套：清残留假玩家 → abort 回真正干净的 LOBBY → 写夹具赛制并 reload
+    print("  清残留：" + repr(sweep_stale_bots(p)))
+    ...
+    keep_alive(p, bots)                             # 不给 water_breathing 就会中途全灭、提前判胜
+```
+
+结尾固定是**三态汇总**：先报 `satisfied` 数，再把每条 FAIL、每条 INCONCLUSIVE 逐行打出来，
+`RESULT: PASS|HAS-FAILURES`，**返回值只在 `bad` 为空时才是 0**（`return 0 if not bad else 1`）。
+`INCONCLUSIVE` 不拉红整轮，但**必须写清楚"为什么测不了"和"这条由哪个单测担保"**——
+`rescue_probe` 里"假玩家站不住筏面"那条就是这么处理的。
+
+**证据规则**：每条断言旁边要把原始读数打出来（Y、间隙、距离、计数、回包前 120 字），
+只打 OK/FAIL 就看不见"这个 OK 是靠什么撑起来的"，下一个人只能重跑一遍才知道。
+共享夹具常量在 `sea_probe.py`：`LOG`（服务端控制台）、`SEA=test_sea`、`SAIL_ARENA=test_sail7`、
+`DRY_ARENA=flat_test`（旱地负对照）、`BIG=default_sea`、`WATER_LEVEL=62`。
+**0.29 那个旱地终端速度基线已经作废**，不要再拿来当水阻判据。
 
 ---
 
