@@ -260,6 +260,21 @@ def main():
 `DRY_ARENA=flat_test`（旱地负对照）、`BIG=default_sea`、`WATER_LEVEL=62`。
 **0.29 那个旱地终端速度基线已经作废**，不要再拿来当水阻判据。
 
+### 6.2 单测的房内写法（`src/test/java/dev/nbw/domain/**`）
+
+- **一个纯规则配一个 `*Test`**，目录结构与 `domain/` 镜像；`./gradlew test` 跑完 223 个只用几十秒、
+  **不需要服务端**。凡是"要起服才能验"的行为一律归 `tools/` 的探针，不要写成半吊子单测。
+- JUnit5，方法名是**英文句子**（`damageOrReleaseForgetsAllProgress`），**几乎每条断言都带一句中文理由**，
+  说清"这条为什么重要"——将来它红了，看理由就知道要不要慌。
+- **断言比语义，不比整个 record**：`record` 里带着 `tick`，直接比会写成"期望 OFF，实际 State[stage=OFF, tick=0]"
+  这种恒不相等的假失败（第一次就踩过）。
+- **不用 `assertThrows`**：这一层的失败是"返回原因字符串"，不是抛异常（和命令层同一个约定）。
+- **每道门单独一条用例**，并且配一条"其他输入都不变时结论仍然成立"的反证（`everyInputAloneCanBreakTheCling`
+  那种写法），否则门改成恒真也照样绿。当前最好的例子是 `ReachRuleTest.liftedVictimLeavesTheWaterAndDriftsOutOfReachButStaysPullable`
+  ——它钉的就是"起拉与继续是两扇不同的门"这件事。
+- **时序用推进次数断言，不抄常量**：`assertEquals(CLIMB_TICKS, ticks)` 之外还要
+  `assertEquals(CLIMB_TICKS + 1, ticksToPull(State.off()))`，这样改常量的人能立刻看见自己动了什么。
+
 ---
 
 ## 7. 剩余内容：怎么做、验收标准、风险
