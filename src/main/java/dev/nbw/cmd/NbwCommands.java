@@ -30,6 +30,7 @@ import dev.nbw.raft.WindService;
 import dev.nbw.rescue.RescueService;
 import dev.nbw.rescue.RopeService;
 import dev.nbw.round.RoundManager;
+import dev.nbw.round.ZoneService;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.command.CommandManager;
@@ -89,6 +90,8 @@ public final class NbwCommands {
 						.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
 								.executes(NbwCommands::force)))));
 		root.then(admin(CommandManager.literal("state").executes(NbwCommands::state)));
+		// 黑海圈层（M3-1）：只读读数，给真人核对"现在半径多少、圈外掉多少血"
+		root.then(admin(CommandManager.literal("zone").executes(NbwCommands::zoneStatus)));
 		root.then(admin(CommandManager.literal("audit")
 				.executes(ctx -> audit(ctx, 20))
 				.then(CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
@@ -736,6 +739,12 @@ public final class NbwCommands {
 		for (String line : dump.split("\n")) {
 			ctx.getSource().sendFeedback(() -> Text.literal("[cww] " + line), false);
 		}
+		return 1;
+	}
+
+	/** {@code /cww zone}：黑海圈层的只读读数（半径 / 每秒伤害 / 圈心）。 */
+	private static int zoneStatus(CommandContext<ServerCommandSource> ctx) {
+		ctx.getSource().sendFeedback(() -> Text.literal(ZoneService.status()), false);
 		return 1;
 	}
 

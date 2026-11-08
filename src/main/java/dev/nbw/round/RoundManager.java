@@ -12,6 +12,7 @@ import dev.nbw.rescue.RescueService;
 import dev.nbw.cfg.ConfigModels;
 import dev.nbw.cfg.ConfigService;
 import dev.nbw.domain.SpawnGeometry;
+import dev.nbw.domain.ZoneModel;
 import dev.nbw.domain.arena.SeaAudit;
 import dev.nbw.domain.round.Phase;
 import dev.nbw.domain.round.PlayerSession;
@@ -65,6 +66,7 @@ public final class RoundManager {
 	private static MinecraftServer server;
 	private static ConfigModels.Arena arena;
 	private static ConfigModels.Format format;
+	private static ZoneModel zone;   // 圈层：由 arena 环带 + format 阶段合成，PLAY 里由 ZoneService 应用
 	private static ConfigModels.Lobby lobby;
 	private static String arenaId = "default_sea";
 	private static String formatId = "standard_12min";
@@ -174,6 +176,7 @@ public final class RoundManager {
 		sweepLobbySeats();   // 报名期的幽灵席位清扫，同理不能塞进 PLAY-only 块里
 		if (machine.phase() == Phase.PLAY) {
 			sweepDeaths();
+			ZoneService.onEndTick(srv);   // 黑海圈层：收缩预告 + 圈外每秒伤害
 			RaftSinking.onEndTick(srv);
 			RaftCoreService.onEndTick(srv);
 			WindService.apply(srv);   // 帆：登记风力目标（被动等风，方向跟随前进）
@@ -312,6 +315,7 @@ public final class RoundManager {
 			}
 			case PLAY -> {
 				setParticipantsGameMode(GameMode.SURVIVAL);
+				ZoneService.begin(server);   // 黑海圈层：抓半径/伤害表与圈心
 				announce("§c对局开始！最后存活队获胜");
 			}
 			case SETTLE -> {
@@ -662,6 +666,7 @@ public final class RoundManager {
 		RescueService.reset();   // 扒边状态与续包窗口都是局内的：残留=下一局开局就有人在半空爬
 		WeaponService.reset();   // 攻速闸门的"上次有效攻击"是局内的：残留=下一局开局被超频卡住
 		MapResetService.cancel();   // 未完成的模板复制不许跨局写到新图上
+		ZoneService.reset();   // 圈层模型与预告状态都是局内的：残留=下一局开局就按上一局的圈算
 	}
 
 	// ---------------------------------------------------------------- 配置与命令入口
@@ -756,6 +761,16 @@ public final class RoundManager {
 		return arenaId;
 	}
 
+	/** 只读：当前/上一局的圈层模型（arena 环带 + format 阶段合成）。 */
+	public static @Nullable ZoneModel zoneOrNull() {
+		return zone;
+	}
+
+	/** 只读：本局参赛者 UUID（给 ZoneService 结算圈外伤害用）。 */
+	public static java.util.Set<UUID> participantIds() {
+		return java.util.Set.copyOf(lastParticipants);
+	}
+
 	/** 队号对应的出生锚点；下标越界返回 null 而不是抛，调用方自己决定怎么报。 */
 	public static @Nullable Anchor anchorAt(int teamIndex) {
 		return teamIndex >= 0 && teamIndex < anchors.size() ? anchors.get(teamIndex) : null;
@@ -831,6 +846,7 @@ public final class RoundManager {
 		arena = arenaLoaded.arena();
 		format = f;
 		lobby = lobbyLoaded.lobby();
+		zone = ConfigService.toZone(arena, f);
 		arenaId = aid;
 		formatId = fid;
 		machine.setConfigIds(aid, fid);   // 本局身份要交给状态机，它才会随快照一起落盘
