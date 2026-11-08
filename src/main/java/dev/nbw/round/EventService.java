@@ -1,0 +1,117 @@
+package dev.nbw.round;
+
+import dev.nbw.NBW;
+import dev.nbw.cfg.ConfigModels;
+import dev.nbw.loot.LootService;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.text.Text;
+
+import java.util.List;
+import java.util.Locale;
+import java.util.Random;
+import java.util.UUID;
+
+/**
+ * 事件池（M5-1）：按 {@code format.events} 的池与间隔，在 PLAY 里定时抽一个事件触发。
+ *
+ * <p>本轮只落"调度 + 公告 + 少数有实际效果的事件"：<b>supply_rain</b> 会实打实补箱子；
+ * storm / kraken / black_sea_surge / bounty / survivor_drift 先只广播（它们依赖风暴禁用航行、
+ * 幸存者、悬赏等系统，随 M5-2/M5-3 分批接）。
+ */
+public final class EventService {
+
+	private static List<String> pool = List.of();
+	private static int minSec = 150;
+	private static int maxSec = 240;
+	private static long nextFireTick;
+	private static Random rnd = new Random();
+	private static String lastEvent = "";
+	private static int fired;
+
+	private EventService() {
+	}
+
+	/** PLAY 开始：读池与间隔，排第一发。 */
+	public static void begin(MinecraftServer srv) {
+		ConfigModels.Format f = RoundManager.formatOrNull();
+		pool = f != null && f.events != null && f.events.pool != null ? f.events.pool : List.of();
+		minSec = 150;
+		maxSec = 240;
+		if (f != null && f.events != null && f.events.intervalSec != null && f.events.intervalSec.size() >= 2) {
+			minSec = Math.max(1, f.events.intervalSec.get(0));
+			maxSec = Math.max(minSec, f.events.intervalSec.get(1));
+		}
+		rnd = new Random(srv.getOverworld().getRandom().nextLong());
+		fired = 0;
+		lastEvent = "";
+		scheduleNext(srv);
+		NBW.LOGGER.info("[event] 事件池 {} 个，间隔 {}-{}s，第一发 tick={}",
+				pool.size(), minSec, maxSec, nextFireTick);
+	}
+
+	/** PLAY 每 tick：到点抽一发。 */
+	public static void onEndTick(MinecraftServer srv) {
+		if (pool.isEmpty()) {
+			return;
+		}
+		if (srv.getTicks() < nextFireTick) {
+			return;
+		}
+		fire(srv);
+		scheduleNext(srv);
+		NBW.LOGGER.info("[event] 下一发 tick={}", nextFireTick);
+	}
+
+	private static void scheduleNext(MinecraftServer srv) {
+		int sec = minSec >= maxSec ? minSec : minSec + rnd.nextInt(maxSec - minSec + 1);
+		nextFireTick = srv.getTicks() + (long) sec * 20;
+	}
+
+	private static void fire(MinecraftServer srv) {
+		String event = pool.get(rnd.nextInt(pool.size()));
+		lastEvent = event;
+		fired++;
+		switch (event) {
+			case "supply_rain" -> {
+				String out = LootService.spawn(srv, 4, 0, 60);
+				announce(srv, "§6[事件] 物资雨！" + out);
+			}
+			case "storm" -> announce(srv, "§6[事件] 风暴来袭：航行受阻（航行效果待 M5-2）");
+			case "kraken" -> announce(srv, "§6[事件] 海怪出没（待 M5-2）");
+			case "black_sea_surge" -> announce(srv, "§6[事件] 黑海涌动：圈外压力加剧（待 M5-2）");
+			case "survivor_drift" -> announce(srv, "§6[事件] 幸存者漂流经过（待 M5-2）");
+			case "bounty" -> announce(srv, "§6[事件] 悬赏目标已标记（待 M5-3）");
+			default -> announce(srv, "§6[事件] " + event);
+		}
+		NBW.LOGGER.info("[event] 触发 {}（累计 {}）", event, fired);
+	}
+
+	private static void announce(MinecraftServer srv, String msg) {
+		NBW.LOGGER.info("[event] {}", msg);
+		for (UUID id : RoundManager.participantIds()) {
+			ServerPlayerEntity p = srv.getPlayerManager().getPlayer(id);
+			if (p != null) {
+				p.sendMessage(Text.literal(msg), false);
+			}
+		}
+	}
+
+	/** 一行读数：给 {@code /cww event}。 */
+	public static String status(MinecraftServer srv) {
+		if (pool.isEmpty()) {
+			return "[event] 本局没有事件池";
+		}
+		long remain = Math.max(0, (nextFireTick - srv.getTicks()) / 20);
+		return String.format(Locale.ROOT, "[event] 池=%d 已触发=%d 上次=%s 下一发=%ds 间隔=%d-%ds",
+				pool.size(), fired, lastEvent.isEmpty() ? "无" : lastEvent, remain, minSec, maxSec);
+	}
+
+	/** 局后清理。 */
+	public static void reset() {
+		pool = List.of();
+		nextFireTick = 0;
+		lastEvent = "";
+		fired = 0;
+	}
+}

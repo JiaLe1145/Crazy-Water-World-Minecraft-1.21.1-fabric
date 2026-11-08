@@ -181,6 +181,7 @@ public final class RoundManager {
 			ZoneService.onEndTick(srv);   // 黑海圈层：收缩预告 + 圈外每秒伤害
 			LootService.onEndTick(srv);   // 海面物资：按 respawnIntervalSec 定时补箱
 			SurvivalService.onEndTick(srv);   // 营养/水分：每秒衰减 + debuff + HUD
+			EventService.onEndTick(srv);   // 事件池：到点抽一发
 			RaftSinking.onEndTick(srv);
 			RaftCoreService.onEndTick(srv);
 			WindService.apply(srv);   // 帆：登记风力目标（被动等风，方向跟随前进）
@@ -323,6 +324,7 @@ public final class RoundManager {
 				ZoneService.begin(server);   // 黑海圈层：抓半径/伤害表与圈心
 				LootService.begin(server);   // 海面物资：按 loot.prefill 撒补给箱 + 定补箱间隔
 				SurvivalService.begin(server);   // 生存：参赛者满营养/满水分
+				EventService.begin(server);   // 事件池（M5-1）：排第一发
 				announce("§c对局开始！最后存活队获胜");
 			}
 			case SETTLE -> {
@@ -692,6 +694,7 @@ public final class RoundManager {
 				r.resetCooldown();
 			}
 		}
+		EventService.reset();   // 事件调度是局内的
 	}
 
 	// ---------------------------------------------------------------- 配置与命令入口

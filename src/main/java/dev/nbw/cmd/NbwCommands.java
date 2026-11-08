@@ -97,6 +97,8 @@ public final class NbwCommands {
 		root.then(admin(CommandManager.literal("zone").executes(NbwCommands::zoneStatus)));
 		// 埋点与配平回路（M3-3）：局时长/首战/生产参与率
 		root.then(admin(CommandManager.literal("metrics").executes(NbwCommands::metricsStatus)));
+		// 事件池（M5-1）：读数
+		root.then(admin(CommandManager.literal("event").executes(NbwCommands::eventStatus)));
 		// 生存（M4-1）：营养/水分读数 + dev 强制设值
 		var survival = admin(CommandManager.literal("survival"));
 		survival.then(CommandManager.literal("status")
@@ -775,6 +777,13 @@ public final class NbwCommands {
 	private static int metricsStatus(CommandContext<ServerCommandSource> ctx) {
 		ctx.getSource().sendFeedback(() -> Text.literal(MetricsService.status()), false);
 		ctx.getSource().sendFeedback(() -> Text.literal("[metrics] 上局结论：" + MetricsService.lastSummary()), false);
+		return 1;
+	}
+
+	/** {@code /cww event}：事件池读数（池大小 / 已触发 / 下一发倒计时）。 */
+	private static int eventStatus(CommandContext<ServerCommandSource> ctx) {
+		ctx.getSource().sendFeedback(() -> Text.literal(
+				dev.nbw.round.EventService.status(ctx.getSource().getServer())), false);
 		return 1;
 	}
 
