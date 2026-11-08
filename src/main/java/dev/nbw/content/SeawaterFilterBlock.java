@@ -51,6 +51,7 @@ public final class SeawaterFilterBlock extends Block {
 		}
 		lastUse.put(pos, now);
 		sp.getInventory().insertStack(new ItemStack(NbwContent.freshWater));
+		dev.nbw.round.SurvivorService.addProvisions(sp, 1.0);   // 产出一份淡水 = 本队 +1 口粮
 		sp.sendMessage(Text.literal("§b[cww] 过滤器产出 1 份淡水"), true);
 		return ActionResult.SUCCESS;
 	}

@@ -101,6 +101,8 @@ public final class NbwCommands {
 		root.then(admin(CommandManager.literal("event").executes(NbwCommands::eventStatus)));
 		// 战绩（M5-3）：读数
 		root.then(admin(CommandManager.literal("stats").executes(NbwCommands::statsStatus)));
+		// 幸存者（M5-2）：读数
+		root.then(admin(CommandManager.literal("survivor").executes(NbwCommands::survivorStatus)));
 		// 生存（M4-1）：营养/水分读数 + dev 强制设值
 		var survival = admin(CommandManager.literal("survival"));
 		survival.then(CommandManager.literal("status")
@@ -793,6 +795,13 @@ public final class NbwCommands {
 	private static int statsStatus(CommandContext<ServerCommandSource> ctx) {
 		ctx.getSource().sendFeedback(() -> Text.literal(
 				dev.nbw.combat.CombatStats.status(ctx.getSource().getServer())), false);
+		return 1;
+	}
+
+	/** {@code /cww survivor}：各队幸存者人数 + 口粮读数。 */
+	private static int survivorStatus(CommandContext<ServerCommandSource> ctx) {
+		ctx.getSource().sendFeedback(() -> Text.literal(
+				dev.nbw.round.SurvivorService.status()), false);
 		return 1;
 	}
 

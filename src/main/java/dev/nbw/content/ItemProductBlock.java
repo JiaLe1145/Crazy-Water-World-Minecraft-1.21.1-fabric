@@ -54,6 +54,7 @@ public final class ItemProductBlock extends Block {
 		}
 		lastUse.put(pos, now);
 		sp.getInventory().insertStack(product.get());
+		dev.nbw.round.SurvivorService.addProvisions(sp, 1.0);   // 产出一份食物 = 本队 +1 口粮
 		sp.sendMessage(Text.literal("§a[cww] 产出 " + productName), true);
 		return ActionResult.SUCCESS;
 	}

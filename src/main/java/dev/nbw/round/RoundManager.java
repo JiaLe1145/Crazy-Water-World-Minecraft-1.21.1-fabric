@@ -187,6 +187,7 @@ public final class RoundManager {
 			LootService.onEndTick(srv);   // 海面物资：按 respawnIntervalSec 定时补箱
 			SurvivalService.onEndTick(srv);   // 营养/水分：每秒衰减 + debuff + HUD
 			EventService.onEndTick(srv);   // 事件池：到点抽一发
+			SurvivorService.onEndTick(srv);   // 幸存者：口粮消耗 + 断粮离队
 			RaftSinking.onEndTick(srv);
 			RaftCoreService.onEndTick(srv);
 			WindService.apply(srv);   // 帆：登记风力目标（被动等风，方向跟随前进）
@@ -330,6 +331,7 @@ public final class RoundManager {
 				LootService.begin(server);   // 海面物资：按 loot.prefill 撒补给箱 + 定补箱间隔
 				SurvivalService.begin(server);   // 生存：参赛者满营养/满水分
 				EventService.begin(server);   // 事件池（M5-1）：排第一发
+				SurvivorService.begin(server);   // 幸存者（M5-2）：每队按人数发人/口粮
 				announce("§c对局开始！最后存活队获胜");
 			}
 			case SETTLE -> {
@@ -709,6 +711,7 @@ public final class RoundManager {
 		}
 		EventService.reset();   // 事件调度是局内的
 		CombatStats.reset();   // 战绩是局内的
+		SurvivorService.reset();   // 幸存者是局内的
 	}
 
 	// ---------------------------------------------------------------- 配置与命令入口
