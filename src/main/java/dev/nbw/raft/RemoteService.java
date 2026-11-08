@@ -25,18 +25,17 @@ import java.util.UUID;
  * 以及"每队当前有没有人正在遥控"。动力合成仍然统一交给 {@link RaftMotionService}
  * （线性前进/后退），转向是新增的角冲量（绕 Y 轴）。
  *
- * <p><b>"每个筏只有一个遥控器"怎么保证。</b>不给玩家建档、不查 UUID：直接查发送移动包的人
- * <b>主手上是不是 {@code nbw:remote}</b>。遥控器是个物品，开局只发一件给一队中的一人，
- * 谁拿着它谁就能开。客户端也只在"主手拿遥控器 + 移动模式"时发包（见 {@code client/MoveInputClient}），
- * 服务端再核一次主手，双保险。断输入（松手/掉线/换物品）由窗口过期兜底，不会"卡在一直开"。
+ * <p><b>"每筏同时只能一人遥控"怎么保证。</b>每队每人都发一个遥控器，但服务端记一个"当前驾驶员"：
+ * 谁先发来非静止的移动意图谁就是驾驶员；别人在开的时候，第二个人的输入一律忽略。
+ * 驾驶员松手（全键松开）或断输入（窗口过期）就让位。客户端只在"主手拿遥控器 + 移动模式"时发包，
+ * 服务端再核一次主手，双保险。
  */
 public final class RemoteService {
 
 	/**
-	 * A/D 转向时每 tick 施加的绕 Y 角冲量。取 1.0 是起步值（约让 4×4 筏转 90°/s），
-	 * 具体手感要真人验，探针只断"转了没转、方向对不对"，不把转向角速度钉死。
+	 * A/D 转向时每 tick 施加的绕 Y 角冲量。2026-11-08 用户把转向速度定为 0.5。
 	 */
-	public static final double TURN_IMPULSE = 1.0;
+	public static final double TURN_IMPULSE = 0.5;
 
 	/** 移动意图的有效窗口（tick）。客户端每 2 tick 发一次包，这里给 6 tick 兜掉线/换物品。 */
 	public static final int INTENT_WINDOW_TICKS = 6;
@@ -46,6 +45,10 @@ public final class RemoteService {
 	}
 
 	private static final Map<Integer, HeldIntent> intents = new LinkedHashMap<>();
+	/** 队号 → 当前正在遥控的玩家。同时只能一个人。 */
+	private static final Map<Integer, UUID> pilots = new LinkedHashMap<>();
+	/** 玩家 → 上次"被拒"提示的 tick，节流用，避免每 tick 刷屏。 */
+	private static final Map<UUID, Integer> lastRejectNotice = new LinkedHashMap<>();
 	private static int tick;
 
 	private RemoteService() {
@@ -68,8 +71,30 @@ public final class RemoteService {
 		if (team < 0) {
 			return;
 		}
-		intents.put(team, new HeldIntent(HelmModel.fromKeys(forward, backward, left, right),
-				tick + INTENT_WINDOW_TICKS));
+		Intent intent = HelmModel.fromKeys(forward, backward, left, right);
+		UUID current = pilots.get(team);
+		if (current != null && !current.equals(player.getUuid())) {
+			// 已经有人在遥控：第二个人进不了遥控模式，输入忽略 + 节流提示
+			Integer last = lastRejectNotice.get(player.getUuid());
+			if (last == null || tick - last >= 20) {
+				lastRejectNotice.put(player.getUuid(), tick);
+				NBW.LOGGER.info("[remote] 队 {} 正被 {} 遥控，{} 的输入被忽略",
+						team, current, player.getNameForScoreboard());
+			}
+			return;
+		}
+		if (intent.idle()) {
+			// 松手（全键松开）：让位 + 清意图
+			if (current != null && current.equals(player.getUuid())) {
+				pilots.remove(team);
+			}
+			intents.remove(team);
+			return;
+		}
+		if (current == null) {
+			pilots.put(team, player.getUuid());   // 第一个发来非静止意图的人成为驾驶员
+		}
+		intents.put(team, new HeldIntent(intent, tick + INTENT_WINDOW_TICKS));
 	}
 
 	/**
@@ -80,7 +105,13 @@ public final class RemoteService {
 	 */
 	public static int onEndTick(MinecraftServer server) {
 		tick++;
-		intents.entrySet().removeIf(e -> e.getValue().untilTick() < tick);   // 断输入自动脱手
+		intents.entrySet().removeIf(e -> {
+			if (e.getValue().untilTick() < tick) {
+				pilots.remove(e.getKey());   // 断输入自动脱手，也放掉驾驶席
+				return true;
+			}
+			return false;
+		});
 		ServerWorld world = server.getOverworld();
 		int moved = 0;
 		for (Map.Entry<Integer, HeldIntent> e : intents.entrySet()) {
@@ -105,21 +136,19 @@ public final class RemoteService {
 	}
 
 	/**
-	 * 开局给每支有人的队发一个遥控器（给队内第一个成员）。"每筏一个遥控器"就落实在这：
-	 * 发进背包（会落在快捷栏），谁拿着它谁就能开这队的筏。
+	 * 开局给每支队的<b>每个</b>成员都发一个遥控器（2026-11-08 改：原先是只发第一个）。
+	 * "每筏同时只能一人遥控"由 {@link #onMove} 的驾驶席逻辑保证，不靠"只发一个"。
 	 */
 	public static void distributeRemotes(MinecraftServer server) {
 		for (var team : RoundManager.machine().teams()) {
-			if (team.members().isEmpty()) {
-				continue;
-			}
-			UUID first = team.membersOrdered().get(0);
-			ServerPlayerEntity p = server.getPlayerManager().getPlayer(first);
-			if (p == null) {
-				continue;
-			}
-			if (p.getInventory().insertStack(new ItemStack(NbwContent.remote))) {
-				NBW.LOGGER.info("[remote] 队 {} 把遥控器发给 {}", team.index(), p.getNameForScoreboard());
+			for (UUID member : team.membersOrdered()) {
+				ServerPlayerEntity p = server.getPlayerManager().getPlayer(member);
+				if (p == null) {
+					continue;
+				}
+				if (p.getInventory().insertStack(new ItemStack(NbwContent.remote))) {
+					NBW.LOGGER.info("[remote] 队 {} 把遥控器发给 {}", team.index(), p.getNameForScoreboard());
+				}
 			}
 		}
 	}
@@ -155,10 +184,12 @@ public final class RemoteService {
 				fwd[0], fwd[1], RaftMotionService.travelReadout(teamIndex));
 	}
 
-	/** 局后清理：意图是局内状态，跨局不许残留成"上一局还在开船"。 */
+	/** 局后清理：意图、驾驶席、提示节流都是局内状态，跨局不许残留成"上一局还在开船"。 */
 	public static void reset() {
 		intents.clear();
+		pilots.clear();
+		lastRejectNotice.clear();
 		tick = 0;
-		NBW.LOGGER.debug("[remote] 遥控器意图已清空");
+		NBW.LOGGER.debug("[remote] 遥控器意图与驾驶席已清空");
 	}
 }
