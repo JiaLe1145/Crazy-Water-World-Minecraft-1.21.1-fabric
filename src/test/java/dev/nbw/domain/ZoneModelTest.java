@@ -14,12 +14,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ZoneModelTest {
 
 	private static ZoneModel standard() {
-		// 对应 02 §2 的 standard_12min 圈表
+		// 对应 02 §2 的 standard_12min 圈表：P1 150s / P2 390s / P3 570s / P4 690s
 		List<ZoneModel.Stage> stages = List.of(
 				new ZoneModel.Stage(0, 0.65, 150, 60, 0.5, 15),
-				new ZoneModel.Stage(1, 0.40, 210, 45, 1.0, 15),
-				new ZoneModel.Stage(2, 0.20, 390, 45, 2.0, 15),
-				new ZoneModel.Stage(3, 0.05, 570, 90, 4.0, 10));
+				new ZoneModel.Stage(1, 0.40, 390, 45, 1.0, 15),
+				new ZoneModel.Stage(2, 0.20, 570, 45, 2.0, 15),
+				new ZoneModel.Stage(3, 0.05, 690, 90, 4.0, 10));
 		List<ZoneModel.Ring> rings = List.of(
 				new ZoneModel.Ring(0, 28, 2.5, 3),
 				new ZoneModel.Ring(28, 56, 2.0, 2),
@@ -55,13 +55,14 @@ class ZoneModelTest {
 		ZoneModel z = standard();
 		assertEquals(0.0, z.damageAt(100), 1e-9);
 		assertEquals(0.5, z.damageAt(151), 1e-9);
-		assertEquals(4.0, z.damageAt(600), 1e-9);
+		assertEquals(2.0, z.damageAt(600), 1e-9, "P3 在 570s，600s 应是 2.0");
+		assertEquals(4.0, z.damageAt(700), 1e-9, "P4 在 690s，700s 应是 4.0");
 	}
 
 	@Test
 	void warnWindowOnlyBeforeNextStage() {
 		ZoneModel z = standard();
-		assertEquals(10, z.warnCountdownAt(200), "P2 在 210s，提前 15s 预告 -> 200s 时剩 10s");
+		assertEquals(10, z.warnCountdownAt(140), "P1 在 150s，提前 15s 预告 -> 140s 时剩 10s");
 		assertEquals(-1, z.warnCountdownAt(300), "不在任何预告窗口内");
 	}
 

@@ -89,14 +89,14 @@ public final class NbwContent {
 		Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, MEDICAL_KIT),
 				new BlockItem(medicalKit, new Item.Settings()));
 
-		// 堆肥农场 / 厨台（M4-4）：右键产食物（面包 / 熟鳕鱼），冷却分别为 45s / 60s。
+		// 堆肥农场 / 厨台（M4-4，02 §7）：堆肥 45s→2 营养原料，厨台 20s→1 熟食。
 		compostFarm = Registry.register(Registries.BLOCK, Identifier.of(NBW.MOD_ID, COMPOST_FARM),
-				new ItemProductBlock(() -> new ItemStack(net.minecraft.item.Items.BREAD), "面包 1 个", 45,
+				new ItemProductBlock(() -> new ItemStack(net.minecraft.item.Items.BREAD, 2), "面包 2 个", 45,
 						AbstractBlock.Settings.create().strength(1.5f)));
 		Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, COMPOST_FARM),
 				new BlockItem(compostFarm, new Item.Settings()));
 		kitchen = Registry.register(Registries.BLOCK, Identifier.of(NBW.MOD_ID, KITCHEN),
-				new ItemProductBlock(() -> new ItemStack(net.minecraft.item.Items.COOKED_COD), "熟鳕鱼 1 个", 60,
+				new ItemProductBlock(() -> new ItemStack(net.minecraft.item.Items.COOKED_COD), "熟鳕鱼 1 个", 20,
 						AbstractBlock.Settings.create().strength(2.0f).requiresTool()));
 		Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, KITCHEN),
 				new BlockItem(kitchen, new Item.Settings()));

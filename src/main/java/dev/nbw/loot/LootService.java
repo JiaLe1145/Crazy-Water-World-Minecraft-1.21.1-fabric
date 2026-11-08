@@ -36,15 +36,23 @@ public final class LootService {
 	private static final Identifier TABLE_T2 = Identifier.of("nbw", "sea_crate_t2");
 	private static final Identifier TABLE_T3 = Identifier.of("nbw", "sea_crate_t3");
 
-	/** 本局已撒出的箱子位置（局后清理用；跨局不残留）。 */
-	private static final List<BlockPos> spawned = new ArrayList<>();
+	/** 一个补给箱：位置 + 撒出时刻（用于 120s 后沉没）。 */
+	private record Crate(BlockPos pos, int spawnedAt) {
+	}
+
+	/** 本局已撒出的箱子（局后清理用；跨局不残留）。 */
+	private static final List<Crate> spawned = new ArrayList<>();
 
 	/** 防蹲点：按 8×8 网格记「点位上一次被用的局号」，最近 2 轮用过的网格不再刷（01 §A4）。 */
 	private static final java.util.Map<Long, Integer> cellLastRound = new java.util.HashMap<>();
 	private static final int CELL_SIZE = 8;
 
-	/** 定时补箱：每 {@code format.loot.respawnIntervalSec} 补 {@link #RESPAWN_BATCH} 个。 */
-	private static final int RESPAWN_BATCH = 2;
+	/** 定时补箱：每 {@code format.loot.respawnIntervalSec} 补 {@code format.loot.respawnBatch} 个（缺省 4，02 §4）。 */
+	private static int RESPAWN_BATCH = 4;
+	/** 同屏最大漂浮物（02 §4：quick 16 / standard 24 / big 32）；缺省 24。 */
+	private static int MAX_FLOATING = 24;
+	/** 漂浮物存活（02 §4：standard 120s），超时沉没。 */
+	private static final int DESPAWN_TICKS = 120 * 20;
 	private static int tick;
 	private static int respawnIntervalTicks = 22 * 20;
 
@@ -57,10 +65,16 @@ public final class LootService {
 	public static void begin(MinecraftServer server) {
 		ConfigModels.Format f = RoundManager.formatOrNull();
 		int sec = f != null && f.loot != null && f.loot.respawnIntervalSec > 0 ? f.loot.respawnIntervalSec : 22;
+		int batch = f != null && f.loot != null && f.loot.respawnBatch != null && f.loot.respawnBatch > 0
+				? f.loot.respawnBatch : 4;
+		int maxFloating = f != null && f.loot != null && f.loot.maxFloating != null && f.loot.maxFloating > 0
+				? f.loot.maxFloating : 24;
 		respawnIntervalTicks = sec * 20;
+		RESPAWN_BATCH = batch;
+		MAX_FLOATING = maxFloating;
 		tick = 0;
 		String out = spawnPrefill(server);
-		NBW.LOGGER.info("[loot] 开局：{}（补箱间隔 {}s）", out, sec);
+		NBW.LOGGER.info("[loot] 开局：{}（补箱间隔 {}s / 每轮 {} 个 / 同屏上限 {}）", out, sec, batch, maxFloating);
 	}
 
 	/**
@@ -84,12 +98,16 @@ public final class LootService {
 		return spawn(server, count, minR, Math.min(maxR, arena.sea.radius));
 	}
 
-	/** PLAY 每 tick：到点从整片海补几个箱子（不覆盖已有的）。 */
+	/** PLAY 每 tick：每秒清超时箱子（沉没），到点从整片海补几个。 */
 	public static void onEndTick(MinecraftServer server) {
 		if (RoundManager.machine().phase() != dev.nbw.domain.round.Phase.PLAY) {
 			return;
 		}
-		if (++tick % respawnIntervalTicks != 0) {
+		tick++;
+		if (tick % 20 == 0) {
+			despawnOld(server);
+		}
+		if (tick % respawnIntervalTicks != 0) {
 			return;
 		}
 		ConfigModels.Arena arena = RoundManager.arenaOrNull();
@@ -99,6 +117,27 @@ public final class LootService {
 		int radius = arena.sea.radius;
 		String out = spawn(server, RESPAWN_BATCH, 0, radius);
 		NBW.LOGGER.debug("[loot] 定时补箱：{}", out);
+	}
+
+	/** 超过存活时间的箱子沉没（还原成水），并从计数里移除。 */
+	private static void despawnOld(MinecraftServer server) {
+		ServerWorld world = server.getOverworld();
+		int now = server.getTicks();
+		java.util.Iterator<Crate> it = spawned.iterator();
+		int removed = 0;
+		while (it.hasNext()) {
+			Crate c = it.next();
+			if (now - c.spawnedAt() >= DESPAWN_TICKS) {
+				if (world.getBlockState(c.pos()).isOf(Blocks.BARREL)) {
+					world.setBlockState(c.pos(), Blocks.WATER.getDefaultState(), 3);
+					removed++;
+				}
+				it.remove();
+			}
+		}
+		if (removed > 0) {
+			NBW.LOGGER.debug("[loot] 沉没 {} 个超时箱子（存活 {}, 剩 {}）", removed, DESPAWN_TICKS / 20, spawned.size());
+		}
 	}
 
 	/** dev/命令入口：在 [minR, maxR] 环带里撒 {@code count} 个箱子。 */
@@ -119,6 +158,9 @@ public final class LootService {
 		int skippedByAntiCamp = 0;
 		int maxAttempts = Math.max(count * 4, count);
 		while (ok < count && attempts < maxAttempts) {
+			if (spawned.size() >= MAX_FLOATING) {
+				break;   // 同屏上限（02 §4）：满了就不再撒
+			}
 			attempts++;
 			double angle = rnd.nextDouble() * Math.PI * 2.0;
 			double radius = minR + (maxR - minR) * rnd.nextDouble();
@@ -133,7 +175,7 @@ public final class LootService {
 			BlockPos pos = new BlockPos(x, y, z);
 			Identifier table = tableForTier(tierAt(zone, radius));
 			if (placeCrate(world, pos, table, rnd.nextLong())) {
-				spawned.add(pos);
+				spawned.add(new Crate(pos, server.getTicks()));
 				cellLastRound.put(cell, round);
 				ok++;
 			}
@@ -188,10 +230,11 @@ public final class LootService {
 		}
 		List<String> tail = new ArrayList<>();
 		for (int i = Math.max(0, spawned.size() - 3); i < spawned.size(); i++) {
-			BlockPos b = spawned.get(i);
+			BlockPos b = spawned.get(i).pos();
 			tail.add(b.getX() + "," + b.getY() + "," + b.getZ());
 		}
-		return String.format(Locale.ROOT, "[loot] 已撒箱子 %d 个｜最近 %s", spawned.size(), String.join(" ", tail));
+		return String.format(Locale.ROOT, "[loot] 已撒箱子 %d 个（上限 %d，存活 %ds）｜最近 %s",
+				spawned.size(), MAX_FLOATING, DESPAWN_TICKS / 20, String.join(" ", tail));
 	}
 
 	/** 局后清理：箱子位置是局内状态；方块本身由下一局的地图重置/建海覆盖。 */

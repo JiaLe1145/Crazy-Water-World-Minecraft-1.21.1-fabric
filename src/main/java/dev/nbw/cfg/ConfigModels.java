@@ -156,6 +156,10 @@ public final class ConfigModels {
 		public static final class LootJson {
 			public String tierBias;
 			public int respawnIntervalSec;
+			/** 每轮补几个箱子（02 §4：quick 3 / standard 4 / big 5）；缺省 4。 */
+			public Integer respawnBatch;
+			/** 同屏最大漂浮物（02 §4：quick 16 / standard 24 / big 32）；缺省 24。 */
+			public Integer maxFloating;
 		}
 
 		public static final class EventsJson {
