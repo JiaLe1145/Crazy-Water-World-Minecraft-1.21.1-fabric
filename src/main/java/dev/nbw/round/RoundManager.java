@@ -127,6 +127,10 @@ public final class RoundManager {
 						player.getNameForScoreboard(), player.getUuid(), machine.phase(), s != null,
 						s == null ? "-" : s.teamIndex(), s != null && s.isEliminated());
 				machine.onDeath(player.getUuid());
+				// 淘汰后观战（M5-3）：死亡瞬间先切成旁观，重生时就是旁观视角（不必等 onRespawn）
+				if (machine.phase() == Phase.PLAY) {
+					player.changeGameMode(GameMode.SPECTATOR);
+				}
 			}
 		});
 		// 05 C18：死亡/伤害一律用 ServerLivingEntityEvents，不用已废弃的 ServerPlayerEvents.ALLOW_DEATH
@@ -465,9 +469,14 @@ public final class RoundManager {
 		PlayerSession s = machine.session(player.getUuid());
 		if (machine.phase().matchActive() && s != null && s.teamIndex() >= 0) {
 			teleportToAnchor(player, s.teamIndex());
-			player.changeGameMode(machine.phase().allowsPvp() ? GameMode.SURVIVAL : GameMode.ADVENTURE);
-			NBW.LOGGER.info("[round] placed {} at team {} anchor (phase={})",
-					player.getNameForScoreboard(), s.teamIndex(), machine.phase());
+			if (s.isEliminated()) {
+				// 淘汰后观战（M5-3）：留在图里飞着看，而不是直接踹回大厅
+				player.changeGameMode(GameMode.SPECTATOR);
+			} else {
+				player.changeGameMode(machine.phase().allowsPvp() ? GameMode.SURVIVAL : GameMode.ADVENTURE);
+			}
+			NBW.LOGGER.info("[round] placed {} at team {} anchor (phase={}, eliminated={})",
+					player.getNameForScoreboard(), s.teamIndex(), machine.phase(), s.isEliminated());
 		} else {
 			placeInLobby(player);
 			NBW.LOGGER.info("[round] {} placed in lobby (phase={}, hasSeat={})",
