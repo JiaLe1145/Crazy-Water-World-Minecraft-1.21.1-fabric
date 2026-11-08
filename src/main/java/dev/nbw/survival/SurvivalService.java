@@ -198,9 +198,29 @@ public final class SurvivalService {
 		bleedingUntil.remove(p.getUuid());
 	}
 
+	/** 某人的营养是否见底（02 §8：营养 <20 时攀爬失败 1 次）。没有状态时按"不低"处理。 */
+	public static boolean isNutritionLow(UUID id) {
+		State s = states.get(id);
+		return s != null && SurvivalRule.nutritionLow(s.nutrition());
+	}
+
 	/** 医疗箱：接骨。 */
 	public static void cureFracture(ServerPlayerEntity p) {
 		fractureUntil.remove(p.getUuid());
+	}
+
+	/** 绷带/夹板：把骨折剩余时间缩短若干秒（02 §3：夹板 −30s）。 */
+	public static void reduceFracture(ServerPlayerEntity p, int seconds) {
+		Integer until = fractureUntil.get(p.getUuid());
+		if (until == null) {
+			return;
+		}
+		int next = until - seconds * 20;
+		if (next <= server.getTicks()) {
+			fractureUntil.remove(p.getUuid());
+		} else {
+			fractureUntil.put(p.getUuid(), next);
+		}
 	}
 
 	/** 医疗箱：治疗（不超过上限）。 */

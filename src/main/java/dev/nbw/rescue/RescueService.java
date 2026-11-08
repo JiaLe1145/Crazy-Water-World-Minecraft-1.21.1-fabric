@@ -68,6 +68,8 @@ public final class RescueService {
 	/** 起点与落点都存在甲板局部帧里：起点=开始那一拍人的位置，落点=夹进甲板内的最近一格。 */
 	private static final Map<UUID, double[]> climbBase = new HashMap<>();
 	private static final Map<UUID, double[]> climbTarget = new HashMap<>();
+	/** 营养 <20 时攀爬失败过一次的人（02 §8：只失败 1 次，第二次照常爬上来）。 */
+	private static final Set<UUID> failedOnce = new HashSet<>();
 
 	private static final Map<UUID, Long> lastHold = new HashMap<>();
 	private static final Set<UUID> damagedThisTick = new HashSet<>();
@@ -294,6 +296,17 @@ public final class RescueService {
 			liftTo(o, ClingRule.CLIMB_TICKS, next.tick(), "攀爬");
 		}
 		if (next.stage() == ClingRule.Stage.LANDED) {
+			// 02 §8：体力（营养）< 20 时攀爬失败 1 次（第二次照常爬上来）
+			if (dev.nbw.survival.SurvivalService.isNutritionLow(o.id) && !failedOnce.contains(o.id)) {
+				failedOnce.add(o.id);
+				states.remove(o.id);
+				lastHold.remove(o.id);
+				climbBase.remove(o.id);
+				climbTarget.remove(o.id);
+				record(String.format(Locale.ROOT, "%s 营养太低，攀爬失败 1 次（掉回水里）", o.player.getName().getString()));
+				o.player.sendMessage(Text.literal("§c[cww] 体力不足，攀爬失败（再试一次）"), true);
+				return;
+			}
 			landings++;
 			double[] landing = climbTarget.getOrDefault(o.id, o.local);
 			finishAtTarget(o);
@@ -603,5 +616,6 @@ public final class RescueService {
 		climbTarget.clear();
 		lastHold.clear();
 		damagedThisTick.clear();
+		failedOnce.clear();
 	}
 }

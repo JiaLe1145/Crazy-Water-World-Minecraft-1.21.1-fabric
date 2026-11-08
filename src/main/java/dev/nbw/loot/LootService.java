@@ -6,9 +6,7 @@ import dev.nbw.domain.ZoneModel;
 import dev.nbw.round.RoundManager;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.inventory.LootableInventory;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.registry.RegistryKeys;
+import net.minecraft.item.ItemStack;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.Identifier;
@@ -30,11 +28,6 @@ import java.util.Random;
  * 圈层的 {@code tier} 决定用哪张 loot table（t1 外圈基础 / t2 中圈含铁与刀 / t3 内圈含钻与重武器）。
  */
 public final class LootService {
-
-	/** 三档物资表：data/nbw/loot_table/sea_crate_t{1,2,3}.json。 */
-	private static final Identifier TABLE_T1 = Identifier.of("nbw", "sea_crate_t1");
-	private static final Identifier TABLE_T2 = Identifier.of("nbw", "sea_crate_t2");
-	private static final Identifier TABLE_T3 = Identifier.of("nbw", "sea_crate_t3");
 
 	/** 一个补给箱：位置 + 撒出时刻（用于 120s 后沉没）。 */
 	private record Crate(BlockPos pos, int spawnedAt) {
@@ -157,6 +150,7 @@ public final class LootService {
 		int attempts = 0;
 		int skippedByAntiCamp = 0;
 		int maxAttempts = Math.max(count * 4, count);
+		boolean legendary = legendaryUnlocked();
 		while (ok < count && attempts < maxAttempts) {
 			if (spawned.size() >= MAX_FLOATING) {
 				break;   // 同屏上限（02 §4）：满了就不再撒
@@ -173,8 +167,8 @@ public final class LootService {
 				continue;   // 防蹲点：最近两轮同一点位已刷过，换地方
 			}
 			BlockPos pos = new BlockPos(x, y, z);
-			Identifier table = tableForTier(tierAt(zone, radius));
-			if (placeCrate(world, pos, table, rnd.nextLong())) {
+			int tier = tierAt(zone, radius);
+			if (placeCrate(world, pos, tier, legendary, rnd.nextLong())) {
 				spawned.add(new Crate(pos, server.getTicks()));
 				cellLastRound.put(cell, round);
 				ok++;
@@ -198,16 +192,9 @@ public final class LootService {
 		return ring == null ? 1 : Math.max(1, Math.min(3, ring.tier()));
 	}
 
-	private static Identifier tableForTier(int tier) {
-		return switch (tier) {
-			case 3 -> TABLE_T3;
-			case 2 -> TABLE_T2;
-			default -> TABLE_T1;
-		};
-	}
-
-	/** 放一个带 loot table 的木桶；失败（区块没加载/位置被占）返回 false。 */
-	private static boolean placeCrate(ServerWorld world, BlockPos pos, Identifier table, long seed) {
+	/** 放一个补给箱：按 tier 抽稀有度、填 1–3 件进 barrel；失败（区块没加载/位置被占）返回 false。 */
+	private static boolean placeCrate(ServerWorld world, BlockPos pos, int tier, boolean legendaryUnlocked,
+			long seed) {
 		if (!world.isChunkLoaded(pos.getX() >> 4, pos.getZ() >> 4)) {
 			return false;   // 不掉进未加载区块，交给下一轮
 		}
@@ -216,11 +203,33 @@ public final class LootService {
 		}
 		world.setBlockState(pos, Blocks.BARREL.getDefaultState(), 3);
 		BlockEntity be = world.getBlockEntity(pos);
-		if (be instanceof LootableInventory li) {
-			li.setLootTable(RegistryKey.of(RegistryKeys.LOOT_TABLE, table), seed);
-			return true;
+		if (!(be instanceof net.minecraft.inventory.Inventory inv)) {
+			return false;
 		}
-		return false;
+		Random rnd = new Random(seed);
+		int count = 1 + rnd.nextInt(3);   // 02 §4：单点 1–3 件
+		for (int i = 0; i < count; i++) {
+			var rarity = dev.nbw.domain.loot.LootRoll.rollRarity(tier, legendaryUnlocked, rnd.nextDouble());
+			var item = dev.nbw.domain.loot.LootRoll.rollItem(rarity, rnd.nextDouble());
+			int amount = item.min() + rnd.nextInt(Math.max(1, item.max() - item.min() + 1));
+			var id = Identifier.tryParse(item.id());
+			if (id == null) {
+				continue;
+			}
+			var mcItem = net.minecraft.registry.Registries.ITEM.get(id);
+			inv.setStack(rnd.nextInt(Math.max(1, inv.size())), new ItemStack(mcItem, amount));
+		}
+		return true;
+	}
+
+	/** 是否已过 P3（Legendary 解锁门槛）：取圈表第 3 段的触发秒数。 */
+	private static boolean legendaryUnlocked() {
+		ZoneModel zone = RoundManager.zoneOrNull();
+		if (zone == null || zone.stages().size() < 3) {
+			return false;
+		}
+		int p3At = zone.stages().get(2).atSecond();
+		return RoundManager.machine().tickInPhase() / 20 >= p3At;
 	}
 
 	/** 一行读数：给 {@code /cww loot status}（带最近几个位置，方便探针核对）。 */

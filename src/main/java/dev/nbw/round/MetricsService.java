@@ -93,6 +93,26 @@ public final class MetricsService {
 				firstBlood < 0 ? "无" : String.format(Locale.ROOT, "%.1fs", firstBlood / 20.0),
 				lateHits, rate, productionUsers.size(), participants);
 		NBW.LOGGER.info("{}", lastSummary);
+		appendJsonl(srv, duration, firstBlood, lateHits, rate);
+	}
+
+	/** 结构化落盘（02 §11.2）：追加一行 JSONL 到 {@code <world>/cww/metrics.jsonl}。 */
+	private static void appendJsonl(MinecraftServer srv, int duration, int firstBlood, int lateHits, double rate) {
+		try {
+			var dir = RoundManager.worldRoot().resolve("cww");
+			java.nio.file.Files.createDirectories(dir);
+			var file = dir.resolve("metrics.jsonl");
+			String line = String.format(Locale.ROOT,
+					"{\"match\":%d,\"durationSec\":%.1f,\"firstBloodSec\":%.1f,\"lateHits\":%d,\"productionRate\":%.3f,\"participants\":%d,\"productionUsers\":%d}",
+					RoundManager.machine().matchIndex(), duration / 20.0,
+					firstBlood < 0 ? -1.0 : firstBlood / 20.0, lateHits, rate / 100.0,
+					participants, productionUsers.size());
+			java.nio.file.Files.writeString(file, line + System.lineSeparator(),
+					java.nio.charset.StandardCharsets.UTF_8,
+					java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+		} catch (Exception e) {
+			NBW.LOGGER.warn("[metrics] 落盘失败：{}", e.toString());
+		}
 	}
 
 	/** 一行读数（进行中）：给 {@code /cww metrics}。 */

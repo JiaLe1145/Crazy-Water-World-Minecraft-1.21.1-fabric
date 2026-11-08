@@ -67,3 +67,21 @@
 2. **结构化埋点落盘**（H）：Gate G3 的配平回路全靠它，现在只有日志。
 3. **功率池**（D）：生产链的"电力规划"维度。
 4. **事件实际效果**（E）：风暴/海怪/倒流。
+
+---
+
+## 六、本轮已补齐（2026-11-08 第二轮）
+
+| 原缺项 | 落地 |
+|---|---|
+| A 稀有度权重 | 新增 `domain/loot/LootRoll`（纯函数 + `LootRollTest` 5 条）：按 02 §4 的 78/20/2/0、60/32/8/0、40/35/20/5 抽 Common/Rare/Epic/Legendary；补给箱改为**按稀有度填 1–3 件**（不再用 loot table JSON） |
+| B Legendary 门槛 | `LootRoll.rollRarity(tier, legendaryUnlocked, …)`；`LootService.legendaryUnlocked()` 取圈表第 3 段的触发秒数（P3 之后才开） |
+| G 营养<20 攀爬失败 | `SurvivalService.isNutritionLow` + `RescueService.stepCling`：LANDED 前查营养，低则**失败 1 次**（掉回水里，第二次照常） |
+| H 结构化埋点 | `MetricsService.appendJsonl`：SETTLE 时追加一行到 `<world>/cww/metrics.jsonl`（match/局时长/首战/末段交战/生产参与率/人数） |
+| J 医疗箱产绷带 | 新增 `content/BandageItem`（右键止血 + 骨折 −30s + 治疗 3HP，消耗 1 个）；`MedicalKitBlock` 改为 60s 产 1 绷带；`SurvivalService.reduceFracture` |
+
+**实测**：补给箱 `Items` 出现 `string×3 + oak_planks×3`（Common 池）；医疗箱产出 `nbw:bandage`；
+`run/world/cww/metrics.jsonl` 出现 `{"match":263,"durationSec":2.7,…}`；单测 252/0。
+
+**仍未补**（依赖更大系统 / 平台限制）：C 防透视（箱子是方块）、D 功率池、E 事件实际效果、
+F 水中受伤（Fabric 无改伤害钩子）、I 幸存者招募指标（幸存者还是队级计数）。
