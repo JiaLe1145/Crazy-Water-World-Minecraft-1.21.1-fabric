@@ -6,6 +6,7 @@ import dev.nbw.cfg.WeaponConfig;
 import dev.nbw.content.WeaponItem;
 import dev.nbw.domain.combat.CombatRule;
 import dev.nbw.domain.combat.CombatRule.WeaponSpec;
+import dev.nbw.round.MetricsService;
 import dev.nbw.round.RoundManager;
 import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.minecraft.entity.Entity;
@@ -112,6 +113,9 @@ public final class WeaponService {
 		accepted++;
 		if (target instanceof LivingEntity living) {
 			applyKnockback(sp, living, spec.knockback());
+			if (living instanceof ServerPlayerEntity victim) {
+				MetricsService.onPvpDamage(sp, victim);   // 埋点：首战时刻（M3-3）
+			}
 		}
 		record(now, sp, target, wi.weaponId(), null);
 		return ActionResult.PASS;   // 交给原版按物品属性结算伤害

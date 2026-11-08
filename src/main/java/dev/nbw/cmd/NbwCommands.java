@@ -31,6 +31,7 @@ import dev.nbw.rescue.RescueService;
 import dev.nbw.rescue.RopeService;
 import dev.nbw.round.RoundManager;
 import dev.nbw.round.ZoneService;
+import dev.nbw.round.MetricsService;
 import dev.nbw.loot.LootService;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.item.ItemStack;
@@ -93,6 +94,8 @@ public final class NbwCommands {
 		root.then(admin(CommandManager.literal("state").executes(NbwCommands::state)));
 		// 黑海圈层（M3-1）：只读读数，给真人核对"现在半径多少、圈外掉多少血"
 		root.then(admin(CommandManager.literal("zone").executes(NbwCommands::zoneStatus)));
+		// 埋点与配平回路（M3-3）：局时长/首战/生产参与率
+		root.then(admin(CommandManager.literal("metrics").executes(NbwCommands::metricsStatus)));
 		// 海面物资（M3-2）：dev 手动撒箱子 + 读数
 		var loot = admin(CommandManager.literal("loot"));
 		loot.then(CommandManager.literal("status").executes(NbwCommands::lootStatus));
@@ -753,6 +756,13 @@ public final class NbwCommands {
 	/** {@code /cww zone}：黑海圈层的只读读数（半径 / 每秒伤害 / 圈心）。 */
 	private static int zoneStatus(CommandContext<ServerCommandSource> ctx) {
 		ctx.getSource().sendFeedback(() -> Text.literal(ZoneService.status()), false);
+		return 1;
+	}
+
+	/** {@code /cww metrics}：埋点读数（进行中的局 + 上一局的一行结论）。 */
+	private static int metricsStatus(CommandContext<ServerCommandSource> ctx) {
+		ctx.getSource().sendFeedback(() -> Text.literal(MetricsService.status()), false);
+		ctx.getSource().sendFeedback(() -> Text.literal("[metrics] 上局结论：" + MetricsService.lastSummary()), false);
 		return 1;
 	}
 

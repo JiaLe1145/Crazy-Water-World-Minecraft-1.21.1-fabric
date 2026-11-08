@@ -74,3 +74,35 @@
 - **定时刷新实测**：`onEndTick` 的补箱是 debug 日志、本轮没在真人局里跑满 20s 核对数量（代码路径与 prefill 同一条 `spawn`）。
 - **漂浮物**：钩竿拉「漂浮物」需要独立的漂浮物实体，归后续。
 - **t3 武器掉率**：目前是等权，等数值表定稿再调权重。
+
+---
+
+## 3.3 埋点与配平回路（2026-11-08，Gate G3）
+
+### 落地
+
+- 新增 `round/MetricsService`，每局记三件事：
+  - **局时长**：PLAY 起点 → SETTLE 时刻。
+  - **首战时刻**：第一次「玩家打玩家」生效（钩在 `WeaponService.onAttack` 的有效分支；
+    被攻速闸门拒掉的不算，那条已提前返回）。
+  - **生产参与率**：用原版生产方块当代理（`crafting_table / furnace / smoker / blast_furnace / anvil /
+    brewing_stand / stonecutter / grindstone / loom / cartography_table`），钩在 `BuildService.onUseBlock`
+    的「手上不是方块 = 在用方块」分支；M4 的生产设施接上后换成本方判据。
+- 生命周期：`begin`（PLAY 开局）→ 各钩子累加 → `finish`（SETTLE 结算并打一行结论）→ `reset`（局后清计数，
+  但保留上一局结论给 `/cww metrics`）。
+- 命令：`/cww metrics`（进行中读数 + 上局结论）。
+
+### 验证（起服实测）
+
+| 断言 | 实测 |
+|---|---|
+| PLAY 开局读数 | `进行 1s participantes=2 首战=无 生产参与=0/2` |
+| 首战记录 | 假玩家弯刀攻击一次后 `首战=1s`；日志 `[metrics] 首战：开局后 1s` |
+| 生产参与记录 | 假玩家右键工作台后 `生产参与=1/2`；日志 `[metrics] 生产参与：… 首次使用 Block{minecraft:crafting_table}` |
+| 结算结论 | `/cww stop` 后 `局时长=2.9s 首战=1.9s 生产参与率=0%(0/2)` |
+
+### 还没做的
+
+- **落盘**：目前只进日志与命令，没有写 JSONL/数据库（等部署侧要数据时再接）。
+- **“最后 3 分钟有交战”**：只记了首战，没有记「末段交战次数」；判定 Gate G3 需要再加一个末段计数器。
+- **生产设施口径**：M4 的生产链落地后，把代理方块换成本方设施。

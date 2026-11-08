@@ -317,11 +317,13 @@ public final class RoundManager {
 			}
 			case PLAY -> {
 				setParticipantsGameMode(GameMode.SURVIVAL);
+				MetricsService.begin(server);   // 埋点：局时长/首战/生产参与率的起点
 				ZoneService.begin(server);   // 黑海圈层：抓半径/伤害表与圈心
 				LootService.begin(server);   // 海面物资：按 loot.prefill 撒补给箱 + 定补箱间隔
 				announce("§c对局开始！最后存活队获胜");
 			}
 			case SETTLE -> {
+				MetricsService.finish(server);   // 埋点：结算本局（局时长/首战/生产参与率）
 				RoundMachine.Result r = machine.lastResult();
 				if (r != null) {
 					announce("§a本局结束：" + (r.isDraw() ? "平局（未分出唯一存活队）" : r.winnerName() + " 获胜")
@@ -671,6 +673,7 @@ public final class RoundManager {
 		MapResetService.cancel();   // 未完成的模板复制不许跨局写到新图上
 		ZoneService.reset();   // 圈层模型与预告状态都是局内的：残留=下一局开局就按上一局的圈算
 		LootService.reset();   // 已撒箱子列表是局内的：残留=下一局把旧箱子当成本局的
+		MetricsService.reset();   // 本局计数清空（上一局的一行结论保留给 /cww metrics）
 	}
 
 	// ---------------------------------------------------------------- 配置与命令入口

@@ -5,6 +5,7 @@ import dev.nbw.cfg.ConfigModels;
 import dev.nbw.content.NbwContent;
 import dev.nbw.domain.construct.BuildRules;
 import dev.nbw.raft.RaftSpawner;
+import dev.nbw.round.MetricsService;
 import dev.nbw.round.RoundManager;
 import dev.nbw.sable.SableRafts;
 import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
@@ -100,6 +101,7 @@ public final class BuildService {
 		ItemStack stack = sp.getStackInHand(hand);
 		if (!(stack.getItem() instanceof BlockItem blockItem)) {
 			// 手上不是方块，是在使用方块（桨台、筏心、箱子）——不归建造规则管
+			MetricsService.onProduction(sp, sw.getBlockState(hit.getBlockPos()));   // 埋点：生产参与（M3-3）
 			return ActionResult.PASS;
 		}
 
