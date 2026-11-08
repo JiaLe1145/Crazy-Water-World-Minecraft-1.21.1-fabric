@@ -31,6 +31,10 @@ public final class NbwContent {
 	public static final String MEDICAL_KIT = "medical_kit";
 	public static final String COMPOST_FARM = "compost_farm";
 	public static final String KITCHEN = "kitchen";
+	public static final String HAND_CROSSBOW = "hand_crossbow";
+	public static final String HARPOON_GUN = "harpoon_gun";
+	public static final String MUSKET = "musket";
+	public static final String JAVELIN = "javelin";
 
 	public static RaftCoreBlock raftCore;
 	public static SailBlock sail;
@@ -43,6 +47,10 @@ public final class NbwContent {
 	public static MedicalKitBlock medicalKit;
 	public static ItemProductBlock compostFarm;
 	public static ItemProductBlock kitchen;
+	public static RangedWeaponItem handCrossbow;
+	public static RangedWeaponItem harpoonGun;
+	public static RangedWeaponItem musket;
+	public static RangedWeaponItem javelin;
 	public static BlockEntityType<RaftCoreBlockEntity> raftCoreEntity;
 
 	private NbwContent() {
@@ -92,6 +100,20 @@ public final class NbwContent {
 						AbstractBlock.Settings.create().strength(2.0f).requiresTool()));
 		Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, KITCHEN),
 				new BlockItem(kitchen, new Item.Settings()));
+
+		// 远程武器（M4-7，09 §2.2）：右键 hitscan。伤害 HP / 装填 tick / 射程 格 / 拉近 格。
+		handCrossbow = Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, HAND_CROSSBOW),
+				new RangedWeaponItem(new RangedWeaponItem.Spec("hand_crossbow", 5.0, 32, 26.0, 0.0),
+						new Item.Settings().maxCount(1)));
+		harpoonGun = Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, HARPOON_GUN),
+				new RangedWeaponItem(new RangedWeaponItem.Spec("harpoon_gun", 4.0, 60, 18.0, 3.0),
+						new Item.Settings().maxCount(1)));
+		musket = Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, MUSKET),
+				new RangedWeaponItem(new RangedWeaponItem.Spec("musket", 10.0, 90, 34.0, 0.0),
+						new Item.Settings().maxCount(1)));
+		javelin = Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, JAVELIN),
+				new RangedWeaponItem(new RangedWeaponItem.Spec("javelin", 6.0, 40, 20.0, 0.0),
+						new Item.Settings().maxCount(1)));
 
 		// 遥控器（问题③）：每筏一个，拿在手上右键进入/退出移动模式。不是武器、不是方块，纯物品。
 		remote = Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, REMOTE),

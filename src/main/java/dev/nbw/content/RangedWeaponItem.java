@@ -1,0 +1,131 @@
+package dev.nbw.content;
+
+import dev.nbw.round.RoundManager;
+import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.item.Item;
+import net.minecraft.item.ItemStack;
+import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.world.ServerWorld;
+import net.minecraft.text.Text;
+import net.minecraft.util.Hand;
+import net.minecraft.util.TypedActionResult;
+import net.minecraft.util.math.Box;
+import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.World;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * 远程武器（M4-7，09 §2.2）：右键放一发 <b>hitscan</b>，不做投射物实体。
+ *
+ * <p>为什么用 hitscan 而不是投射物：这一版没有自己的弹道/实体注册基建，投射物要处理生成、飞行、
+ * 命中、回收（标枪）一整套；hitscan 用射线在服务端直接判命中，行为可测、参数就三四个，
+ * 先把"射程/伤害/装填"这条竞技维度立起来，投射物的表现（拖尾/音效）后补。
+ *
+ * <p>命中判定：在射程内找离射线最近、且垂直距离 < 0.8 格的活体，取最近的那个。
+ * 只在 PLAY 生效（与近战同一道闸），冷却按"玩家 + 武器实例"记。
+ */
+public final class RangedWeaponItem extends Item {
+
+	/** 一件远程武器的数值：伤害(HP) / 装填(tick) / 射程(格) / 命中后是否把目标拉近(格)。 */
+	public record Spec(String id, double damage, int cooldownTicks, double range, double pullTowardShooter) {
+	}
+
+	private final Spec spec;
+	private final Map<UUID, Integer> lastUse = new HashMap<>();
+
+	public RangedWeaponItem(Spec spec, Settings settings) {
+		super(settings);
+		this.spec = spec;
+	}
+
+	public Spec spec() {
+		return spec;
+	}
+
+	@Override
+	public TypedActionResult<ItemStack> use(World world, PlayerEntity user, Hand hand) {
+		if (world.isClient() || !(user instanceof ServerPlayerEntity sp)) {
+			return TypedActionResult.pass(user.getStackInHand(hand));
+		}
+		if (!RoundManager.phase().allowsPvp()) {
+			return TypedActionResult.pass(sp.getStackInHand(hand));
+		}
+		ServerWorld sw = sp.getServerWorld();
+		int now = sw.getServer().getTicks();
+		Integer last = lastUse.get(sp.getUuid());
+		if (last != null && now - last < spec.cooldownTicks()) {
+			int remain = (spec.cooldownTicks() - (now - last)) / 20 + 1;
+			sp.sendMessage(Text.literal("§e[cww] 装填中（还要 " + remain + "s）"), true);
+			return TypedActionResult.success(sp.getStackInHand(hand));
+		}
+		lastUse.put(sp.getUuid(), now);
+		LivingEntity target = findTarget(sw, sp, spec.range());
+		if (target == null) {
+			sp.sendMessage(Text.literal("§7[cww] 未命中"), true);
+			return TypedActionResult.success(sp.getStackInHand(hand));
+		}
+		sw.getServer().execute(() -> {
+			target.damage(sw.getDamageSources().playerAttack(sp), (float) spec.damage());
+			if (spec.pullTowardShooter() > 0.0) {
+				pullToward(sp, target, spec.pullTowardShooter());
+			}
+		});
+		sp.sendMessage(Text.literal(String.format(Locale.ROOT, "§c[cww] %s 命中 %s（%.1f♥）",
+				spec.id(), target.getName().getString(), spec.damage() / 2.0)), true);
+		return TypedActionResult.success(sp.getStackInHand(hand));
+	}
+
+	/** 射线最近活体：垂直距离 < 0.8 格、在射程内、取最近。 */
+	private static LivingEntity findTarget(ServerWorld world, ServerPlayerEntity shooter, double range) {
+		Vec3d eye = shooter.getEyePos();
+		Vec3d dir = shooter.getRotationVector();
+		Vec3d end = eye.add(dir.multiply(range));
+		List<net.minecraft.entity.Entity> candidates = world.getOtherEntities(shooter,
+				new Box(eye, end).expand(1.0));
+		LivingEntity best = null;
+		double bestAlong = Double.MAX_VALUE;
+		for (net.minecraft.entity.Entity e : candidates) {
+			if (!(e instanceof LivingEntity le) || le.isDead()) {
+				continue;
+			}
+			Vec3d toEntity = le.getPos().add(0.0, le.getHeight() * 0.5, 0.0).subtract(eye);
+			double along = toEntity.dotProduct(dir);
+			if (along < 0.0 || along > range) {
+				continue;
+			}
+			double perp = toEntity.subtract(dir.multiply(along)).length();
+			if (perp > 0.8) {
+				continue;
+			}
+			if (along < bestAlong) {
+				bestAlong = along;
+				best = le;
+			}
+		}
+		return best;
+	}
+
+	private static void pullToward(ServerPlayerEntity shooter, LivingEntity target, double distance) {
+		Vec3d from = target.getPos();
+		Vec3d to = shooter.getPos();
+		Vec3d dir = to.subtract(from);
+		double len = dir.length();
+		if (len < 1e-6) {
+			return;
+		}
+		double step = Math.min(distance, len);
+		Vec3d dest = from.add(dir.multiply(step / len));
+		target.requestTeleport(dest.x, dest.y, dest.z);
+	}
+
+	/** 局后清理：装填表是局内的。 */
+	public void resetCooldown() {
+		lastUse.clear();
+	}
+}

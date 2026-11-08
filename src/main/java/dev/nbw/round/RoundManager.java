@@ -686,6 +686,12 @@ public final class RoundManager {
 		if (dev.nbw.content.NbwContent.kitchen != null) {
 			dev.nbw.content.NbwContent.kitchen.resetCooldown();
 		}
+		for (var ranged : new Object[]{dev.nbw.content.NbwContent.handCrossbow, dev.nbw.content.NbwContent.harpoonGun,
+				dev.nbw.content.NbwContent.musket, dev.nbw.content.NbwContent.javelin}) {
+			if (ranged instanceof dev.nbw.content.RangedWeaponItem r) {
+				r.resetCooldown();
+			}
+		}
 	}
 
 	// ---------------------------------------------------------------- 配置与命令入口

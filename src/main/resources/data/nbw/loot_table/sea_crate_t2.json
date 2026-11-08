@@ -73,6 +73,16 @@
           "type": "minecraft:item",
           "name": "nbw:kitchen",
           "weight": 1
+        },
+        {
+          "type": "minecraft:item",
+          "name": "nbw:hand_crossbow",
+          "weight": 1
+        },
+        {
+          "type": "minecraft:item",
+          "name": "nbw:javelin",
+          "weight": 1
         }
       ]
     }
