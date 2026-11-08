@@ -1,6 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "default_sea",
+  "displayName": "标准海域 · 半径 140",
+  "description": "4 队标准海域，生产形状",
+  "canSelect": true,
+  "weight": 3,
   "dimension": "minecraft:overworld",
   "bounds": {
     "minX": -160,
@@ -118,5 +122,25 @@
     ],
     "initialRaftSide": 4,
     "initialRaftBlock": "oak_planks"
+  },
+  "reset": {
+    "resetTemplateArea": {
+      "minX": 140,
+      "minY": 62,
+      "minZ": 140,
+      "maxX": 147,
+      "maxY": 69,
+      "maxZ": 147
+    },
+    "resetPasteArea": {
+      "minX": -4,
+      "minY": 62,
+      "minZ": -4,
+      "maxX": 3,
+      "maxY": 69,
+      "maxZ": 3
+    },
+    "noReset": false,
+    "mustCopy": true
   }
 }

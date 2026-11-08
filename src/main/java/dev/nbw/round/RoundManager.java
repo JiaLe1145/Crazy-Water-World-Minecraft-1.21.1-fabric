@@ -2,7 +2,9 @@ package dev.nbw.round;
 
 import dev.nbw.NBW;
 import dev.nbw.arena.ArenaChunkLoader;
+import dev.nbw.arena.ArenaPool;
 import dev.nbw.arena.BuiltinArenaJson;
+import dev.nbw.arena.MapResetService;
 import dev.nbw.arena.SeaTerrain;
 import dev.nbw.combat.WeaponService;
 import dev.nbw.construct.BuildService;
@@ -168,6 +170,7 @@ public final class RoundManager {
 		drainPendingPlacements();
 		// 预热队列跨阶段推进（ENROLL 就开始排队），所以不能塞进下面那个 PLAY-only 块里
 		ArenaChunkLoader.tick(srv.getOverworld());
+		MapResetService.onEndTick();   // 模板复制：READY 期间逐 tick 推进，不能只放在 PLAY 块里
 		sweepLobbySeats();   // 报名期的幽灵席位清扫，同理不能塞进 PLAY-only 块里
 		if (machine.phase() == Phase.PLAY) {
 			sweepDeaths();
@@ -296,6 +299,8 @@ public final class RoundManager {
 				// 重启恢复 / 中途换图都没走过 start()，这里补一次登记（begin 幂等，不会重复下票）
 				ArenaChunkLoader.begin(server.getOverworld(), arenaId, arena);
 				warnIfSeaMissing();
+				// 模板复制式重置：把模板区复制回贴合区（逐 tick 推进，READY 的 10s 足够小结构复完）
+				MapResetService.begin(server.getOverworld(), arena);
 				// 先有筏再传人：玩家应当落到自己那艘筏上，而不是落到水裡等筏子凭空出现
 				String gen = RaftSpawner.generateForTeams(server);
 				if (gen.contains("失败")) {
@@ -656,6 +661,7 @@ public final class RoundManager {
 		BuildService.reset();   // 建造提示的节流表按玩家 UUID 涨；判定计数是跨局运维量，故意不清
 		RescueService.reset();   // 扒边状态与续包窗口都是局内的：残留=下一局开局就有人在半空爬
 		WeaponService.reset();   // 攻速闸门的"上次有效攻击"是局内的：残留=下一局开局被超频卡住
+		MapResetService.cancel();   // 未完成的模板复制不许跨局写到新图上
 	}
 
 	// ---------------------------------------------------------------- 配置与命令入口
@@ -743,6 +749,11 @@ public final class RoundManager {
 	/** 只读：给 raft/ 拿初始筏的材质与尺寸约束，不暴露可写引用。 */
 	public static ConfigModels.Arena arenaOrNull() {
 		return arena;
+	}
+
+	/** 只读：当前/上一局的地图 id（给 /cww reset 这类离线命令现读配置用）。 */
+	public static String arenaId() {
+		return arenaId;
 	}
 
 	/** 队号对应的出生锚点；下标越界返回 null 而不是抛，调用方自己决定怎么报。 */
@@ -837,7 +848,11 @@ public final class RoundManager {
 		if (machine.phase() != Phase.LOBBY) {
 			return "已有对局/报名在进行中（阶段 " + machine.phase() + "），先 /cww stop 或 /cww abort";
 		}
-		String err = loadConfigs(fid, aid);
+		String resolvedArena = resolveArenaId(fid, aid);
+		if (resolvedArena == null) {
+			return "没指定地图，随机池里也没有满足当前赛制/人数的图";
+		}
+		String err = loadConfigs(fid, resolvedArena);
 		if (err != null) {
 			return err;
 		}
@@ -850,8 +865,24 @@ public final class RoundManager {
 		}
 		// 一开局就把海域区块排队预热：报名那段时间足够吸收生成开销，
 		// 否则这笔账全落在 READY 传送那一刻（实测一次 2001ms / 40 tick 落后）
-		ArenaChunkLoader.begin(server.getOverworld(), aid == null ? arenaId : aid, arena);
+		ArenaChunkLoader.begin(server.getOverworld(), arenaId, arena);
 		return null;
+	}
+
+	/**
+	 * 解析本局地图：管理员显式指定优先；否则从随机池按赛制 + 报名人数抽一张。
+	 * 池空时返回 null（调用方给出可读原因，不静默回退到默认图）。
+	 */
+	private static @Nullable String resolveArenaId(@Nullable String fid, @Nullable String aid) {
+		if (aid != null && !aid.isBlank()) {
+			return aid;
+		}
+		String format = (fid != null && !fid.isBlank()) ? fid : formatId;
+		String picked = ArenaPool.random(worldRoot(), format, machine.queuedCount(), new java.util.Random());
+		if (picked != null) {
+			NBW.LOGGER.info("[round] 未指定地图，随机池按 format={} 人数={} 选中 {}", format, machine.queuedCount(), picked);
+		}
+		return picked;
 	}
 
 	public static String stop() {

@@ -16,6 +16,20 @@ public final class ConfigModels {
 		public int schemaVersion;
 		public String id;
 		public String dimension;
+		// ---- 地图注册表元数据（2026-11-08，参照 RicordRailExpress 的地图注册表）----
+		/** 显示名（可空，缺省用 id）。 */
+		public String displayName;
+		/** 描述（可空）。 */
+		public String description;
+		/** 是否进入随机池（缺省 true）。 */
+		public Boolean canSelect;
+		/** 随机池权重（缺省 1；<=0 不进池）。 */
+		public Integer weight;
+		/** 该图允许的最少/最多玩家数（缺省：最少 0 跟随赛制，最多 -1 不限制）。 */
+		public Integer minPlayers;
+		public Integer maxPlayers;
+		/** 支持哪些赛制（空列表 = 全部）。 */
+		public List<String> formats;
 		public Bounds bounds;
 		public Sea sea;
 		public List<RingJson> rings;
@@ -23,6 +37,19 @@ public final class ConfigModels {
 		public Loot loot;
 		public List<Hazard> hazards;
 		public Limits limits;
+		/** 模板复制式地图重置（2026-11-08，参照 RicordRailExpress 的 resetTemplateArea/resetPasteArea）。 */
+		public Reset reset;
+
+		public static final class Reset {
+			/** 模板区（复原源）。 */
+			public Bounds resetTemplateArea;
+			/** 贴合区（复原目标）。 */
+			public Bounds resetPasteArea;
+			/** true = 跳过重置。 */
+			public boolean noReset;
+			/** true = 全量复制（本轮实现下默认就是全量，字段保留语义）。 */
+			public boolean mustCopy;
+		}
 
 		public static final class Bounds {
 			public int minX, minY, minZ, maxX, maxY, maxZ;

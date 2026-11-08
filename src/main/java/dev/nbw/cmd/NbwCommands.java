@@ -7,7 +7,9 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import dev.nbw.NBW;
+import dev.nbw.arena.ArenaPool;
 import dev.nbw.arena.BuiltinArenaJson;
+import dev.nbw.arena.MapResetService;
 import dev.nbw.arena.SeaTerrain;
 import dev.nbw.combat.WeaponService;
 import dev.nbw.construct.BuildService;
@@ -100,7 +102,14 @@ public final class NbwCommands {
 				.executes(ctx -> testArena(ctx, StringArgumentType.getString(ctx, "id"), true))));
 		arena.then(CommandManager.literal("terrain").then(CommandManager.argument("id", StringArgumentType.word())
 				.executes(ctx -> arenaTerrain(ctx, StringArgumentType.getString(ctx, "id")))));
+		arena.then(CommandManager.literal("pool").executes(NbwCommands::arenaPool));
 		root.then(arena);
+
+		// ---- 模板复制式地图重置（2026-11-08，参照 RicordRailExpress 的 resetTemplateArea 模型）
+		var reset = admin(CommandManager.literal("reset"));
+		reset.then(CommandManager.literal("status").executes(NbwCommands::resetStatus));
+		reset.then(CommandManager.literal("buildtemplate").executes(NbwCommands::resetBuildTemplate));
+		root.then(reset);
 
 		var format = admin(CommandManager.literal("format"));
 		format.then(CommandManager.literal("test").then(CommandManager.argument("id", StringArgumentType.word())
@@ -776,6 +785,48 @@ public final class NbwCommands {
 				+ (shadowed.isEmpty() ? "" : " 内置被本地同名文件覆盖=" + String.join(", ", shadowed)
 						+ "（改内置图不会生效，测的就是这条）")), false);
 		return total;
+	}
+
+	/** {@code /cww arena pool}：随机池清单（元数据 + 权重 + 人数 + 可选性）。 */
+	private static int arenaPool(CommandContext<ServerCommandSource> ctx) {
+		String desc = ArenaPool.describe(worldRoot());
+		for (String line : desc.split("\n")) {
+			ctx.getSource().sendFeedback(() -> Text.literal(line), false);
+		}
+		return 1;
+	}
+
+	/** {@code /cww reset status}：模板复制任务的进度。 */
+	private static int resetStatus(CommandContext<ServerCommandSource> ctx) {
+		ctx.getSource().sendFeedback(() -> Text.literal(MapResetService.status()), false);
+		return 1;
+	}
+
+	/** {@code /cww reset buildtemplate}：按当前地图的 reset 区建一次模板（管理员一次性操作）。 */
+	private static int resetBuildTemplate(CommandContext<ServerCommandSource> ctx) {
+		var server = ctx.getSource().getServer();
+		var world = ctx.getSource().getWorld();
+		ConfigModels.Arena arena = RoundManager.arenaOrNull();
+		if (arena == null) {
+			// LOBBY 里还没载入地图：按当前 arenaId 现读一份，才能拿到 reset 区（否则函数落在没加载的区块上）
+			ConfigService.Loaded loaded = ConfigService.loadArena(
+					worldRoot(), RoundManager.arenaId(), false, BuiltinArenaJson.SOURCE);
+			if (loaded.ok()) {
+				arena = loaded.arena();
+			}
+		}
+		String where;
+		if (arena != null && arena.reset != null && arena.reset.resetTemplateArea != null) {
+			MapResetService.forceLoad(world, arena.reset.resetTemplateArea);
+			var b = arena.reset.resetTemplateArea;
+			where = "模板区 (" + b.minX + "," + b.minY + "," + b.minZ + ")..(" + b.maxX + "," + b.maxY + "," + b.maxZ + ")";
+		} else {
+			where = "（当前地图没有 reset 配置，按函数内置坐标建）";
+		}
+		server.getCommandManager().executeWithPrefix(server.getCommandSource(), "function nbw:reset/build_template");
+		String finalWhere = where;
+		ctx.getSource().sendFeedback(() -> Text.literal("[cww] 已按 nbw:reset/build_template 建模板：" + finalWhere), false);
+		return 1;
 	}
 
 	private static int testArena(CommandContext<ServerCommandSource> ctx, String id, boolean reload) {
