@@ -31,6 +31,7 @@ public final class NbwContent {
 	public static final String MEDICAL_KIT = "medical_kit";
 	public static final String COMPOST_FARM = "compost_farm";
 	public static final String KITCHEN = "kitchen";
+	public static final String GENERATOR = "generator";
 	public static final String BANDAGE = "bandage";
 	public static final String HAND_CROSSBOW = "hand_crossbow";
 	public static final String HARPOON_GUN = "harpoon_gun";
@@ -49,6 +50,7 @@ public final class NbwContent {
 	public static MedicalKitBlock medicalKit;
 	public static ItemProductBlock compostFarm;
 	public static ItemProductBlock kitchen;
+	public static GeneratorBlock generator;
 	public static RangedWeaponItem handCrossbow;
 	public static RangedWeaponItem harpoonGun;
 	public static RangedWeaponItem musket;
@@ -102,6 +104,12 @@ public final class NbwContent {
 						AbstractBlock.Settings.create().strength(2.0f).requiresTool()));
 		Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, KITCHEN),
 				new BlockItem(kitchen, new Item.Settings()));
+
+		// 电鳗发电机（M4 补，02 §7）：右键给本队电量池充能。
+		generator = Registry.register(Registries.BLOCK, Identifier.of(NBW.MOD_ID, GENERATOR),
+				new GeneratorBlock(AbstractBlock.Settings.create().strength(2.0f).requiresTool()));
+		Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, GENERATOR),
+				new BlockItem(generator, new Item.Settings()));
 
 		// 远程武器（M4-7，09 §2.2）：右键 hitscan。伤害 HP / 装填 tick / 射程 格 / 拉近 格。
 		handCrossbow = Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, HAND_CROSSBOW),

@@ -50,9 +50,12 @@ public final class SeawaterFilterBlock extends Block {
 			return ActionResult.SUCCESS;
 		}
 		lastUse.put(pos, now);
-		sp.getInventory().insertStack(new ItemStack(NbwContent.freshWater, 2));   // 02 §7：30s -> 2 淡水
-		dev.nbw.round.SurvivorService.addProvisions(sp, 2.0);   // 产出 2 份淡水 = 本队 +2 口粮
-		sp.sendMessage(Text.literal("§b[cww] 过滤器产出 2 份淡水"), true);
+		// 02 §7：30s -> 2 淡水；功率不足时效率减半（1 份）
+		double mult = dev.nbw.round.PowerService.multiplierFor(sp);
+		int count = (int) Math.max(1, Math.round(2 * mult));
+		sp.getInventory().insertStack(new ItemStack(NbwContent.freshWater, count));
+		dev.nbw.round.SurvivorService.addProvisions(sp, count);
+		sp.sendMessage(Text.literal("§b[cww] 过滤器产出 " + count + " 份淡水"), true);
 		return ActionResult.SUCCESS;
 	}
 

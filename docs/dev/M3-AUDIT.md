@@ -79,9 +79,11 @@
 | G 营养<20 攀爬失败 | `SurvivalService.isNutritionLow` + `RescueService.stepCling`：LANDED 前查营养，低则**失败 1 次**（掉回水里，第二次照常） |
 | H 结构化埋点 | `MetricsService.appendJsonl`：SETTLE 时追加一行到 `<world>/cww/metrics.jsonl`（match/局时长/首战/末段交战/生产参与率/人数） |
 | J 医疗箱产绷带 | 新增 `content/BandageItem`（右键止血 + 骨折 −30s + 治疗 3HP，消耗 1 个）；`MedicalKitBlock` 改为 60s 产 1 绷带；`SurvivalService.reduceFracture` |
+| D 功率池 | 新增 `round/PowerService`（队级电量 0–20，`multiplierFor` 满效/减半）+ `content/GeneratorBlock`（右键 +5，30s 冷却）；过滤器/厨台/堆肥改走倍率（没电只产一半）；`/cww power` 读数 |
 
 **实测**：补给箱 `Items` 出现 `string×3 + oak_planks×3`（Common 池）；医疗箱产出 `nbw:bandage`；
-`run/world/cww/metrics.jsonl` 出现 `{"match":263,"durationSec":2.7,…}`；单测 252/0。
+`run/world/cww/metrics.jsonl` 出现 `{"match":263,"durationSec":2.7,…}`；
+发电机充能 0→5、过滤器满电产 2 份且电量 5→4；单测 252/0。
 
-**仍未补**（依赖更大系统 / 平台限制）：C 防透视（箱子是方块）、D 功率池、E 事件实际效果、
+**仍未补**（依赖更大系统 / 平台限制）：C 防透视（箱子是方块）、E 事件实际效果（风暴/海怪/倒流）、
 F 水中受伤（Fabric 无改伤害钩子）、I 幸存者招募指标（幸存者还是队级计数）。

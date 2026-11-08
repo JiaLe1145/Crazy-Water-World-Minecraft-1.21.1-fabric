@@ -54,9 +54,12 @@ public final class ItemProductBlock extends Block {
 		}
 		lastUse.put(pos, now);
 		ItemStack out = product.get();
+		double mult = dev.nbw.round.PowerService.multiplierFor(sp);   // 功率不足减半
+		int count = (int) Math.max(1, Math.round(out.getCount() * mult));
+		out.setCount(count);
 		sp.getInventory().insertStack(out);
-		dev.nbw.round.SurvivorService.addProvisions(sp, out.getCount());   // 产出几份 = 本队 +几口粮
-		sp.sendMessage(Text.literal("§a[cww] 产出 " + productName), true);
+		dev.nbw.round.SurvivorService.addProvisions(sp, count);
+		sp.sendMessage(Text.literal("§a[cww] 产出 " + count + " × " + productName), true);
 		return ActionResult.SUCCESS;
 	}
 

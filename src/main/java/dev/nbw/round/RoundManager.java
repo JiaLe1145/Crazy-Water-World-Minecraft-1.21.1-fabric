@@ -332,6 +332,7 @@ public final class RoundManager {
 				SurvivalService.begin(server);   // 生存：参赛者满营养/满水分
 				EventService.begin(server);   // 事件池（M5-1）：排第一发
 				SurvivorService.begin(server);   // 幸存者（M5-2）：每队按人数发人/口粮
+				PowerService.begin(server);   // 功率池（M4 补）：每队电量清零
 				announce("§c对局开始！最后存活队获胜");
 			}
 			case SETTLE -> {
@@ -712,6 +713,8 @@ public final class RoundManager {
 		EventService.reset();   // 事件调度是局内的
 		CombatStats.reset();   // 战绩是局内的
 		SurvivorService.reset();   // 幸存者是局内的
+		PowerService.reset();   // 电量池是局内的
+		dev.nbw.content.GeneratorBlock.reset();   // 发电机冷却表是局内的
 	}
 
 	// ---------------------------------------------------------------- 配置与命令入口
