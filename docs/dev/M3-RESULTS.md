@@ -92,6 +92,7 @@
   - **生产参与率**：用原版生产方块当代理（`crafting_table / furnace / smoker / blast_furnace / anvil /
     brewing_stand / stonecutter / grindstone / loom / cartography_table`），钩在 `BuildService.onUseBlock`
     的「手上不是方块 = 在用方块」分支；M4 的生产设施接上后换成本方判据。
+  - **末段 3 分钟交战数**（Gate G3 判据）：`onPvpDamage` 记每次 PvP 生效的 tick，`finish` 数末段窗口内的次数。
 - 生命周期：`begin`（PLAY 开局）→ 各钩子累加 → `finish`（SETTLE 结算并打一行结论）→ `reset`（局后清计数，
   但保留上一局结论给 `/cww metrics`）。
 - 命令：`/cww metrics`（进行中读数 + 上局结论）。
@@ -104,9 +105,9 @@
 | 首战记录 | 假玩家弯刀攻击一次后 `首战=1s`；日志 `[metrics] 首战：开局后 1s` |
 | 生产参与记录 | 假玩家右键工作台后 `生产参与=1/2`；日志 `[metrics] 生产参与：… 首次使用 Block{minecraft:crafting_table}` |
 | 结算结论 | `/cww stop` 后 `局时长=2.9s 首战=1.9s 生产参与率=0%(0/2)` |
+| 末段 3 分钟交战数 | 两次弯刀命中后结算行 `末段3min交战=2次`（短局窗口覆盖整局） |
 
 ### 还没做的
 
 - **落盘**：目前只进日志与命令，没有写 JSONL/数据库（等部署侧要数据时再接）。
-- **“最后 3 分钟有交战”**：只记了首战，没有记「末段交战次数」；判定 Gate G3 需要再加一个末段计数器。
 - **生产设施口径**：M4 的生产链落地后，把代理方块换成本方设施。

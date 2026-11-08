@@ -25,6 +25,8 @@ public final class MetricsService {
 	private static int firstBloodTick = -1;
 	private static int participants;
 	private static final Set<UUID> productionUsers = new LinkedHashSet<>();
+	/** 每次「玩家打玩家」生效的 tick，用来数「最后 3 分钟交战次数」（Gate G3 判据）。 */
+	private static final java.util.List<Integer> pvpHitTicks = new java.util.ArrayList<>();
 	private static String lastSummary = "（本局还没结束）";
 
 	private MetricsService() {
@@ -36,21 +38,26 @@ public final class MetricsService {
 		startTick = srv.getTicks();
 		firstBloodTick = -1;
 		productionUsers.clear();
+		pvpHitTicks.clear();
 		participants = RoundManager.participantIds().size();
 		lastSummary = "（本局进行中）";
 		NBW.LOGGER.info("[metrics] 开局：participants={}", participants);
 	}
 
-	/** 第一次「玩家打玩家」生效时记首战（被攻速闸门拒掉的不算，那条在 WeaponService 里已提前返回）。 */
+	/** 每次「玩家打玩家」生效都记一笔：首战取第一条，末段交战数用整张表（被攻速闸门拒掉的不算）。 */
 	public static void onPvpDamage(ServerPlayerEntity attacker, ServerPlayerEntity victim) {
-		if (firstBloodTick >= 0 || server == null || attacker == null || victim == null) {
+		if (server == null || attacker == null || victim == null) {
 			return;
 		}
 		if (attacker.getUuid().equals(victim.getUuid())) {
 			return;
 		}
-		firstBloodTick = server.getTicks();
-		NBW.LOGGER.info("[metrics] 首战：开局后 {}s", (firstBloodTick - startTick) / 20);
+		int now = server.getTicks();
+		pvpHitTicks.add(now);
+		if (firstBloodTick < 0) {
+			firstBloodTick = now;
+			NBW.LOGGER.info("[metrics] 首战：开局后 {}s", (firstBloodTick - startTick) / 20);
+		}
 	}
 
 	/** 玩家右键了生产方块（合成台/熔炉/铁砧…）→ 记他参与过生产。 */
@@ -72,11 +79,19 @@ public final class MetricsService {
 		int duration = endTick - startTick;
 		int firstBlood = firstBloodTick < 0 ? -1 : firstBloodTick - startTick;
 		double rate = participants == 0 ? 0.0 : productionUsers.size() * 100.0 / participants;
+		// Gate G3 的「最后 3 分钟有交战」：数末段窗口内的 PvP 次数
+		int lateWindowStart = endTick - 3 * 60 * 20;
+		int lateHits = 0;
+		for (int t : pvpHitTicks) {
+			if (t >= lateWindowStart) {
+				lateHits++;
+			}
+		}
 		lastSummary = String.format(Locale.ROOT,
-				"[metrics] 局时长=%.1fs 首战=%s 生产参与率=%.0f%%(%d/%d)",
+				"[metrics] 局时长=%.1fs 首战=%s 末段3min交战=%d次 生产参与率=%.0f%%(%d/%d)",
 				duration / 20.0,
 				firstBlood < 0 ? "无" : String.format(Locale.ROOT, "%.1fs", firstBlood / 20.0),
-				rate, productionUsers.size(), participants);
+				lateHits, rate, productionUsers.size(), participants);
 		NBW.LOGGER.info("{}", lastSummary);
 	}
 
@@ -105,6 +120,7 @@ public final class MetricsService {
 		firstBloodTick = -1;
 		participants = 0;
 		productionUsers.clear();
+		pvpHitTicks.clear();
 	}
 
 	/** 原版生产方块代理（M4 的生产设施接上后换成本方判据）。 */
