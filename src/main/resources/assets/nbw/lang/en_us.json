@@ -11,5 +11,6 @@
   "item.nbw.remote": "Remote Controller",
   "item.nbw.rope": "Rope",
   "item.nbw.grapnel": "Grapnel",
-  "item.nbw.fresh_water": "Fresh Water"
+  "item.nbw.fresh_water": "Fresh Water",
+  "block.nbw.seawater_filter": "Seawater Filter"
 }

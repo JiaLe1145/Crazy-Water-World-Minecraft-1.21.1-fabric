@@ -53,6 +53,11 @@
           "type": "minecraft:item",
           "name": "nbw:cutlass",
           "weight": 1
+        },
+        {
+          "type": "minecraft:item",
+          "name": "nbw:seawater_filter",
+          "weight": 1
         }
       ]
     }

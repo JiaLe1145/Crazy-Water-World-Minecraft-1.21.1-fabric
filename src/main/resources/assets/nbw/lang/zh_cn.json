@@ -11,5 +11,6 @@
   "item.nbw.remote": "遥控器",
   "item.nbw.rope": "绳索",
   "item.nbw.grapnel": "钩竿",
-  "item.nbw.fresh_water": "淡水"
+  "item.nbw.fresh_water": "淡水",
+  "block.nbw.seawater_filter": "海水过滤器"
 }

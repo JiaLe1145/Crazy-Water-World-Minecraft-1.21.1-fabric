@@ -25,6 +25,7 @@ public final class NbwContent {
 	public static final String ROPE = "rope";
 	public static final String GRAPNEL = "grapnel";
 	public static final String FRESH_WATER = "fresh_water";
+	public static final String SEAWATER_FILTER = "seawater_filter";
 
 	public static RaftCoreBlock raftCore;
 	public static SailBlock sail;
@@ -33,6 +34,7 @@ public final class NbwContent {
 	public static Item rope;
 	public static Item grapnel;
 	public static Item freshWater;
+	public static SeawaterFilterBlock seawaterFilter;
 	public static BlockEntityType<RaftCoreBlockEntity> raftCoreEntity;
 
 	private NbwContent() {
@@ -58,6 +60,12 @@ public final class NbwContent {
 				new OarBlock(AbstractBlock.Settings.create().strength(2.0f).requiresTool()));
 		Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, OAR),
 				new BlockItem(oar, new Item.Settings()));
+
+		// 海水过滤器（M4-4，01 §10）：放在筏上右键运转，产出淡水。功率池本轮不做。
+		seawaterFilter = Registry.register(Registries.BLOCK, Identifier.of(NBW.MOD_ID, SEAWATER_FILTER),
+				new SeawaterFilterBlock(AbstractBlock.Settings.create().strength(2.5f).requiresTool()));
+		Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, SEAWATER_FILTER),
+				new BlockItem(seawaterFilter, new Item.Settings()));
 
 		// 遥控器（问题③）：每筏一个，拿在手上右键进入/退出移动模式。不是武器、不是方块，纯物品。
 		remote = Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, REMOTE),

@@ -678,6 +678,7 @@ public final class RoundManager {
 		LootService.reset();   // 已撒箱子列表是局内的：残留=下一局把旧箱子当成本局的
 		MetricsService.reset();   // 本局计数清空（上一局的一行结论保留给 /cww metrics）
 		SurvivalService.reset();   // 营养/水分是局内的：残留=下一局开局直接是上一局的状态
+		dev.nbw.content.SeawaterFilterBlock.reset();   // 过滤器冷却表是局内的
 	}
 
 	// ---------------------------------------------------------------- 配置与命令入口
