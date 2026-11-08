@@ -78,6 +78,13 @@ public final class ZoneService {
 			lastWarnSecond = -1;
 		}
 
+		// 可视化：每 2 秒把「当前半径 + 下次收缩倒计时」推到 actionbar（不刷聊天）
+		if (ticks % 40 == 0) {
+			String bar = String.format(Locale.ROOT, "§c黑海 半径 %.0f 格%s", radius,
+					warn > 0 ? " §e| 下次收缩 " + warn + "s" : "");
+			sendActionBar(server, bar);
+		}
+
 		double damage = model.damageAt(elapsed);
 		if (ticks % 20 == 0 && damage > 0) {
 			applyDamage(server, radius, damage);
@@ -121,6 +128,16 @@ public final class ZoneService {
 			ServerPlayerEntity p = server.getPlayerManager().getPlayer(id);
 			if (p != null) {
 				p.sendMessage(Text.literal(msg), false);
+			}
+		}
+	}
+
+	/** actionbar（`overlay=true`）：只占屏幕底栏，不刷聊天，适合放圈半径这种常驻读数。 */
+	private static void sendActionBar(MinecraftServer server, String msg) {
+		for (UUID id : RoundManager.participantIds()) {
+			ServerPlayerEntity p = server.getPlayerManager().getPlayer(id);
+			if (p != null) {
+				p.sendMessage(Text.literal(msg), true);
 			}
 		}
 	}
