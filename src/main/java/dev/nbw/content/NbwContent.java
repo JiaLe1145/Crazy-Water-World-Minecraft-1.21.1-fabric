@@ -24,6 +24,7 @@ public final class NbwContent {
 	public static final String REMOTE = "remote";
 	public static final String ROPE = "rope";
 	public static final String GRAPNEL = "grapnel";
+	public static final String FRESH_WATER = "fresh_water";
 
 	public static RaftCoreBlock raftCore;
 	public static SailBlock sail;
@@ -31,6 +32,7 @@ public final class NbwContent {
 	public static Item remote;
 	public static Item rope;
 	public static Item grapnel;
+	public static Item freshWater;
 	public static BlockEntityType<RaftCoreBlockEntity> raftCoreEntity;
 
 	private NbwContent() {
@@ -66,6 +68,10 @@ public final class NbwContent {
 				new ToolItem(false, new Item.Settings().maxCount(1)));
 		grapnel = Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, GRAPNEL),
 				new ToolItem(true, new Item.Settings().maxCount(1)));
+
+		// 淡水（M4-2）：右键喝一口，水分 +40；从补给箱里出。
+		freshWater = Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, FRESH_WATER),
+				new FreshWaterItem(new Item.Settings().maxCount(16)));
 
 		raftCoreEntity = Registry.register(Registries.BLOCK_ENTITY_TYPE,
 				Identifier.of(NBW.MOD_ID, RAFT_CORE),

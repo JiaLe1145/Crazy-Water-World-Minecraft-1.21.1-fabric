@@ -39,6 +39,14 @@
           "type": "minecraft:item",
           "name": "minecraft:cooked_cod",
           "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "nbw:fresh_water",
+          "weight": 2,
+          "functions": [
+            { "function": "minecraft:set_count", "count": { "type": "minecraft:uniform", "min": 2, "max": 3 } }
+          ]
         }
       ]
     }

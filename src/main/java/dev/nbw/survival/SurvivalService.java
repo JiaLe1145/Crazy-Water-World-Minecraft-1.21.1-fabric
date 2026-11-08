@@ -42,12 +42,25 @@ public final class SurvivalService {
 	private SurvivalService() {
 	}
 
-	/** 挂伤害事件：记"最近挨打"用于战斗衰减。由 {@code NBW.onInitialize} 调用。 */
+	/** 挂伤害事件：记"最近挨打"用于战斗衰减；同时挂右键吃东西 → 营养回复。由 {@code NBW.onInitialize} 调用。 */
 	public static void register() {
 		ServerLivingEntityEvents.AFTER_DAMAGE.register((entity, source, base, taken, blocked) -> {
 			if (entity instanceof ServerPlayerEntity sp && taken > 0.0f && !blocked && server != null) {
 				lastDamageTick.put(sp.getUuid(), server.getTicks());
 			}
+		});
+		// 吃原版食物 → 营养回复（M4-2 的代理；熟食/生食按饥饿点数放大 8 倍，约等于 02 的 35/15）
+		net.fabricmc.fabric.api.event.player.UseItemCallback.EVENT.register((player, world, hand) -> {
+			if (!world.isClient() && player instanceof ServerPlayerEntity sp) {
+				var stack = sp.getStackInHand(hand);
+				if (stack.contains(net.minecraft.component.DataComponentTypes.FOOD)) {
+					var food = stack.get(net.minecraft.component.DataComponentTypes.FOOD);
+					if (food != null) {
+						SurvivalService.recoverNutrition(sp, food.nutrition() * 8.0);
+					}
+				}
+			}
+			return net.minecraft.util.TypedActionResult.pass(player.getStackInHand(hand));
 		});
 	}
 
