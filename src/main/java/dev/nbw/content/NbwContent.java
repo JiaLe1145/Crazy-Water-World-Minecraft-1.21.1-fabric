@@ -6,6 +6,8 @@ import net.minecraft.block.Block;
 import net.minecraft.block.entity.BlockEntityType;
 import net.minecraft.item.BlockItem;
 import net.minecraft.item.Item;
+import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
 import net.minecraft.registry.Registries;
 import net.minecraft.registry.Registry;
 import net.minecraft.util.Identifier;
@@ -27,6 +29,8 @@ public final class NbwContent {
 	public static final String FRESH_WATER = "fresh_water";
 	public static final String SEAWATER_FILTER = "seawater_filter";
 	public static final String MEDICAL_KIT = "medical_kit";
+	public static final String COMPOST_FARM = "compost_farm";
+	public static final String KITCHEN = "kitchen";
 
 	public static RaftCoreBlock raftCore;
 	public static SailBlock sail;
@@ -37,6 +41,8 @@ public final class NbwContent {
 	public static Item freshWater;
 	public static SeawaterFilterBlock seawaterFilter;
 	public static MedicalKitBlock medicalKit;
+	public static ItemProductBlock compostFarm;
+	public static ItemProductBlock kitchen;
 	public static BlockEntityType<RaftCoreBlockEntity> raftCoreEntity;
 
 	private NbwContent() {
@@ -74,6 +80,18 @@ public final class NbwContent {
 				new MedicalKitBlock(AbstractBlock.Settings.create().strength(2.0f).requiresTool()));
 		Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, MEDICAL_KIT),
 				new BlockItem(medicalKit, new Item.Settings()));
+
+		// 堆肥农场 / 厨台（M4-4）：右键产食物（面包 / 熟鳕鱼），冷却分别为 45s / 60s。
+		compostFarm = Registry.register(Registries.BLOCK, Identifier.of(NBW.MOD_ID, COMPOST_FARM),
+				new ItemProductBlock(() -> new ItemStack(net.minecraft.item.Items.BREAD), "面包 1 个", 45,
+						AbstractBlock.Settings.create().strength(1.5f)));
+		Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, COMPOST_FARM),
+				new BlockItem(compostFarm, new Item.Settings()));
+		kitchen = Registry.register(Registries.BLOCK, Identifier.of(NBW.MOD_ID, KITCHEN),
+				new ItemProductBlock(() -> new ItemStack(net.minecraft.item.Items.COOKED_COD), "熟鳕鱼 1 个", 60,
+						AbstractBlock.Settings.create().strength(2.0f).requiresTool()));
+		Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, KITCHEN),
+				new BlockItem(kitchen, new Item.Settings()));
 
 		// 遥控器（问题③）：每筏一个，拿在手上右键进入/退出移动模式。不是武器、不是方块，纯物品。
 		remote = Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, REMOTE),

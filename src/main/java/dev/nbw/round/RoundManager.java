@@ -680,6 +680,12 @@ public final class RoundManager {
 		SurvivalService.reset();   // 营养/水分是局内的：残留=下一局开局直接是上一局的状态
 		dev.nbw.content.SeawaterFilterBlock.reset();   // 过滤器冷却表是局内的
 		dev.nbw.content.MedicalKitBlock.reset();   // 医疗箱冷却表是局内的
+		if (dev.nbw.content.NbwContent.compostFarm != null) {
+			dev.nbw.content.NbwContent.compostFarm.resetCooldown();
+		}
+		if (dev.nbw.content.NbwContent.kitchen != null) {
+			dev.nbw.content.NbwContent.kitchen.resetCooldown();
+		}
 	}
 
 	// ---------------------------------------------------------------- 配置与命令入口
