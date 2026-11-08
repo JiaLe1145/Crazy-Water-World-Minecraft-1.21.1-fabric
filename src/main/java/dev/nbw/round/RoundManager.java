@@ -6,6 +6,7 @@ import dev.nbw.arena.ArenaPool;
 import dev.nbw.arena.BuiltinArenaJson;
 import dev.nbw.arena.MapResetService;
 import dev.nbw.arena.SeaTerrain;
+import dev.nbw.loot.LootService;
 import dev.nbw.combat.WeaponService;
 import dev.nbw.construct.BuildService;
 import dev.nbw.rescue.RescueService;
@@ -316,6 +317,7 @@ public final class RoundManager {
 			case PLAY -> {
 				setParticipantsGameMode(GameMode.SURVIVAL);
 				ZoneService.begin(server);   // 黑海圈层：抓半径/伤害表与圈心
+				LootService.spawnPrefill(server);   // 海面物资：按 loot.prefill 撒补给箱
 				announce("§c对局开始！最后存活队获胜");
 			}
 			case SETTLE -> {
@@ -667,6 +669,7 @@ public final class RoundManager {
 		WeaponService.reset();   // 攻速闸门的"上次有效攻击"是局内的：残留=下一局开局被超频卡住
 		MapResetService.cancel();   // 未完成的模板复制不许跨局写到新图上
 		ZoneService.reset();   // 圈层模型与预告状态都是局内的：残留=下一局开局就按上一局的圈算
+		LootService.reset();   // 已撒箱子列表是局内的：残留=下一局把旧箱子当成本局的
 	}
 
 	// ---------------------------------------------------------------- 配置与命令入口

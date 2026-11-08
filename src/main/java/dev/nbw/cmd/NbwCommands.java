@@ -31,6 +31,7 @@ import dev.nbw.rescue.RescueService;
 import dev.nbw.rescue.RopeService;
 import dev.nbw.round.RoundManager;
 import dev.nbw.round.ZoneService;
+import dev.nbw.loot.LootService;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.command.CommandManager;
@@ -92,6 +93,13 @@ public final class NbwCommands {
 		root.then(admin(CommandManager.literal("state").executes(NbwCommands::state)));
 		// 黑海圈层（M3-1）：只读读数，给真人核对"现在半径多少、圈外掉多少血"
 		root.then(admin(CommandManager.literal("zone").executes(NbwCommands::zoneStatus)));
+		// 海面物资（M3-2）：dev 手动撒箱子 + 读数
+		var loot = admin(CommandManager.literal("loot"));
+		loot.then(CommandManager.literal("status").executes(NbwCommands::lootStatus));
+		loot.then(CommandManager.literal("spawn")
+				.then(CommandManager.argument("count", IntegerArgumentType.integer(1, 200))
+						.executes(NbwCommands::lootSpawn)));
+		root.then(loot);
 		root.then(admin(CommandManager.literal("audit")
 				.executes(ctx -> audit(ctx, 20))
 				.then(CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
@@ -745,6 +753,20 @@ public final class NbwCommands {
 	/** {@code /cww zone}：黑海圈层的只读读数（半径 / 每秒伤害 / 圈心）。 */
 	private static int zoneStatus(CommandContext<ServerCommandSource> ctx) {
 		ctx.getSource().sendFeedback(() -> Text.literal(ZoneService.status()), false);
+		return 1;
+	}
+
+	/** {@code /cww loot status}：已撒补给箱数量。 */
+	private static int lootStatus(CommandContext<ServerCommandSource> ctx) {
+		ctx.getSource().sendFeedback(() -> Text.literal(LootService.status()), false);
+		return 1;
+	}
+
+	/** {@code /cww loot spawn <n>}：dev 手动撒 n 个补给箱（整片海随机，不受 prefill 环带限制）。 */
+	private static int lootSpawn(CommandContext<ServerCommandSource> ctx) {
+		int n = IntegerArgumentType.getInteger(ctx, "count");
+		String out = LootService.spawn(ctx.getSource().getServer(), n, 0, 60);
+		ctx.getSource().sendFeedback(() -> Text.literal("[cww] " + out), false);
 		return 1;
 	}
 
