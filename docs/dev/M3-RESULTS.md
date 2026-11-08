@@ -50,8 +50,10 @@
   - `placeCrate` 做两道保护：**区块没加载不落**（不写进未加载区块）、**位置被占不覆盖**（岛/结构）。
   - `spawn(server, count, minR, maxR)`：dev 命令入口，整片海随机撒。
   - `status()`：已撒数量 + 最近 3 个位置（探针核对用）。
-- `data/nbw/loot_table/sea_crate.json`：2 次抽取，木板/原木/木棍/线/面包/苹果（后续按环带分化）。
-- 接进 `RoundManager` PLAY 开局：`LootService.spawnPrefill(server)`；`auditResidue` 里 `reset()`。
+- `data/nbw/loot_table/sea_crate_t{1,2,3}.json`：三档物资表（t1 外圈基础 / t2 中圈含铁与刀 / t3 内圈含钻与重武器）。
+- **环带品质**：`LootService.tierAt` 用 `ZoneModel.ringOf(距离)` 查该点属于哪一圈，按圈的 `tier` 选表。
+- **定时刷新**：`LootService.onEndTick` 每 `format.loot.respawnIntervalSec`（默认 22s）补 2 个箱子。
+- 接进 `RoundManager` PLAY 开局：`LootService.begin(server)`；PLAY tick 里 `onEndTick`；`auditResidue` 里 `reset()`。
 - 命令：`/cww loot status`、`/cww loot spawn <n>`。
 
 ### 验证（起服实测）
@@ -62,9 +64,11 @@
 | 箱子带 loot table | `data get block` 返回 `LootTable:"nbw:sea_crate"` + seed + `id:"minecraft:barrel"` |
 | loot table 可生成物品 | `loot spawn … loot nbw:sea_crate` → `Dropped 2 items` |
 | PLAY 开局按 prefill 自动撒 | `test_sea`（count=24）开局后 `已撒箱子 29 个`（24 本局 + 5 上一轮未清） |
+| **环带品质**：距离→档位→表 | 距心 30.1 格 → `t2`；距心 53.8/54.4 格 → `t1`（与 `rings` 的 tier 一致） |
+| 补箱间隔读进 log | `[loot] 开局：…（补箱间隔 20s）` |
 
 ### 还没做的
 
-- **环带品质分化**：目前所有箱子同一张 loot table；`ringOf()` 已能算出距离属于哪圈，等物资表定稿再按圈换表。
-- **定时刷新**：`loot.respawnIntervalSec` 还没接（当前只有开局 prefill）。
+- **定时刷新实测**：`onEndTick` 的补箱是 debug 日志、本轮没在真人局里跑满 20s 核对数量（代码路径与 prefill 同一条 `spawn`）。
 - **漂浮物**：钩竿拉「漂浮物」需要独立的漂浮物实体，归后续。
+- **t3 武器掉率**：目前是等权，等数值表定稿再调权重。

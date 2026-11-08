@@ -178,6 +178,7 @@ public final class RoundManager {
 		if (machine.phase() == Phase.PLAY) {
 			sweepDeaths();
 			ZoneService.onEndTick(srv);   // 黑海圈层：收缩预告 + 圈外每秒伤害
+			LootService.onEndTick(srv);   // 海面物资：按 respawnIntervalSec 定时补箱
 			RaftSinking.onEndTick(srv);
 			RaftCoreService.onEndTick(srv);
 			WindService.apply(srv);   // 帆：登记风力目标（被动等风，方向跟随前进）
@@ -317,7 +318,7 @@ public final class RoundManager {
 			case PLAY -> {
 				setParticipantsGameMode(GameMode.SURVIVAL);
 				ZoneService.begin(server);   // 黑海圈层：抓半径/伤害表与圈心
-				LootService.spawnPrefill(server);   // 海面物资：按 loot.prefill 撒补给箱
+				LootService.begin(server);   // 海面物资：按 loot.prefill 撒补给箱 + 定补箱间隔
 				announce("§c对局开始！最后存活队获胜");
 			}
 			case SETTLE -> {
@@ -767,6 +768,11 @@ public final class RoundManager {
 	/** 只读：当前/上一局的圈层模型（arena 环带 + format 阶段合成）。 */
 	public static @Nullable ZoneModel zoneOrNull() {
 		return zone;
+	}
+
+	/** 只读：当前/上一局的赛制配置（给 loot 的 respawnIntervalSec 之类读）。 */
+	public static @Nullable ConfigModels.Format formatOrNull() {
+		return format;
 	}
 
 	/** 只读：本局参赛者 UUID（给 ZoneService 结算圈外伤害用）。 */
