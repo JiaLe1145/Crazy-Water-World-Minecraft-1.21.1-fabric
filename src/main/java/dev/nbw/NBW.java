@@ -7,6 +7,7 @@ import dev.nbw.content.NbwContent;
 import dev.nbw.content.NbwWeapons;
 import dev.nbw.net.NbwNetworking;
 import dev.nbw.rescue.RescueService;
+import dev.nbw.survival.SurvivalService;
 import dev.nbw.round.RoundManager;
 import net.fabricmc.api.ModInitializer;
 import org.slf4j.Logger;
@@ -26,6 +27,7 @@ public class NBW implements ModInitializer {
 		BuildService.register();    // 建造规则（01 §4.2）：方块事件必须在阶段系统起来之后挂
 		RescueService.register();     // 落水与扒边（01 §8）：伤害打断要挂在实体事件上
 		WeaponService.register();     // PVP 近战（09 §4）：攻击事件挂在阶段系统之后，只在 PLAY 生效
+		SurvivalService.register();   // 营养/水分（M4-1）：挂伤害事件记"最近挨打"
 		NbwCommands.register();
 		LOGGER.info("NB-Water-World {} initialized (mc 1.21.1 / loader 0.19.3 / Sable 2.0.6)", MOD_VERSION);
 	}

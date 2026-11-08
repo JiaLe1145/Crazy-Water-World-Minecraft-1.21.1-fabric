@@ -33,6 +33,7 @@ import dev.nbw.round.RoundManager;
 import dev.nbw.round.ZoneService;
 import dev.nbw.round.MetricsService;
 import dev.nbw.loot.LootService;
+import dev.nbw.survival.SurvivalService;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.command.CommandManager;
@@ -96,6 +97,17 @@ public final class NbwCommands {
 		root.then(admin(CommandManager.literal("zone").executes(NbwCommands::zoneStatus)));
 		// 埋点与配平回路（M3-3）：局时长/首战/生产参与率
 		root.then(admin(CommandManager.literal("metrics").executes(NbwCommands::metricsStatus)));
+		// 生存（M4-1）：营养/水分读数 + dev 强制设值
+		var survival = admin(CommandManager.literal("survival"));
+		survival.then(CommandManager.literal("status")
+				.then(CommandManager.argument("player", StringArgumentType.word())
+						.executes(NbwCommands::survivalStatus)));
+		survival.then(CommandManager.literal("set")
+				.then(CommandManager.argument("player", StringArgumentType.word())
+						.then(CommandManager.argument("nutrition", DoubleArgumentType.doubleArg(0, 100))
+								.then(CommandManager.argument("hydration", DoubleArgumentType.doubleArg(0, 100))
+										.executes(NbwCommands::survivalSet)))));
+		root.then(survival);
 		// 海面物资（M3-2）：dev 手动撒箱子 + 读数
 		var loot = admin(CommandManager.literal("loot"));
 		loot.then(CommandManager.literal("status").executes(NbwCommands::lootStatus));
@@ -763,6 +775,23 @@ public final class NbwCommands {
 	private static int metricsStatus(CommandContext<ServerCommandSource> ctx) {
 		ctx.getSource().sendFeedback(() -> Text.literal(MetricsService.status()), false);
 		ctx.getSource().sendFeedback(() -> Text.literal("[metrics] 上局结论：" + MetricsService.lastSummary()), false);
+		return 1;
+	}
+
+	/** {@code /cww survival status <玩家>}：营养/水分读数。 */
+	private static int survivalStatus(CommandContext<ServerCommandSource> ctx) {
+		String out = SurvivalService.status(ctx.getSource().getServer(), StringArgumentType.getString(ctx, "player"));
+		ctx.getSource().sendFeedback(() -> Text.literal("[survival] " + out), false);
+		return 1;
+	}
+
+	/** {@code /cww survival set <玩家> <营养> <水分>}：dev 强制设值（探针断言低值 debuff 用）。 */
+	private static int survivalSet(CommandContext<ServerCommandSource> ctx) {
+		String out = SurvivalService.set(ctx.getSource().getServer(),
+				StringArgumentType.getString(ctx, "player"),
+				DoubleArgumentType.getDouble(ctx, "nutrition"),
+				DoubleArgumentType.getDouble(ctx, "hydration"));
+		ctx.getSource().sendFeedback(() -> Text.literal("[survival] " + out), false);
 		return 1;
 	}
 

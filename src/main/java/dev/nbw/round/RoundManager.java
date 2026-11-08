@@ -7,6 +7,7 @@ import dev.nbw.arena.BuiltinArenaJson;
 import dev.nbw.arena.MapResetService;
 import dev.nbw.arena.SeaTerrain;
 import dev.nbw.loot.LootService;
+import dev.nbw.survival.SurvivalService;
 import dev.nbw.combat.WeaponService;
 import dev.nbw.construct.BuildService;
 import dev.nbw.rescue.RescueService;
@@ -179,6 +180,7 @@ public final class RoundManager {
 			sweepDeaths();
 			ZoneService.onEndTick(srv);   // 黑海圈层：收缩预告 + 圈外每秒伤害
 			LootService.onEndTick(srv);   // 海面物资：按 respawnIntervalSec 定时补箱
+			SurvivalService.onEndTick(srv);   // 营养/水分：每秒衰减 + debuff + HUD
 			RaftSinking.onEndTick(srv);
 			RaftCoreService.onEndTick(srv);
 			WindService.apply(srv);   // 帆：登记风力目标（被动等风，方向跟随前进）
@@ -320,6 +322,7 @@ public final class RoundManager {
 				MetricsService.begin(server);   // 埋点：局时长/首战/生产参与率的起点
 				ZoneService.begin(server);   // 黑海圈层：抓半径/伤害表与圈心
 				LootService.begin(server);   // 海面物资：按 loot.prefill 撒补给箱 + 定补箱间隔
+				SurvivalService.begin(server);   // 生存：参赛者满营养/满水分
 				announce("§c对局开始！最后存活队获胜");
 			}
 			case SETTLE -> {
@@ -674,6 +677,7 @@ public final class RoundManager {
 		ZoneService.reset();   // 圈层模型与预告状态都是局内的：残留=下一局开局就按上一局的圈算
 		LootService.reset();   // 已撒箱子列表是局内的：残留=下一局把旧箱子当成本局的
 		MetricsService.reset();   // 本局计数清空（上一局的一行结论保留给 /cww metrics）
+		SurvivalService.reset();   // 营养/水分是局内的：残留=下一局开局直接是上一局的状态
 	}
 
 	// ---------------------------------------------------------------- 配置与命令入口

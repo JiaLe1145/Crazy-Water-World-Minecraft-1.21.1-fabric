@@ -66,7 +66,9 @@ public final class NbwNetworking {
 			server.execute(() -> RemoteService.onMove(player,
 					payload.forward(), payload.backward(), payload.left(), payload.right()));
 		});
-		NBW.LOGGER.info("[net] 已注册 nbw:hold（长按：筏心修复/救援，甲板局部帧量距离）+ nbw:move（遥控器 WASD）");
+		// S2C：生存状态（营养/水分）推给客户端 HUD（M4-1）。只注册 codec，接收器在客户端那一半。
+		PayloadTypeRegistry.playS2C().register(StatusPayload.ID, StatusPayload.CODEC);
+		NBW.LOGGER.info("[net] 已注册 nbw:hold（长按：筏心修复/救援）+ nbw:move（遥控器 WASD）+ nbw:status（S2C 生存状态）");
 	}
 
 	private static void handle(ServerPlayerEntity player, HoldPayload payload) {
