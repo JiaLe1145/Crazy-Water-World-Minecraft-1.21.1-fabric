@@ -12,5 +12,6 @@
   "item.nbw.rope": "绳索",
   "item.nbw.grapnel": "钩竿",
   "item.nbw.fresh_water": "淡水",
-  "block.nbw.seawater_filter": "海水过滤器"
+  "block.nbw.seawater_filter": "海水过滤器",
+  "block.nbw.medical_kit": "医疗箱"
 }

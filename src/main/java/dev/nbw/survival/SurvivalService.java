@@ -183,8 +183,7 @@ public final class SurvivalService {
 	}
 
 	/** dev/命令入口：强制设某人的两项（探针断言用）。返回一行结论。 */
-	public static String set(MinecraftServer srv, String playerName, double nutrition, double hydration) {
-		ServerPlayerEntity p = srv.getPlayerManager().getPlayer(playerName);
+	public static String set(MinecraftServer srv, String playerName, double nutrition, double hydration) {		ServerPlayerEntity p = srv.getPlayerManager().getPlayer(playerName);
 		if (p == null) {
 			return "找不到玩家 " + playerName;
 		}
@@ -192,6 +191,21 @@ public final class SurvivalService {
 		sendStatus(p, SurvivalRule.clamp(nutrition), SurvivalRule.clamp(hydration));
 		return String.format(Locale.ROOT, "已设 %s 营养=%.1f 水分=%.1f", p.getName().getString(),
 				SurvivalRule.clamp(nutrition), SurvivalRule.clamp(hydration));
+	}
+
+	/** 医疗箱：止血。 */
+	public static void cureBleeding(ServerPlayerEntity p) {
+		bleedingUntil.remove(p.getUuid());
+	}
+
+	/** 医疗箱：接骨。 */
+	public static void cureFracture(ServerPlayerEntity p) {
+		fractureUntil.remove(p.getUuid());
+	}
+
+	/** 医疗箱：治疗（不超过上限）。 */
+	public static void heal(ServerPlayerEntity p, float amount) {
+		p.setHealth(Math.min(p.getMaxHealth(), p.getHealth() + amount));
 	}
 
 	/** 一行读数：给 {@code /cww survival}。 */

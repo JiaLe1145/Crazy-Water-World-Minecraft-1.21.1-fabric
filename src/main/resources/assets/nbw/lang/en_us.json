@@ -12,5 +12,6 @@
   "item.nbw.rope": "Rope",
   "item.nbw.grapnel": "Grapnel",
   "item.nbw.fresh_water": "Fresh Water",
-  "block.nbw.seawater_filter": "Seawater Filter"
+  "block.nbw.seawater_filter": "Seawater Filter",
+  "block.nbw.medical_kit": "Medical Kit"
 }

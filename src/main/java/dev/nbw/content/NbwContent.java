@@ -26,6 +26,7 @@ public final class NbwContent {
 	public static final String GRAPNEL = "grapnel";
 	public static final String FRESH_WATER = "fresh_water";
 	public static final String SEAWATER_FILTER = "seawater_filter";
+	public static final String MEDICAL_KIT = "medical_kit";
 
 	public static RaftCoreBlock raftCore;
 	public static SailBlock sail;
@@ -35,6 +36,7 @@ public final class NbwContent {
 	public static Item grapnel;
 	public static Item freshWater;
 	public static SeawaterFilterBlock seawaterFilter;
+	public static MedicalKitBlock medicalKit;
 	public static BlockEntityType<RaftCoreBlockEntity> raftCoreEntity;
 
 	private NbwContent() {
@@ -66,6 +68,12 @@ public final class NbwContent {
 				new SeawaterFilterBlock(AbstractBlock.Settings.create().strength(2.5f).requiresTool()));
 		Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, SEAWATER_FILTER),
 				new BlockItem(seawaterFilter, new Item.Settings()));
+
+		// 医疗箱（M4-4）：止血 + 接骨 + 治疗 5 HP，60s 冷却。
+		medicalKit = Registry.register(Registries.BLOCK, Identifier.of(NBW.MOD_ID, MEDICAL_KIT),
+				new MedicalKitBlock(AbstractBlock.Settings.create().strength(2.0f).requiresTool()));
+		Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, MEDICAL_KIT),
+				new BlockItem(medicalKit, new Item.Settings()));
 
 		// 遥控器（问题③）：每筏一个，拿在手上右键进入/退出移动模式。不是武器、不是方块，纯物品。
 		remote = Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, REMOTE),
