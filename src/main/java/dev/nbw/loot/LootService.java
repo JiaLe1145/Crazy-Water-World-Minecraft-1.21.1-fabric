@@ -39,6 +39,10 @@ public final class LootService {
 	/** 本局已撒出的箱子位置（局后清理用；跨局不残留）。 */
 	private static final List<BlockPos> spawned = new ArrayList<>();
 
+	/** 防蹲点：按 8×8 网格记「点位上一次被用的局号」，最近 2 轮用过的网格不再刷（01 §A4）。 */
+	private static final java.util.Map<Long, Integer> cellLastRound = new java.util.HashMap<>();
+	private static final int CELL_SIZE = 8;
+
 	/** 定时补箱：每 {@code format.loot.respawnIntervalSec} 补 {@link #RESPAWN_BATCH} 个。 */
 	private static final int RESPAWN_BATCH = 2;
 	private static int tick;
@@ -106,24 +110,41 @@ public final class LootService {
 		ServerWorld world = server.getOverworld();
 		Random rnd = new Random(world.getRandom().nextLong());
 		ZoneModel zone = RoundManager.zoneOrNull();
+		int round = RoundManager.machine().matchIndex();
 		int cx = arena.sea.centerX;
 		int cz = arena.sea.centerZ;
 		int y = arena.sea.waterLevel;
 		int ok = 0;
-		for (int i = 0; i < count; i++) {
+		int attempts = 0;
+		int skippedByAntiCamp = 0;
+		int maxAttempts = Math.max(count * 4, count);
+		while (ok < count && attempts < maxAttempts) {
+			attempts++;
 			double angle = rnd.nextDouble() * Math.PI * 2.0;
 			double radius = minR + (maxR - minR) * rnd.nextDouble();
 			int x = cx + (int) Math.round(Math.cos(angle) * radius);
 			int z = cz + (int) Math.round(Math.sin(angle) * radius);
+			long cell = cellKey(x, z);
+			Integer usedRound = cellLastRound.get(cell);
+			if (usedRound != null && usedRound >= round - 2) {
+				skippedByAntiCamp++;
+				continue;   // 防蹲点：最近两轮同一点位已刷过，换地方
+			}
 			BlockPos pos = new BlockPos(x, y, z);
 			Identifier table = tableForTier(tierAt(zone, radius));
 			if (placeCrate(world, pos, table, rnd.nextLong())) {
 				spawned.add(pos);
+				cellLastRound.put(cell, round);
 				ok++;
 			}
 		}
-		NBW.LOGGER.info("[loot] 撒补给箱 {} 个（环带 {}-{} 格）", ok, minR, maxR);
+		NBW.LOGGER.info("[loot] 撒补给箱 {} 个（环带 {}-{} 格，防蹲点跳过 {} 次）", ok, minR, maxR, skippedByAntiCamp);
 		return String.format(Locale.ROOT, "已撒补给箱 %d 个（环带 %d-%d 格）", ok, minR, maxR);
+	}
+
+	/** 8×8 网格的键：防蹲点只需"这一片最近刷过没"，不需要精确坐标。 */
+	private static long cellKey(int x, int z) {
+		return ((long) Math.floorDiv(x, CELL_SIZE) << 32) | (Math.floorDiv(z, CELL_SIZE) & 0xFFFFFFFFL);
 	}
 
 	/** 距离落在哪一圈，就用那一圈的品质（圈层 tier 1..3）；没有圈层模型时退到 t1。 */

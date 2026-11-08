@@ -113,6 +113,11 @@ def main():
         if h0[key] is not None and h1[key] is not None:
             expect(h1[key] < h0[key], "%s 在圈外应掉血（%.1f -> %.1f）" % (key, h0[key], h1[key]))
 
+    print("\n== 3b. 黑海可见性：圈外玩家应带 darkness 效果（视野压暗）")
+    eff = p("data get entity %s active_effects" % bots[0][0].lower())
+    print("      active_effects: " + eff[:140])
+    expect("darkness" in eff.lower(), "圈外玩家应有 minecraft:darkness 效果")
+
     print("\n== 4. 预告广播（日志里有「黑海将在」）")
     # 读不到聊天就用日志兜底：探针环境里更可靠
     log = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "run", "server-console.log")

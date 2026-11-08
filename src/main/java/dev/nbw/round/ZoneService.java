@@ -103,6 +103,9 @@ public final class ZoneService {
 			double d = Math.hypot(p.getX() - centerX, p.getZ() - centerZ);
 			if (d > radius) {
 				p.damage(world.getDamageSources().magic(), (float) damage);
+				// 可见性：黑海里的「视野压暗」（01 §8：伤害之外还要让人厌恶黑海）
+				p.addStatusEffect(new net.minecraft.entity.effect.StatusEffectInstance(
+						net.minecraft.entity.effect.StatusEffects.DARKNESS, 60, 0, false, false, false));
 				hit++;
 			}
 		}

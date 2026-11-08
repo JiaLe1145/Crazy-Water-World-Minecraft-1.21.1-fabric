@@ -20,6 +20,8 @@
   - `reset()`：局后清圈层模型与预告状态。
 - **可视化（2026-11-08 补充）**：每 2 秒把「当前半径 + 下次收缩倒计时」推到 actionbar
   （`sendMessage(Text, true)`，不刷聊天）；收缩/预告仍走聊天公告。
+- **可见性（2026-11-08 补充）**：圈外玩家每秒刷新一次 `minecraft:darkness`（3s）——黑海不只是掉血，
+  还要视野压暗（01 §8）。实测 `active_effects` 带 darkness。
 - 新增 `/cww zone`：只读读数（进行秒数 / 半径 / 圈外伤害 / 圈心 / 已收缩阶段）。
 
 ### 验证（`tools/zone_probe.py`，8/8 PASS）
@@ -35,8 +37,8 @@
 
 ### 还没做的
 
-- **可视化细化**：已有 actionbar（半径 + 倒计时）与聊天公告；没有小地图/边界粒子墙/屏幕框架。
-- **附加效果**：黑海只扣血，没有视野压暗/体温/减速（归 M4 生存系统一起做）。
+- **可视化细化**：已有 actionbar（半径 + 倒计时）、聊天公告、圈外 darkness；没有小地图/边界粒子墙/屏幕框架。
+- **附加效果**：已有「视野压暗」（darkness）；**减速/体温**还没接（归 M4 生存系统；减速要注意别和筏体推进混在一起）。
 - **环带品质/物资刷新**：`ZoneModel.ringOf()` 已就绪，但物资系统（M3-2）尚未接。
 
 ---
@@ -54,6 +56,8 @@
   - `status()`：已撒数量 + 最近 3 个位置（探针核对用）。
 - `data/nbw/loot_table/sea_crate_t{1,2,3}.json`：三档物资表（t1 外圈基础 / t2 中圈含铁与刀 / t3 内圈含钻与重武器）。
 - **环带品质**：`LootService.tierAt` 用 `ZoneModel.ringOf(距离)` 查该点属于哪一圈，按圈的 `tier` 选表。
+- **防蹲点**（2026-11-08 补充，01 §A4）：按 8×8 网格记「点位上一次被用的局号」，
+  最近 2 轮同一点位不再刷（`cellLastRound`）；日志带「防蹲点跳过 N 次」。
 - **定时刷新**：`LootService.onEndTick` 每 `format.loot.respawnIntervalSec`（默认 22s）补 2 个箱子。
 - 接进 `RoundManager` PLAY 开局：`LootService.begin(server)`；PLAY tick 里 `onEndTick`；`auditResidue` 里 `reset()`。
 - 命令：`/cww loot status`、`/cww loot spawn <n>`。
