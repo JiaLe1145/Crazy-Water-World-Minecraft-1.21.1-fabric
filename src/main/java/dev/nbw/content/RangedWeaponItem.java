@@ -72,6 +72,9 @@ public final class RangedWeaponItem extends Item {
 		}
 		sw.getServer().execute(() -> {
 			target.damage(sw.getDamageSources().playerAttack(sp), (float) spec.damage());
+			if (target instanceof ServerPlayerEntity victim) {
+				dev.nbw.combat.CombatStats.onDamage(sp, victim, spec.damage());   // 战绩（M5-3）
+			}
 			if (spec.pullTowardShooter() > 0.0) {
 				pullToward(sp, target, spec.pullTowardShooter());
 			}

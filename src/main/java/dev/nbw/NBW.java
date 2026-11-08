@@ -1,5 +1,6 @@
 package dev.nbw;
 
+import dev.nbw.combat.CombatStats;
 import dev.nbw.combat.WeaponService;
 import dev.nbw.construct.BuildService;
 import dev.nbw.cmd.NbwCommands;
@@ -28,6 +29,7 @@ public class NBW implements ModInitializer {
 		RescueService.register();     // 落水与扒边（01 §8）：伤害打断要挂在实体事件上
 		WeaponService.register();     // PVP 近战（09 §4）：攻击事件挂在阶段系统之后，只在 PLAY 生效
 		SurvivalService.register();   // 营养/水分（M4-1）：挂伤害事件记"最近挨打"
+		CombatStats.register();       // 战绩（M5-3）：挂死亡事件记击杀/阵亡
 		NbwCommands.register();
 		LOGGER.info("NB-Water-World {} initialized (mc 1.21.1 / loader 0.19.3 / Sable 2.0.6)", MOD_VERSION);
 	}

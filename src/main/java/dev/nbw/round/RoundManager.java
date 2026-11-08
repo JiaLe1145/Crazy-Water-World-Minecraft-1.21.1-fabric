@@ -8,6 +8,7 @@ import dev.nbw.arena.MapResetService;
 import dev.nbw.arena.SeaTerrain;
 import dev.nbw.loot.LootService;
 import dev.nbw.survival.SurvivalService;
+import dev.nbw.combat.CombatStats;
 import dev.nbw.combat.WeaponService;
 import dev.nbw.construct.BuildService;
 import dev.nbw.rescue.RescueService;
@@ -334,6 +335,9 @@ public final class RoundManager {
 					announce("§a本局结束：" + (r.isDraw() ? "平局（未分出唯一存活队）" : r.winnerName() + " 获胜")
 							+ "｜原因 " + r.cause() + "｜时长 " + r.durationSeconds() + "s｜存活 "
 							+ r.survivors() + "/" + r.participants());
+				}
+				for (String line : CombatStats.summary(server)) {   // 战绩面板（M5-3）
+					announce(line);
 				}
 				setParticipantsGameMode(GameMode.ADVENTURE);
 			}
@@ -695,6 +699,7 @@ public final class RoundManager {
 			}
 		}
 		EventService.reset();   // 事件调度是局内的
+		CombatStats.reset();   // 战绩是局内的
 	}
 
 	// ---------------------------------------------------------------- 配置与命令入口

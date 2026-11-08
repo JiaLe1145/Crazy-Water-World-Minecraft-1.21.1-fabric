@@ -117,6 +117,7 @@ public final class WeaponService {
 			if (living instanceof ServerPlayerEntity victim) {
 				MetricsService.onPvpDamage(sp, victim);   // 埋点：首战时刻（M3-3）
 				SurvivalService.onWeaponHit(victim, wi.weaponId());   // 弯刀→流血 / 铁头锤→骨折（M4-3）
+				CombatStats.onDamage(sp, victim, spec.damage());   // 战绩：造成伤害（M5-3）
 			}
 		}
 		record(now, sp, target, wi.weaponId(), null);
