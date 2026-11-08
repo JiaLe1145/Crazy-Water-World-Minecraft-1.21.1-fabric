@@ -77,3 +77,34 @@
 
 - **观战 UI**：没有"正在观战 X"的提示、没有自由视角切换快捷键。
 - **回放**：M5-3 的录像回放没做。
+
+---
+
+## 5.4 部署运维脚本（2026-11-08，M5-4）
+
+### 落地
+
+`ops/` 下三组脚本（每个 `.ps1` 配一个 `.bat` 包装，绕过 Windows 执行策略）：
+
+| 脚本 | 作用 |
+|---|---|
+| `deploy.bat` | `gradlew build`（跳单测）→ 复制最新 `nbw-*.jar` 到服务端 `mods/` |
+| `start.bat` | `java -jar server.jar nogui`，日志追加到 `logs/console-<日期>.log`，退出后延迟自动重启 |
+| `backup.bat` | 压缩 `world/` + `config/` 到 `backups/world_<时间戳>.zip`，按 `-Keep` 轮换 |
+
+- `.ps1` 存为 **UTF-8 with BOM**：否则 Windows PowerShell 5.1 按 ANSI 读中文注释，会把字符串里的
+  全角括号误判成代码边界（实测 `deploy.ps1` 报 `Missing closing '}'`，加 BOM 后正常）。
+- `ops/README.md` 写了用法、计划任务示例、恢复演练清单。
+
+### 验证（本机实测）
+
+| 断言 | 实测 |
+|---|---|
+| `deploy.bat`/`deploy.ps1` 部署 | `已部署：…\mods\nbw-0.1.0.jar（397.7 KB）` |
+| `backup.ps1` 备份 + 轮换 | 生成 `world_*.zip`；连跑 4 次后恒为 `-Keep` 个 |
+| `start.ps1` 缺 jar 报错 | `找不到服务端 jar：…\server.jar`（可读错误，不是语法崩） |
+
+### 还没做的
+
+- **RCON 预保存**：备份前没代发 `/save-all flush`（不依赖凭据），计划任务里自己先 save。
+- **跨平台**：只有 Windows 脚本（`.bat` + `.ps1`）；Linux 部署脚本没写。
