@@ -22,11 +22,15 @@ public final class NbwContent {
 	public static final String SAIL = "sail";
 	public static final String OAR = "oar";
 	public static final String REMOTE = "remote";
+	public static final String ROPE = "rope";
+	public static final String GRAPNEL = "grapnel";
 
 	public static RaftCoreBlock raftCore;
 	public static SailBlock sail;
 	public static OarBlock oar;
 	public static Item remote;
+	public static Item rope;
+	public static Item grapnel;
 	public static BlockEntityType<RaftCoreBlockEntity> raftCoreEntity;
 
 	private NbwContent() {
@@ -56,6 +60,12 @@ public final class NbwContent {
 		// 遥控器（问题③）：每筏一个，拿在手上右键进入/退出移动模式。不是武器、不是方块，纯物品。
 		remote = Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, REMOTE),
 				new Item(new Item.Settings().maxCount(1)));
+
+		// 绳索 / 钩竿（09 §2.3 控制工具）：右键使用，绳索拉落水队友、钩竿拉敌方。
+		rope = Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, ROPE),
+				new ToolItem(false, new Item.Settings().maxCount(1)));
+		grapnel = Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, GRAPNEL),
+				new ToolItem(true, new Item.Settings().maxCount(1)));
 
 		raftCoreEntity = Registry.register(Registries.BLOCK_ENTITY_TYPE,
 				Identifier.of(NBW.MOD_ID, RAFT_CORE),

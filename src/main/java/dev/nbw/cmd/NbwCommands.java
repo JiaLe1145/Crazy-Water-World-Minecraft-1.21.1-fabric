@@ -26,6 +26,7 @@ import dev.nbw.raft.RemoteService;
 import dev.nbw.raft.Sailing;
 import dev.nbw.raft.WindService;
 import dev.nbw.rescue.RescueService;
+import dev.nbw.rescue.RopeService;
 import dev.nbw.round.RoundManager;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.item.ItemStack;
@@ -204,6 +205,19 @@ public final class NbwCommands {
 						.then(CommandManager.argument("ticks", IntegerArgumentType.integer(1, 600))
 								.executes(NbwCommands::rescueReach))));
 		root.then(rescue);
+
+		// ---- 抛绳索 / 钩竿（M2 尾巴 / 09 §2.3）：远程道具，一次使用即生效
+		var rope = admin(CommandManager.literal("rope"));
+		rope.then(CommandManager.literal("status").executes(NbwCommands::ropeStatus));
+		rope.then(CommandManager.literal("cast")
+				.then(CommandManager.argument("player", StringArgumentType.word())
+						.executes(NbwCommands::ropeCast)));
+		var grapnel = admin(CommandManager.literal("grapnel"));
+		grapnel.then(CommandManager.literal("cast")
+				.then(CommandManager.argument("player", StringArgumentType.word())
+						.executes(NbwCommands::grapnelCast)));
+		root.then(rope);
+		root.then(grapnel);
 
 		// ---- 长按通道自身的判定面（M2-8）：坐标口径这种"错了不报、只是永远判不够"的东西，
 		// 只能靠把服务端那道判定原样打出来取证。
@@ -430,6 +444,23 @@ public final class NbwCommands {
 	private static int rescueStatus(CommandContext<ServerCommandSource> ctx) {
 		ctx.getSource().sendFeedback(() -> Text.literal(RescueService.status(ctx.getSource().getServer())), false);
 		return 1;
+	}
+
+	private static int ropeStatus(CommandContext<ServerCommandSource> ctx) {
+		ctx.getSource().sendFeedback(() -> Text.literal(RopeService.status()), false);
+		return 1;
+	}
+
+	/** {@code /cww rope cast <玩家>}：模拟"该玩家用绳索抛向最近合格目标"。dev/探针夹具。 */
+	private static int ropeCast(CommandContext<ServerCommandSource> ctx) {
+		return tell(ctx, RopeService.cast(ctx.getSource().getServer(),
+				StringArgumentType.getString(ctx, "player"), false));
+	}
+
+	/** {@code /cww grapnel cast <玩家>}：模拟"该玩家用钩竿拉最近敌方"。dev/探针夹具。 */
+	private static int grapnelCast(CommandContext<ServerCommandSource> ctx) {
+		return tell(ctx, RopeService.cast(ctx.getSource().getServer(),
+				StringArgumentType.getString(ctx, "player"), true));
 	}
 
 	private static int rescueLast(CommandContext<ServerCommandSource> ctx) {
