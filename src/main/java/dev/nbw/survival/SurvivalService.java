@@ -36,6 +36,9 @@ public final class SurvivalService {
 
 	private static final Map<UUID, State> states = new LinkedHashMap<>();
 	private static final Map<UUID, Integer> lastDamageTick = new LinkedHashMap<>();
+	/** 流血/骨折的到期 tick（受伤系统，M4-3）：流血 2♥/s 掉到 1 血自停；骨折 45s 禁冲刺。 */
+	private static final Map<UUID, Integer> bleedingUntil = new LinkedHashMap<>();
+	private static final Map<UUID, Integer> fractureUntil = new LinkedHashMap<>();
 	private static MinecraftServer server;
 	private static int tick;
 
@@ -69,6 +72,8 @@ public final class SurvivalService {
 		server = srv;
 		states.clear();
 		lastDamageTick.clear();
+		bleedingUntil.clear();
+		fractureUntil.clear();
 		tick = 0;
 		for (UUID id : RoundManager.participantIds()) {
 			states.put(id, new State(SurvivalRule.MAX, SurvivalRule.MAX));
@@ -76,12 +81,44 @@ public final class SurvivalService {
 		NBW.LOGGER.info("[survival] 开局：{} 人满状态", states.size());
 	}
 
-	/** PLAY 每 tick：每秒结算一次衰减 + debuff + HUD。 */
+	/** 武器命中：弯刀→流血，铁头锤→骨折（09 §2.1 的特殊效果，M4-3）。 */
+	public static void onWeaponHit(ServerPlayerEntity victim, String weaponId) {
+		if (server == null || victim == null || weaponId == null) {
+			return;
+		}
+		int now = server.getTicks();
+		switch (weaponId) {
+			case "cutlass" -> {
+				bleedingUntil.put(victim.getUuid(), now + 200);   // 10s，期间每秒掉 2♥，掉到 1 血自停
+				victim.sendMessage(net.minecraft.text.Text.literal("§c[cww] 你流血了（找绷带止血）"), true);
+			}
+			case "warhammer" -> {
+				fractureUntil.put(victim.getUuid(), now + 900);   // 45s，禁冲刺
+				victim.sendMessage(net.minecraft.text.Text.literal("§c[cww] 你骨折了（45s 无法冲刺）"), true);
+			}
+			default -> {
+			}
+		}
+	}
+
+	/** PLAY 每 tick：骨折锁冲刺（每 5 tick）；流血 + 营养/水分衰减（每秒）。 */
 	public static void onEndTick(MinecraftServer srv) {
 		if (states.isEmpty()) {
 			return;
 		}
-		if (++tick % 20 != 0) {
+		tick++;
+		int now = srv.getTicks();
+		if (tick % 5 == 0) {
+			for (UUID id : states.keySet()) {
+				if (fractureUntil.getOrDefault(id, 0) > now) {
+					ServerPlayerEntity p = srv.getPlayerManager().getPlayer(id);
+					if (p != null) {
+						p.setSprinting(false);   // 骨折：无法冲刺
+					}
+				}
+			}
+		}
+		if (tick % 20 != 0) {
 			return;
 		}
 		for (Map.Entry<UUID, State> e : states.entrySet()) {
@@ -89,7 +126,16 @@ public final class SurvivalService {
 			if (p == null || p.isDead()) {
 				continue;
 			}
-			boolean combat = srv.getTicks() - lastDamageTick.getOrDefault(e.getKey(), Integer.MIN_VALUE / 2)
+			// 流血：2♥/s = 4 HP/s，掉到 1 血自停（Gate G4：不致死）
+			if (bleedingUntil.getOrDefault(e.getKey(), 0) > now) {
+				float hp = p.getHealth();
+				if (hp > 1.0f) {
+					p.setHealth(Math.max(1.0f, hp - 4.0f));
+				} else {
+					bleedingUntil.remove(e.getKey());
+				}
+			}
+			boolean combat = now - lastDamageTick.getOrDefault(e.getKey(), Integer.MIN_VALUE / 2)
 					< COMBAT_WINDOW_TICKS;
 			double nDecay = SurvivalRule.decay(
 					combat ? SurvivalRule.NUTRITION_PER_MIN_COMBAT : SurvivalRule.NUTRITION_PER_MIN, 20);
@@ -158,16 +204,22 @@ public final class SurvivalService {
 		if (s == null) {
 			return String.format(Locale.ROOT, "%s 没有生存状态（未开局/已出局）", p.getName().getString());
 		}
-		return String.format(Locale.ROOT, "%s 营养=%.1f(%s) 水分=%.1f(%s)｜人数=%d",
+		int now = srv.getTicks();
+		boolean bleeding = bleedingUntil.getOrDefault(p.getUuid(), 0) > now;
+		boolean fractured = fractureUntil.getOrDefault(p.getUuid(), 0) > now;
+		return String.format(Locale.ROOT, "%s 营养=%.1f(%s) 水分=%.1f(%s) 血=%.1f 流血=%s 骨折=%s｜人数=%d",
 				p.getName().getString(), s.nutrition(),
 				SurvivalRule.nutritionLow(s.nutrition()) ? "低" : "正常",
-				s.hydration(), SurvivalRule.hydrationLow(s.hydration()) ? "低" : "正常", states.size());
+				s.hydration(), SurvivalRule.hydrationLow(s.hydration()) ? "低" : "正常",
+				p.getHealth(), bleeding ? "是" : "否", fractured ? "是" : "否", states.size());
 	}
 
 	/** 局后清理：状态与挨打时间都是局内的。 */
 	public static void reset() {
 		states.clear();
 		lastDamageTick.clear();
+		bleedingUntil.clear();
+		fractureUntil.clear();
 		tick = 0;
 	}
 }

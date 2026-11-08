@@ -8,6 +8,7 @@ import dev.nbw.domain.combat.CombatRule;
 import dev.nbw.domain.combat.CombatRule.WeaponSpec;
 import dev.nbw.round.MetricsService;
 import dev.nbw.round.RoundManager;
+import dev.nbw.survival.SurvivalService;
 import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
@@ -115,6 +116,7 @@ public final class WeaponService {
 			applyKnockback(sp, living, spec.knockback());
 			if (living instanceof ServerPlayerEntity victim) {
 				MetricsService.onPvpDamage(sp, victim);   // 埋点：首战时刻（M3-3）
+				SurvivalService.onWeaponHit(victim, wi.weaponId());   // 弯刀→流血 / 铁头锤→骨折（M4-3）
 			}
 		}
 		record(now, sp, target, wi.weaponId(), null);
