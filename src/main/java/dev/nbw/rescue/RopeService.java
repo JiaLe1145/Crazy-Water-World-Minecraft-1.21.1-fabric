@@ -53,6 +53,18 @@ public final class RopeService {
 			return "你没有分队";
 		}
 
+		// 钩竿的第一用途：把海面漂流幸存者拉上筏（招募优先于拉敌人，2026-11-09）
+		if (grapnel) {
+			java.util.UUID floating = dev.nbw.round.SurvivorService.nearestFloating(
+					world, caster.getPos(), LineRule.GRAPNEL_RANGE);
+			if (floating != null) {
+				if (dev.nbw.round.SurvivorService.recruitSurvivor(casterTeam, floating)) {
+					return String.format(Locale.ROOT, "招募了 1 名漂流幸存者（队 %d）", casterTeam);
+				}
+				return "幸存者人口已满，招募失败";
+			}
+		}
+
 		ServerPlayerEntity best = null;
 		double bestDist = Double.MAX_VALUE;
 		String sampleDenied = "没有可拉的人";

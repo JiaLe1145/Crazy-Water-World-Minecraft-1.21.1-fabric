@@ -46,9 +46,11 @@ public final class ItemProductBlock extends Block {
 			return ActionResult.PASS;
 		}
 		int now = sw.getServer().getTicks();
+		int cooldownTicks = (int) Math.round(cooldownSeconds * 20
+				* dev.nbw.round.SurvivorService.productionSpeedFor(sp));   // 有幸存者：−30% 周期
 		Integer last = lastUse.get(pos);
-		if (last != null && now - last < cooldownSeconds * 20) {
-			int remain = (cooldownSeconds * 20 - (now - last)) / 20 + 1;
+		if (last != null && now - last < cooldownTicks) {
+			int remain = (cooldownTicks - (now - last)) / 20 + 1;
 			sp.sendMessage(Text.literal("§e[cww] 设施冷却中（还要 " + remain + "s）"), true);
 			return ActionResult.SUCCESS;
 		}

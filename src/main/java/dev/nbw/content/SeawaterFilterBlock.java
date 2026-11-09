@@ -43,9 +43,11 @@ public final class SeawaterFilterBlock extends Block {
 			return ActionResult.PASS;
 		}
 		int now = sw.getServer().getTicks();
+		int cooldownTicks = (int) Math.round(COOLDOWN_SECONDS * 20
+				* dev.nbw.round.SurvivorService.productionSpeedFor(sp));   // 有幸存者：−30% 周期
 		Integer last = lastUse.get(pos);
-		if (last != null && now - last < COOLDOWN_SECONDS * 20) {
-			int remain = (COOLDOWN_SECONDS * 20 - (now - last)) / 20 + 1;
+		if (last != null && now - last < cooldownTicks) {
+			int remain = (cooldownTicks - (now - last)) / 20 + 1;
 			sp.sendMessage(Text.literal("§e[cww] 过滤器还在运转（还要 " + remain + "s）"), true);
 			return ActionResult.SUCCESS;
 		}

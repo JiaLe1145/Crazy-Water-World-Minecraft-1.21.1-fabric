@@ -37,6 +37,8 @@ public final class SurvivorService {
 	private static final Map<Integer, Double> provisions = new LinkedHashMap<>();
 	/** 每队筏上的幸存者实体 UUID（视觉/占位；先不做 AI/招募）。 */
 	private static final Map<Integer, List<UUID>> villagerIds = new LinkedHashMap<>();
+	/** 海面上的漂流幸存者（可被钩竿拉上筏）。 */
+	private static final List<UUID> floatingIds = new ArrayList<>();
 	private static MinecraftServer server;
 	private static int tick;
 
@@ -64,34 +66,125 @@ public final class SurvivorService {
 
 	/** 在队伍锚点旁放 N 个"站桩"幸存者（村民占位，禁 AI）。 */
 	private static void spawnVillagers(MinecraftServer srv, int team, int count) {
+		List<UUID> list = villagerIds.computeIfAbsent(team, k -> new ArrayList<>());
+		for (int i = 0; i < count; i++) {
+			UUID id = spawnOneVillager(srv, team, i, count);
+			if (id != null) {
+				list.add(id);
+			}
+		}
+	}
+
+	/** 放 1 个筏上幸存者，返回 UUID；失败返 null。 */
+	private static UUID spawnOneVillager(MinecraftServer srv, int team, int index, int total) {
 		var world = srv.getOverworld();
 		var a = RoundManager.anchorAt(team);
 		if (a == null) {
-			return;
+			return null;
 		}
-		List<UUID> list = new ArrayList<>();
+		var v = net.minecraft.entity.EntityType.VILLAGER.create(world);
+		if (v == null) {
+			return null;
+		}
+		double ang = Math.PI * 2.0 * index / Math.max(1, total);
+		v.refreshPositionAndAngles(a.x() + 0.5 + Math.cos(ang) * 1.2, a.y(),
+				a.z() + 0.5 + Math.sin(ang) * 1.2, 0.0f, 0.0f);
+		v.setAiDisabled(true);   // 站桩：不 wander、不打人
+		v.setInvulnerable(true);   // 不被黑海/流弹误杀（它是"口粮压力"的视觉，不是战斗单位）
+		v.setCustomName(Text.literal("§a幸存者·队" + team));
+		v.setCustomNameVisible(true);
+		v.setPersistent();
+		world.spawnEntity(v);
+		return v.getUuid();
+	}
+
+	/** 幸存者人口上限（02 §1：quick/standard/big 2/4/5；这里按 teamSize+2 取简）。 */
+	private static int maxSurvivors() {
+		return Math.max(2, RoundManager.machine().config().teamSize() + 2);
+	}
+
+	/**
+	 * 在海上随机位置放 N 个「漂流幸存者」（可被钩竿拉上筏）。
+	 *
+	 * @return 实际放出数量
+	 */
+	public static int spawnFloating(MinecraftServer srv, int count) {
+		if (srv == null) {
+			return 0;
+		}
+		var world = srv.getOverworld();
+		var arena = RoundManager.arenaOrNull();
+		if (arena == null || arena.sea == null) {
+			return 0;
+		}
+		var rnd = new java.util.Random(world.getRandom().nextLong());
+		int ok = 0;
 		for (int i = 0; i < count; i++) {
 			var v = net.minecraft.entity.EntityType.VILLAGER.create(world);
 			if (v == null) {
 				continue;
 			}
-			double ang = Math.PI * 2.0 * i / Math.max(1, count);
-			v.refreshPositionAndAngles(a.x() + 0.5 + Math.cos(ang) * 1.2, a.y(),
-					a.z() + 0.5 + Math.sin(ang) * 1.2, 0.0f, 0.0f);
-			v.setAiDisabled(true);   // 站桩：不 wander、不打人
-			v.setInvulnerable(true);   // 不被黑海/流弹误杀（它是"口粮压力"的视觉，不是战斗单位）
-			v.setCustomName(Text.literal("§a幸存者·队" + team));
+			double ang = rnd.nextDouble() * Math.PI * 2.0;
+			double r = 20.0 + rnd.nextDouble() * 50.0;
+			v.refreshPositionAndAngles(arena.sea.centerX + Math.cos(ang) * r,
+					arena.sea.waterLevel + 0.5, arena.sea.centerZ + Math.sin(ang) * r, 0.0f, 0.0f);
+			v.setAiDisabled(true);
+			v.setInvulnerable(true);
+			v.setCustomName(Text.literal("§e漂流幸存者"));
 			v.setCustomNameVisible(true);
 			v.setPersistent();
 			world.spawnEntity(v);
-			list.add(v.getUuid());
+			floatingIds.add(v.getUuid());
+			ok++;
 		}
-		villagerIds.put(team, list);
+		NBW.LOGGER.info("[survivor] 海面漂出 {} 个幸存者（可钩竿招募）", ok);
+		return ok;
+	}
+
+	/** 找距 center 最近的漂流幸存者（在 range 内），没有返 null。 */
+	public static UUID nearestFloating(net.minecraft.server.world.ServerWorld world,
+			net.minecraft.util.math.Vec3d center, double range) {
+		UUID best = null;
+		double bestD = range;
+		for (UUID id : floatingIds) {
+			var e = world.getEntity(id);
+			if (e == null) {
+				continue;
+			}
+			double d = e.getPos().distanceTo(center);
+			if (d < bestD) {
+				bestD = d;
+				best = id;
+			}
+		}
+		return best;
+	}
+
+	/** 招募：把一个漂流幸存者加入队伍（+1 人 + 放 1 个筏上实体）。 */
+	public static boolean recruitSurvivor(int team, UUID survivorId) {
+		if (server == null) {
+			return false;
+		}
+		if (survivors.getOrDefault(team, 0) >= maxSurvivors()) {
+			return false;
+		}
+		floatingIds.remove(survivorId);
+		var e = server.getOverworld().getEntity(survivorId);
+		if (e != null) {
+			e.discard();
+		}
+		survivors.merge(team, 1, Integer::sum);
+		UUID id = spawnOneVillager(server, team, 0, 1);
+		if (id != null) {
+			villagerIds.computeIfAbsent(team, k -> new ArrayList<>()).add(id);
+		}
+		announce(server, team, "§a[幸存者] 队伍 N" + team + " 招募了 1 名漂流幸存者（现 "
+				+ survivors.get(team) + "）");
+		return true;
 	}
 
 	private static void removeVillager(int team) {
-		if (server == null) {
-			return;
+		if (server == null) {			return;
 		}
 		List<UUID> list = villagerIds.get(team);
 		if (list == null || list.isEmpty()) {
@@ -158,6 +251,19 @@ public final class SurvivorService {
 			return;
 		}
 		provisions.merge(session.teamIndex(), amount, Double::sum);
+	}
+
+	/**
+	 * 生产岗位效率（02 §9）：有幸存者的队，设施冷却按此倍率缩短（−30% 周期）。
+	 *
+	 * @return 0.7 = 有幸存者、1.0 = 没有（无队伍也按 1.0）
+	 */
+	public static double productionSpeedFor(ServerPlayerEntity player) {
+		var session = RoundManager.machine().session(player.getUuid());
+		if (session == null || session.teamIndex() < 0) {
+			return 1.0;
+		}
+		return survivors.getOrDefault(session.teamIndex(), 0) > 0 ? 0.7 : 1.0;
 	}
 
 	/** 某队的幸存者/口粮读数。 */

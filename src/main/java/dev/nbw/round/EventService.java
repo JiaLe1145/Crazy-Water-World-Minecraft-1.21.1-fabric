@@ -114,7 +114,10 @@ public final class EventService {
 				announce(srv, "§6[事件] 黑海涌动：20s 内圈外伤害 ×1.5");
 			}
 			case "kraken" -> announce(srv, "§6[事件] 海怪出没（待 M5-2）");
-			case "survivor_drift" -> announce(srv, "§6[事件] 幸存者漂流经过（待 M5-2）");
+			case "survivor_drift" -> {
+				int n = SurvivorService.spawnFloating(srv, 2);
+				announce(srv, "§6[事件] 幸存者漂流经过：海面漂出 " + n + " 个（钩竿可招募）");
+			}
 			case "bounty" -> announce(srv, "§6[事件] 悬赏目标已标记（待 M5-3）");
 			default -> announce(srv, "§6[事件] " + event);
 		}
