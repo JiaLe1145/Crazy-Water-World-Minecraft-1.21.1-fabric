@@ -97,7 +97,7 @@
     "candidates": "auto",
     "prefill": {
       "enabled": true,
-      "count": 24,
+      "count": 16,
       "radiusBand": [
         30,
         60
