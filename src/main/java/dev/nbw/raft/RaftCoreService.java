@@ -46,7 +46,14 @@ public final class RaftCoreService {
 	/** keepalive 的有效期（tick）。客户端应至少每这么多 tick 续一次。 */
 	public static final int KEEPALIVE_TICKS = 4;
 
+	/** 筏心 HP（02 §5：200）。 */
+	public static final double CORE_HP = 200.0;
+	/** 有幸存者时筏心受到的破拆倍率（01 §A3-v2：反偷家 ×0.25）。 */
+	public static final double ANTI_BACKSTAB = 0.25;
+
 	private static final Map<Integer, Phase> phases = new LinkedHashMap<>();
+	/** 队号 → 筏心剩余 HP（缺省 CORE_HP）。 */
+	private static final Map<Integer, Double> coreHp = new LinkedHashMap<>();
 	private static final Map<Integer, Channel> channels = new LinkedHashMap<>();
 	private static final Map<Integer, Integer> restoresUsed = new LinkedHashMap<>();
 	/** 队号 → 正在引导的玩家。同一残骸同时只认一个人。 */
@@ -103,12 +110,36 @@ public final class RaftCoreService {
 				teamIndex, ChannelRule.CHANNEL_TICKS / 20, MAX_RESTORES_PER_MATCH);
 	}
 
+	/** 筏心剩余 HP（缺省 CORE_HP）。 */
+	public static double hpOf(int teamIndex) {
+		return coreHp.getOrDefault(teamIndex, CORE_HP);
+	}
+
+	/**
+	 * 玩家用武器破拆筏心：扣 HP；本队还有幸存者时伤害 ×0.25（01 §A3-v2 反偷家）。
+	 *
+	 * @return 本击实际扣掉的血量
+	 */
+	public static double breakCore(int teamIndex, double rawDamage) {
+		boolean anti = dev.nbw.round.SurvivorService.hasSurvivors(teamIndex);
+		double dealt = Math.max(0.0, rawDamage) * (anti ? ANTI_BACKSTAB : 1.0);
+		double hp = Math.max(0.0, hpOf(teamIndex) - dealt);
+		coreHp.put(teamIndex, hp);
+		NBW.LOGGER.info("[raftcore] 队 {} 筏心受击 raw={} 实际={}（有幸存者={}）剩 {}",
+				teamIndex, rawDamage, dealt, anti, hp);
+		if (hp <= 0.0) {
+			markDestroyed(teamIndex);
+		}
+		return dealt;
+	}
+
 	/** 开局发筏 / 局后清理时把筏心摆回完好状态。 */
 	public static void markIntact(int teamIndex) {
 		phases.put(teamIndex, Phase.INTACT);
 		channels.put(teamIndex, Channel.none());
 		holder.remove(teamIndex);
 		keepaliveUntil.remove(teamIndex);
+		coreHp.put(teamIndex, CORE_HP);   // HP 复位
 	}
 
 	// ---------------------------------------------------------------- 引导输入
@@ -302,6 +333,7 @@ public final class RaftCoreService {
 
 	public static void reset() {
 		phases.clear();
+		coreHp.clear();
 		channels.clear();
 		restoresUsed.clear();
 		holder.clear();

@@ -266,6 +266,11 @@ public final class SurvivorService {
 		return survivors.getOrDefault(session.teamIndex(), 0) > 0 ? 0.7 : 1.0;
 	}
 
+	/** 本队还有幸存者吗（反偷家 ×0.25 的判定用，01 §A3-v2）。 */
+	public static boolean hasSurvivors(int team) {
+		return survivors.getOrDefault(team, 0) > 0;
+	}
+
 	/** 某队的幸存者/口粮读数。 */
 	public static String teamStatus(int team) {
 		int count = survivors.getOrDefault(team, 0);

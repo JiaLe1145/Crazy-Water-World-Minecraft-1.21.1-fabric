@@ -9,6 +9,7 @@ import dev.nbw.domain.combat.CombatRule.WeaponSpec;
 import dev.nbw.round.MetricsService;
 import dev.nbw.round.RoundManager;
 import dev.nbw.survival.SurvivalService;
+import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
 import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
@@ -19,6 +20,8 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.EntityHitResult;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
 import net.minecraft.world.World;
 
 import java.util.ArrayDeque;
@@ -63,8 +66,52 @@ public final class WeaponService {
 	/** 挂攻击事件并做首次装载；由 {@code NBW.onInitialize} 调用一次。 */
 	public static void register() {
 		AttackEntityCallback.EVENT.register(WeaponService::onAttack);
+		AttackBlockCallback.EVENT.register(WeaponService::onCoreAttack);
 		String first = reloadWeapons();
-		NBW.LOGGER.info("[combat] 近战武器已挂载：{}", first);
+		NBW.LOGGER.info("[combat] 近战武器已挂载：{}（含筏心破拆）", first);
+	}
+
+	/**
+	 * 用武器左键筏心：按 {@code damage × coreMultiplier} 破拆；本队有幸存者时 ×0.25（反偷家，01 §A3-v2）。
+	 * 自家筏心不打（防误拆）。
+	 */
+	private static ActionResult onCoreAttack(PlayerEntity player, World world, Hand hand, BlockPos pos, Direction side) {
+		if (!(world instanceof ServerWorld sw) || !(player instanceof ServerPlayerEntity sp)) {
+			return ActionResult.PASS;
+		}
+		if (!RoundManager.phase().allowsPvp()) {
+			return ActionResult.PASS;
+		}
+		var be = sw.getBlockEntity(pos);
+		if (!(be instanceof dev.nbw.content.RaftCoreBlockEntity core)) {
+			return ActionResult.PASS;
+		}
+		int team = core.teamIndex();
+		if (team < 0) {
+			return ActionResult.PASS;
+		}
+		var session = RoundManager.machine().session(sp.getUuid());
+		if (session != null && session.teamIndex() == team) {
+			return ActionResult.PASS;   // 自家筏心不拆
+		}
+		ItemStack stack = sp.getStackInHand(Hand.MAIN_HAND);
+		if (!(stack.getItem() instanceof WeaponItem wi)) {
+			return ActionResult.PASS;
+		}
+		WeaponSpec spec = loaded.spec(wi.weaponId());
+		if (spec == null) {
+			return ActionResult.PASS;
+		}
+		long now = sw.getServer().getTicks();
+		Long last = lastValidAttack.get(sp.getUuid());
+		if (last != null && now - last < spec.cooldownTicks()) {
+			return ActionResult.FAIL;   // 冷却内不再破拆
+		}
+		lastValidAttack.put(sp.getUuid(), now);
+		double dealt = dev.nbw.raft.RaftCoreService.breakCore(team, spec.damage() * spec.coreMultiplier());
+		sp.sendMessage(net.minecraft.text.Text.literal("§c[cww] 破拆筏心 -" + Math.round(dealt)), true);
+		record(now, sp, null, wi.weaponId(), "破拆筏心");
+		return ActionResult.FAIL;   // 阻止原版挖方块
 	}
 
 	/** 重读武器表（内置回退 + world 覆盖）。成功返回一行结论，失败返回原因（不抛、不崩）。 */

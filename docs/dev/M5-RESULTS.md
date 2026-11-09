@@ -190,3 +190,31 @@
 - **村民 AI/走动**：仍是站桩，不会跟玩家走。
 - **反偷家 ×0.25**：还没接（需要"敌人靠近幸存者时减伤"的判定）。
 - **招募动画/音效**：没有。
+
+---
+
+## 5.8 反偷家 ×0.25（2026-11-09）
+
+### 落地
+
+- `RaftCoreService` 新增 **筏心 HP**（02 §5：`CORE_HP = 200`）+ `hpOf(team)`；
+  `breakCore(team, raw)` 扣血——**本队还有幸存者时 ×0.25**（01 §A3-v2 `ANTI_BACKSTAB`），
+  血到 0 走既有 `markDestroyed`（残骸 + 30s 沉筏倒计时）。
+- `SurvivorService.hasSurvivors(team)` 作为判定源。
+- **真实入口**：`WeaponService` 挂 `AttackBlockCallback`——用武器左键**敌方**筏心时按
+  `damage × coreMultiplier` 破拆（自家筏心不打、冷却复用近战表、阻止原版挖方块）。
+- `markIntact` 复位 HP；`reset` 清 `coreHp`；命令 `/cww core status` + `/cww core break <队> <伤害>`。
+
+### 验证（起服实测）
+
+| 断言 | 实测 |
+|---|---|
+| 有幸存者时破拆 ×0.25 | `core break 0 100` → `实际=25.00 剩=175.0` |
+| 打到 0 变残骸 | 8 次后 `HP=0.0`、`raftcore status` → `队0=WRECKAGE` |
+| 启动接线 | `[combat] 近战武器已挂载：武器表已加载 5 件（含筏心破拆）` |
+
+### 还没做的
+
+- **幸存者全部失去后恢复原速**：逻辑已写（`hasSurvivors` 为 false 即 ×1.0），但没在真人局里跑过"打光幸存者再拆"。
+- **破拆特效/音效**：只有 actionbar 文字。
+- **`coreMultiplier` 数值**：武器表里的值（木桨 +50% / 铁头锤 +150%）还没按 09 §2.1 逐件核对。

@@ -109,6 +109,14 @@ public final class NbwCommands {
 		root.then(admin(CommandManager.literal("survivor").executes(NbwCommands::survivorStatus)));
 		// 功率池（M4 补）：读数
 		root.then(admin(CommandManager.literal("power").executes(NbwCommands::powerStatus)));
+		// 筏心 HP / 破拆（反偷家 ×0.25）：读数 + dev 强制打
+		var coreNode = admin(CommandManager.literal("core"));
+		coreNode.then(CommandManager.literal("status").executes(NbwCommands::coreHpStatus));
+		coreNode.then(CommandManager.literal("break")
+				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
+						.then(CommandManager.argument("damage", DoubleArgumentType.doubleArg(0, 1000))
+								.executes(NbwCommands::coreHpBreak))));
+		root.then(coreNode);
 		// 生存（M4-1）：营养/水分读数 + dev 强制设值
 		var survival = admin(CommandManager.literal("survival"));
 		survival.then(CommandManager.literal("status")
@@ -823,6 +831,30 @@ public final class NbwCommands {
 	private static int powerStatus(CommandContext<ServerCommandSource> ctx) {
 		ctx.getSource().sendFeedback(() -> Text.literal(
 				dev.nbw.round.PowerService.status()), false);
+		return 1;
+	}
+
+	/** {@code /cww core status}：各队筏心 HP（有幸存者时破拆 ×0.25）。 */
+	private static int coreHpStatus(CommandContext<ServerCommandSource> ctx) {
+		var sb = new StringBuilder("[core] ");
+		for (var team : RoundManager.machine().teams()) {
+			int i = team.index();
+			sb.append(String.format(java.util.Locale.ROOT, "队%d HP=%.1f 幸存者=%s｜",
+					i, dev.nbw.raft.RaftCoreService.hpOf(i),
+					dev.nbw.round.SurvivorService.hasSurvivors(i) ? "有" : "无"));
+		}
+		ctx.getSource().sendFeedback(() -> Text.literal(sb.toString()), false);
+		return 1;
+	}
+
+	/** {@code /cww core break <队> <伤害>}：dev 强制破拆（验证 ×0.25）。 */
+	private static int coreHpBreak(CommandContext<ServerCommandSource> ctx) {
+		int team = IntegerArgumentType.getInteger(ctx, "team");
+		double dmg = DoubleArgumentType.getDouble(ctx, "damage");
+		double dealt = dev.nbw.raft.RaftCoreService.breakCore(team, dmg);
+		ctx.getSource().sendFeedback(() -> Text.literal(String.format(java.util.Locale.ROOT,
+				"[cww] 队%d 筏心受击 实际=%.2f 剩=%.1f", team, dealt,
+				dev.nbw.raft.RaftCoreService.hpOf(team))), false);
 		return 1;
 	}
 
