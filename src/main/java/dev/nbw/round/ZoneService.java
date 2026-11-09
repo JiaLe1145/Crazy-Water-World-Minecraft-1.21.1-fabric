@@ -104,7 +104,9 @@ public final class ZoneService {
 			if (d > radius) {
 				// 配置里 damage 的单位是 ♥（02 §2 表：0.5♥/1.0♥/2.0♥/4.0♥），1♥ = 2 HP。
 				// 之前直接当 HP 扣，实测只有文档的一半（M3 审计 2026-11-08 修）。
-				p.damage(world.getDamageSources().magic(), (float) (damage * 2.0));
+				// 黑海涌动事件期间再 ×1.5（02 §10）。
+				p.damage(world.getDamageSources().magic(),
+						(float) (damage * 2.0 * EventService.zoneDamageMultiplier()));
 				// 可见性：黑海里的「视野压暗」（01 §8：伤害之外还要让人厌恶黑海）
 				p.addStatusEffect(new net.minecraft.entity.effect.StatusEffectInstance(
 						net.minecraft.entity.effect.StatusEffects.DARKNESS, 60, 0, false, false, false));

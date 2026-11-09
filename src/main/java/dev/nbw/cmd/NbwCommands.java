@@ -97,8 +97,12 @@ public final class NbwCommands {
 		root.then(admin(CommandManager.literal("zone").executes(NbwCommands::zoneStatus)));
 		// 埋点与配平回路（M3-3）：局时长/首战/生产参与率
 		root.then(admin(CommandManager.literal("metrics").executes(NbwCommands::metricsStatus)));
-		// 事件池（M5-1）：读数
-		root.then(admin(CommandManager.literal("event").executes(NbwCommands::eventStatus)));
+		// 事件池（M5-1）：读数 + dev 强制触发
+		var eventNode = admin(CommandManager.literal("event").executes(NbwCommands::eventStatus));
+		eventNode.then(CommandManager.literal("fire")
+				.then(CommandManager.argument("name", StringArgumentType.word())
+						.executes(NbwCommands::eventFire)));
+		root.then(eventNode);
 		// 战绩（M5-3）：读数
 		root.then(admin(CommandManager.literal("stats").executes(NbwCommands::statsStatus)));
 		// 幸存者（M5-2）：读数
@@ -790,6 +794,14 @@ public final class NbwCommands {
 	private static int eventStatus(CommandContext<ServerCommandSource> ctx) {
 		ctx.getSource().sendFeedback(() -> Text.literal(
 				dev.nbw.round.EventService.status(ctx.getSource().getServer())), false);
+		return 1;
+	}
+
+	/** {@code /cww event fire <name>}：强制触发指定事件（dev/管理员）。 */
+	private static int eventFire(CommandContext<ServerCommandSource> ctx) {
+		String out = dev.nbw.round.EventService.forceFire(ctx.getSource().getServer(),
+				StringArgumentType.getString(ctx, "name"));
+		ctx.getSource().sendFeedback(() -> Text.literal("[cww] " + out), false);
 		return 1;
 	}
 

@@ -5,6 +5,7 @@ import dev.nbw.content.NbwContent;
 import dev.nbw.domain.raft.HelmModel;
 import dev.nbw.domain.raft.HelmModel.Intent;
 import dev.nbw.domain.raft.SpeedGovernor;
+import dev.nbw.round.EventService;
 import dev.nbw.round.RoundManager;
 import dev.nbw.sable.SableRafts;
 import net.minecraft.item.ItemStack;
@@ -112,6 +113,9 @@ public final class RemoteService {
 			}
 			return false;
 		});
+		if (EventService.stormActive()) {
+			return 0;   // 风暴事件：航行受阻（02 §10），意图仍按窗口过期
+		}
 		ServerWorld world = server.getOverworld();
 		int moved = 0;
 		for (Map.Entry<Integer, HeldIntent> e : intents.entrySet()) {
