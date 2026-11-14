@@ -114,7 +114,7 @@ def main():
     g1 = p("cww guard")
     mg = re.search(r"队0 卫兵=(\d+) 命中=(\d+)", g1)
     expect(mg is not None and int(mg.group(2)) >= 1,
-           "1.2 秒内至少命中 1 次（实测 %s）" % (mg.groups() if mg else None))
+           "1.2 秒内至少命中 1 次（实测 %s）" % ((mg.groups() if mg else "无"),))
 
     print("== 3. 血量补满后退到 12 格外：2.2 秒内不应再掉血")
     # 先撤出射程再治疗：否则"治疗→撤退"之间可能又挨一发，基线会被污染。
@@ -146,7 +146,7 @@ def main():
     print("      " + g[:200])
     m = re.search(r"队0 卫兵=(\d+) 命中=(\d+)", g)
     expect(m is not None and int(m.group(1)) >= 1 and int(m.group(2)) >= 1,
-           "队 0 卫兵存在且至少命中 1 次（%s）" % (m.groups() if m else None))
+           "队 0 卫兵存在且至少命中 1 次（%s）" % ((m.groups() if m else "无"),))
 
     print("== 6. 收尾")
     p("cww abort")

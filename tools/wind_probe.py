@@ -82,6 +82,23 @@ class P:
         return out
 
 
+def raft_forward(p):
+    """筏头的水平方向（`cww wind read` 的 朝向=(x,z)）。取不到就退回正南 (+Z)。"""
+    m = re.search(r"朝向=\(([-\d.]+),\s*([-\d.]+)\)", p.readout(0))
+    return (float(m.group(1)), float(m.group(2))) if m else (0.0, 1.0)
+
+
+def cardinal(v):
+    """把筏头近似到最近的正方向。风是按筏头算顺/逆的（2026-11-07 起）。"""
+    if abs(v[0]) >= abs(v[1]):
+        return "east" if v[0] > 0 else "west"
+    return "south" if v[1] > 0 else "north"
+
+
+def opposite(direction):
+    return {"north": "south", "south": "north", "east": "west", "west": "east"}[direction]
+
+
 def main():
     p = P()
     ok, bad = [], []
@@ -126,7 +143,12 @@ def main():
            "无风时帆不产生任何推力（对照组）")
 
     print("== 2. 关键：顺风应当持续推动，而不是冲一下再停")
-    p("cww wind set north 2.0", quiet=False)
+    # 2026-11-07 起帆按"风在筏前进方向上的分量"算力，所以顺风方向必须跟着筏头走，
+    # 不能再写死 north（筏默认朝南，写死 north 会变成逆风，测出来 0）。
+    fwd = raft_forward(p)
+    tailwind = cardinal(fwd)
+    print("      筏头=(%.3f, %.3f) → 顺风方向=%s" % (fwd[0], fwd[1], tailwind))
+    p("cww wind set %s 2.0" % tailwind, quiet=False)
     curve = p.curve(12)
     print("      速率曲线：%s" % ", ".join("%.3f" % v for v in curve if v is not None))
     vals = [v for v in curve if v is not None]
@@ -156,14 +178,16 @@ def main():
     else:
         print("      方向读数（仅参考，顶壁后无意义）：速度=(%.4f, %.4f)" % (v[0], v[1]))
 
-    print("== 3. 背风必须不产生反向力（否则帆变成倒车挡，玩家看不懂）")
+    print("== 3. 逆风必须不产生反向力（否则帆变成倒车挡，玩家看不懂）")
     p.settle(timeout=60)
-    p("cww wind set south 2.0")
+    headwind = opposite(tailwind)
+    print("      逆风方向=%s" % headwind)
+    p("cww wind set %s 2.0" % headwind)
     leeward = p.curve(6)
     lv = [x for x in leeward if x is not None]
-    print("      背风速率：%s" % ", ".join("%.3f" % x for x in lv))
+    print("      逆风速率：%s" % ", ".join("%.3f" % x for x in lv))
     expect(max(lv or [0]) < 0.08,
-           "朝北的帆遇到南风不产生推力（峰值 %.3f）" % (max(lv) if lv else 0))
+           "逆风（风从筏头吹来）不产生推力（峰值 %.3f）" % (max(lv) if lv else 0))
 
     print("== 4. 无帆的筏不该被风推")
     p("cww wind set calm 0")

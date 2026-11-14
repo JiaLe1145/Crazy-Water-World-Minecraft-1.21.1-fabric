@@ -384,14 +384,33 @@ public final class RaftSpawner {
 	 * <p><b>已知边界</b>：原版箱子没有队伍锁——敌人登筏后也能打开。这是"队伍物资箱"的最小实现，
 	 * 队伍锁/开箱日志留作后续（01 §4.1 的 A1 待批项）。
 	 */
+	/**
+	 * 物资箱的局部格：x=0、桨族空排（桨台已删）。**不能放筏角**——
+	 * 0.5 质量的横向偏置会给筏子一个持续偏航力矩，实测把 7 帆满配的终端速度从
+	 * 0.2205 压到 0.1308（`sea_probe` §8），并让 7 帆筏打转。
+	 * 中线 + 桨族排列既避开帆位（帆取偶数排），也避开筏心 (0,1,0)。
+	 *
+	 * @return {@code {x, y, z}}；边长 < 4 的退化筏返回 null（没有不放筏心的中线桨格）
+	 */
+	public static @Nullable int[] supplyBoxLocal(int side) {
+		if (side < 4) {
+			return null;
+		}
+		return new int[]{0, RaftLayout.FACILITY_Y, RaftLayout.deckStart(side) + 1};
+	}
+
 	private static String placeSupplyBox(ServerWorld world, UUID raftId, int teamIndex, int side) {
-		int x = RaftLayout.deckStart(side);
-		int z = RaftLayout.deckStart(side);
-		if (!SableRafts.setPlotBlock(world, raftId, x, RaftLayout.FACILITY_Y, z,
+		int[] cell = supplyBoxLocal(side);
+		if (cell == null) {
+			NBW.LOGGER.warn("[raftgen] 队 {} 初始筏边长 {} 太小，跳过物资箱", teamIndex, side);
+			return null;
+		}
+		int x = cell[0], y = cell[1], z = cell[2];
+		if (!SableRafts.setPlotBlock(world, raftId, x, y, z,
 				Blocks.CHEST.getDefaultState())) {
 			return "物资箱没能写进 plot";
 		}
-		if (!(SableRafts.plotBlockEntity(world, raftId, x, RaftLayout.FACILITY_Y, z)
+		if (!(SableRafts.plotBlockEntity(world, raftId, x, y, z)
 				instanceof ChestBlockEntity chest)) {
 			return "物资箱方块实体没被创建（方块实体类型不匹配）";
 		}
@@ -406,7 +425,7 @@ public final class RaftSpawner {
 		}
 		chest.markDirty();
 		NBW.LOGGER.info("[raftgen] 队 {} 物资箱落位 local=({}, {}, {})，内容 木桨={} 木板=8 淡水={}",
-				teamIndex, x, RaftLayout.FACILITY_Y, z, paddle != null, NbwContent.freshWater != null);
+				teamIndex, x, y, z, paddle != null, NbwContent.freshWater != null);
 		return null;
 	}
 
@@ -423,8 +442,9 @@ public final class RaftSpawner {
 			return "队 " + teamIndex + " 没有筏";
 		}
 		int side = deckSide();
-		if (!(SableRafts.plotBlockEntity(world, raft, RaftLayout.deckStart(side),
-				RaftLayout.FACILITY_Y, RaftLayout.deckStart(side)) instanceof ChestBlockEntity chest)) {
+		int[] cell = supplyBoxLocal(side);
+		if (cell == null || !(SableRafts.plotBlockEntity(world, raft, cell[0], cell[1], cell[2])
+				instanceof ChestBlockEntity chest)) {
 			return "队 " + teamIndex + " 的物资箱读不到（可能已被拆掉）";
 		}
 		StringBuilder sb = new StringBuilder("队").append(teamIndex).append(" 物资箱[");

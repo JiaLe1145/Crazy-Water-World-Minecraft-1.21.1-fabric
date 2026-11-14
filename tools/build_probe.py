@@ -164,8 +164,10 @@ def live_place(p, name, xyz, item):
     """
     # 遥控器会占住背包格；显式放进 hotbar.0 并选中，保证右键拿的是方块。
     p("item replace entity %s hotbar.0 with %s 64" % (name, item))
-    # 扩建成本（02 §5）：甲板层每格扣 3 木板 + 1 线；不放线的话每次放置都会被拒。
+    # 扩建成本（02 §5）：甲板层每格扣 4 木板（放下木板时其中 1 块抵扣）+ 1 线。
+    # 本探针放的是 dirt（非木板），所以必须另给木板，否则每次放置都会被"0 木板"拒掉。
     p("item replace entity %s hotbar.1 with minecraft:string 64" % name)
+    p("item replace entity %s hotbar.2 with minecraft:oak_planks 16" % name)
     p("player %s hotbar 0" % name)
     p("gamemode survival %s" % name)
     for d in (3.5, 4.5):

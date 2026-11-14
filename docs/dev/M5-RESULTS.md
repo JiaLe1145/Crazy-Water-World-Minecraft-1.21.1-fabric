@@ -321,8 +321,10 @@
 
 ### 落地
 
-- **队伍物资箱**（01 §4.1）：初始筏角落（`deckStart, FACILITY_Y, deckStart`）放原版箱子，
-  内含 **1 木桨 + 8 木板 + 2 淡水**。角落是帆位序列最后一格，不占设施位额度。
+- **队伍物资箱**（01 §4.1）：初始筏**中线、桨族空排** `(0, FACILITY_Y, deckStart+1)` 放原版箱子，
+  内含 **1 木桨 + 8 木板 + 2 淡水**。x=0 对称避免 0.5 质量造成持续偏航；桨族排不占帆位（桨台已删），
+  也不占设施位额度。初版放筏角，实测让 7 帆筏持续偏航、终端速度 0.2205→0.1308；
+  移中线后 1/3/5/7 帆 = 0.045/0.134/0.223/0.311，`sea_probe` **39/39**。
   **已知边界**：原版箱子没有队伍锁，敌人登筏后也能打开——这是最小实现，
   队伍锁/开箱日志留作后续。新增 `/cww supply` 读数（按注册 id 计数）。
 - **扩建成本**（02 §5）：`domain/construct/ExpansionRule`，甲板层（局部 y=0）的**非设施方块**
@@ -349,8 +351,15 @@
 | 旱地 4 秒 | `失温=否` |
 | 扩建扣费（材料够） | 木板 16 → 13、线 4 → 3（probe 不真正放方块，只扣额外 3+1） |
 | 扩建扣费（缺线） | 拒绝并说明缺线；木板保持 13（不预扣） |
-| 汇总 | 物资箱+失温 **9 PASS / 0 FAIL**；扩建 **8 PASS / 0 FAIL** |
+| 汇总 | `p3_probe`（物资箱 + 失温 + 扩建扣费）**14 PASS / 0 FAIL** |
 
-> 验证方式备注同上：本机无可用 Python，用等价 Node RCON 脚本执行；
-> 本次新增 `tools/p3_probe.py`（物资箱 + 失温 + 扩建扣费三组断言），已入库但未实跑；
-> 有环境时请复跑（尤其 `build_probe` / `m2_round` 的放置段，它们已补线备料）。
+> **2026-11-14 全量回归（便携 Python 3.11.9，`py-embed/` 未改系统 PATH）**：
+> `core 19`、`sink 15`、`wind 9`、`raftgen 18`、`build 60`、`m2_round 31 + 1 INCONCLUSIVE`、
+> `survivor 9`、`storm 8`、`spectator 5`、`fairness 5`、`hazard 7`、`loot_clearance 7`、`pvp 9`、
+> `p3 14`、`helmsman 9`、`craftsman 10`、`guard 10`、`sea 39`、`remote 8`、`zone 8`、`seat 8`、
+> `rope 8`、`restart before 3 + after 7`、`g1_guards 9`、`rescue 41 + 1 INCONCLUSIVE` —— **全部 PASS**。
+> 首轮 `seat` / `g1_guards` 红是夹具时序（`restart_probe` 按设计停服、`seat_probe` 没回干净 LOBBY），
+> 重启/清场后复跑全绿；`m1_round` / `sail_probe` 未复跑（未受本次改动影响，`sea_probe` 已覆盖帆速单调性）。
+>
+> 本轮顺手修的探针口径：`wind_probe` 顺/逆风按**筏头**选（旧版写死 north，默认朝南的筏上变成逆风）；
+> `build_probe` 真实放置用 dirt，扩建成本要 4 木板，补 hotbar.2；`guard_probe` 两处 `%s` 直接接 tuple。
