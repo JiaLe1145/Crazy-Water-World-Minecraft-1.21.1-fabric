@@ -18,7 +18,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sea_probe import P, sweep_stale_bots, keep_alive, raft_name, SEA  # noqa: E402
 
-CLEARANCE = 4.0
+CLEARANCE = 5.0
 ok, bad, inc = [], [], []
 
 
@@ -50,8 +50,8 @@ def barrels_near(p, center):
     """返回距筏中心 < CLEARANCE 的 barrel 坐标；y=62 是 test_sea 的水面/预铺层。"""
     cx, cz = int(round(center[0])), int(round(center[2]))
     hits = []
-    for dx in range(-4, 5):
-        for dz in range(-4, 5):
+    for dx in range(-5, 6):
+        for dz in range(-5, 6):
             x, z = cx + dx, cz + dz
             out = p("execute if block %d 62 %d minecraft:barrel" % (x, z))
             if "Test passed" in out or "测试通过" in out or out.strip() == "":

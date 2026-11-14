@@ -90,7 +90,10 @@ def rescue_pulls(p):
 
 def live_place(p, name, xyz):
     """照 build_probe.live_place：假玩家站不住筏面，从水侧下方平视略俯打一发真实右键。"""
-    p("give %s %s 64" % (name, ITEM))
+    # 不能只用 give：开局每人发了一个遥控器，give 会把木板放进别的背包格，
+    # 假玩家主手还拿着遥控器时右键不会放方块。显式放进 hotbar.0 并选中。
+    p("item replace entity %s hotbar.0 with %s 64" % (name, ITEM))
+    p("player %s hotbar 0" % name)
     p("gamemode survival %s" % name)
     for d in (3.5, 4.5):
         for dy in (-1.6, -2.0, -2.4):

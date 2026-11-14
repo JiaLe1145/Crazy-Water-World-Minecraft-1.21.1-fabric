@@ -49,7 +49,7 @@ public final class LootService {
 	 * <p>4×4 筏的半对角线约 2.8 格；取 4.0 留出余量。实测：预铺箱刷在筏角下方会把筏子
 	 * 顶住——目标速度与施力都有、位置却不动，朝向还会倾斜（2026-11-14 test_sea 队1）。
 	 */
-	private static final double RAFT_CLEARANCE = 4.0;
+	private static final double RAFT_CLEARANCE = 5.0;
 
 	/** 定时补箱：每 {@code format.loot.respawnIntervalSec} 补 {@code format.loot.respawnBatch} 个（缺省 4，02 §4）。 */
 	private static int RESPAWN_BATCH = 4;
@@ -238,8 +238,9 @@ public final class LootService {
 			}
 			int cx = (int) Math.floor(p[0]);
 			int cz = (int) Math.floor(p[2]);
-			for (int dx = -4; dx <= 4; dx++) {
-				for (int dz = -4; dz <= 4; dz++) {
+			int r = (int) Math.ceil(RAFT_CLEARANCE);
+			for (int dx = -r; dx <= r; dx++) {
+				for (int dz = -r; dz <= r; dz++) {
 					if (Math.hypot(cx + dx + 0.5 - p[0], cz + dz + 0.5 - p[2]) >= RAFT_CLEARANCE) {
 						continue;
 					}

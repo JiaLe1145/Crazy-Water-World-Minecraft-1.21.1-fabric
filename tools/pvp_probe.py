@@ -104,6 +104,8 @@ def main():
     if not reached:
         return 1
     p.sleep(2)
+    # flat_test 现已被海域探针灌了水；把测试平台清成干燥 11×11，避免水中暴击/击退污染伤害读数。
+    p("fill 994 149 994 1006 152 1006 minecraft:air")
 
     attacker = bots[0][0].lower()
     victim = bots[2][0].lower()   # 队 1 的人
@@ -134,10 +136,12 @@ def main():
     print("\n== 2. 攻速超频：冷却内连打，第二次必须被拒")
     p("tp %s 1000.5 149 1000.5" % attacker)
     p("tp %s 1001.5 149 1000.5" % victim)
+    # 目标加满击退抗性：被击退后离开射程会让第二击直接 miss，测不到攻速闸门。
+    p("attribute %s minecraft:generic.knockback_resistance base set 1.0" % victim)
     p.sleep(0.4)
     aim_and_attack(p, attacker, victim)      # 有效攻击（记录上次有效 tick）
-    # 不等冷却，立刻再 aim + 打一次：距上次 < 12 tick（0.6s），必须超频被拒
-    aim_and_attack(p, attacker, victim)
+    # 不再 look（look 的 RCON 往返可能超过 12 tick）；目标抗性保证还在射程内，立刻补一刀
+    p("player %s attack once" % attacker)
     p.sleep(0.5)
     st2 = weapon_status(p)
     m = re.search(r"超频拒绝=(\d+)", st2)

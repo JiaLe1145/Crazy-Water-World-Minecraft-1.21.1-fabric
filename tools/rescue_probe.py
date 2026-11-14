@@ -375,20 +375,30 @@ def main():
                "落点局部 x/z 必须落在 ±%.2f 内（footprint 内缩 0.75），实测 (%.2f,%.2f)" % (limit, lx, lz))
         expect(abs(ly - 1.0) < 0.01, "落点高度必须是甲板面（局部 y=1.00），实测 %.2f" % ly)
 
-    # 自救那条路同样必须用夹过的落点
-    rr2 = raft_xyz(p, 0)
-    p("tp %s %.2f %.2f %.2f" % ((victim,) + (rr2[0] + half + HULL_OFFSET, WATER_LEVEL - 0.6, rr2[2])))
-    p.sleep(0.5)
-    d0b = horiz_dist(p, victim, raft_xyz(p, 0))
-    p("cww rescue hold %s 60" % victim)
-    p.sleep(2.8)
-    d1b = horiz_dist(p, victim, raft_xyz(p, 0))
-    print("      自救那趟：水平距离 %s → %s 格" % (d0b, d1b))
-    expect(d0b is not None and d0b > half + 0.1,
-           "前置：自救那趟也得从甲板外面起（水平 %s 格 > 半宽 %d），否则结论同样测不出来"
-           % (d0b, half))
-    expect(d1b is not None and d0b is not None and d1b <= half + 0.6 and d1b <= d0b - 0.8,
-           "自救落点同样必须进甲板并且明显向内（%s → %s 格，半宽 %d）" % (d0b, d1b, half))
+    # 自救那条路同样必须用夹过的落点。
+    # 起点要按筏子“现在”的位置重新摆；筏子可能还在漂，先试几次更远的偏移，
+    # 仍然摆不到甲板外就只能 INCONCLUSIVE（由 ClingRuleTest 的落点用例担保），
+    # 不能把“夹具没摆出去”报成产品落点回归。
+    d0b = None
+    for off in (HULL_OFFSET, 2.0, 2.4):
+        rr2 = raft_xyz(p, 0)
+        p("tp %s %.2f %.2f %.2f" % ((victim,) + (rr2[0] + half + off, WATER_LEVEL - 0.6, rr2[2])))
+        p.sleep(0.5)
+        d0b = horiz_dist(p, victim, raft_xyz(p, 0))
+        if d0b is not None and d0b > half + 0.1 and (d0b - half) <= 2.4:
+            break
+    if d0b is None or d0b <= half + 0.1 or (d0b - half) > 2.4:
+        inconclusive("自救起点没能同时满足“甲板外 + 扒边距离内”（水平 %s 格，半宽 %d，"
+                     "扒壳上限 2.5）——落点这条本轮测不出，由 ClingRuleTest 的 landingLocal 用例担保"
+                     % (d0b, half))
+    else:
+        hold_out = p("cww rescue hold %s 60" % victim)
+        print("      hold 回包：%s" % hold_out[:120])
+        p.sleep(2.8)
+        d1b = horiz_dist(p, victim, raft_xyz(p, 0))
+        print("      自救那趟：水平距离 %s → %s 格" % (d0b, d1b))
+        expect(d1b is not None and d1b <= half + 0.6 and d1b <= d0b - 0.8,
+               "自救落点同样必须进甲板并且明显向内（%s → %s 格，半宽 %d）" % (d0b, d1b, half))
 
     print("\n== 7. 长按通道的坐标空间（真客户端那条路，用 cww net probe 取证）")
     p("tp %s %.2f %.2f %.2f" % ((rescuer,) + at_out))

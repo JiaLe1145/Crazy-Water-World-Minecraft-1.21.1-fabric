@@ -40,8 +40,8 @@ from sea_probe import (P, keep_alive, sweep_stale_bots, wait_clean_lobby,  # noq
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FORMAT = "sail_long"
 CAP_ARENA = "test_build"
-CAP_SIDE = 10          # 夹具筏边长：10×10=100 列 → 甲板 101 格，上限才能既 >=100 又只差 11 格
-CAP_FILL = 7 + 4       # cww sail rig 最多 7 面帆 + cww oar rig 4 台桨台 = 11 格
+CAP_SIDE = 10          # 夹具筏边长：10×10=100 列 → 甲板 101 格，上限才能既 >=100 又只差 7 格
+CAP_FILL = 7           # cww sail rig 最多 7 面帆；桨台已随遥控器删除，不能再按 +4 算
 ok = []
 bad = []
 inc = []
@@ -162,7 +162,9 @@ def live_place(p, name, xyz, item):
     假玩家站不住筏面（会穿过甲板落水），从筏子上方往下打基本是空枪。
     实测能稳定命中的站位是"水面侧下方、朝筏子平视略俯 25°"：水平 3.5~4.5 格、dy −1.6~−2.4。
     """
-    p("give %s %s 64" % (name, item))
+    # 遥控器会占住背包格；显式放进 hotbar.0 并选中，保证右键拿的是方块。
+    p("item replace entity %s hotbar.0 with %s 64" % (name, item))
+    p("player %s hotbar 0" % name)
     p("gamemode survival %s" % name)
     for d in (3.5, 4.5):
         for dy in (-1.6, -2.0, -2.4):
