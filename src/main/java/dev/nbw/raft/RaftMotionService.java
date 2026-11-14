@@ -1,12 +1,17 @@
 package dev.nbw.raft;
 
 import dev.nbw.NBW;
+import dev.nbw.cfg.ConfigModels;
+import dev.nbw.domain.arena.HazardRule;
 import dev.nbw.domain.raft.SpeedGovernor;
+import dev.nbw.round.RoundManager;
 import dev.nbw.sable.SableRafts;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.world.ServerWorld;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
@@ -89,6 +94,7 @@ public final class RaftMotionService {
 		Map<Integer, double[]> now_measured = new LinkedHashMap<>();
 		Map<Integer, Double> now_target = new LinkedHashMap<>();
 		Map<Integer, Double> now_peak = new LinkedHashMap<>();
+		List<HazardRule.Zone> hazards = hazardZones();
 		int did = 0;
 		for (Map.Entry<Integer, double[]> e : wanted.entrySet()) {
 			int team = e.getKey();
@@ -97,31 +103,38 @@ public final class RaftMotionService {
 				continue;
 			}
 			double[] v = SpeedGovernor.combine(e.getValue()[0], e.getValue()[1], 1.0, 0.0, 0.0, 0.0);
-			double speed = v[2];
-			if (speed <= 0.0) {
+			double rawSpeed = v[2];
+			if (rawSpeed <= 0.0) {
 				// 抵消干净的请求不进读数：留着上一 tick 的目标会让 目标= 撒谎
 				continue;
 			}
+			double dirX = v[0] / rawSpeed;
+			double dirZ = v[1] / rawSpeed;
 			double[] now = SableRafts.position(world, raft);
+			// 03 §3.2：暗礁/残骸不阻断，只减速；筏心位置是"船体在不在障碍里"的代理。
+			double target = rawSpeed * HazardRule.speedMultiplier(hazards, now[0], now[2]);
+			if (target <= 0.0) {
+				continue;
+			}
 			double[] prev = lastPose.get(team);
 			double actual = 0.0;
 			if (prev != null && !Double.isNaN(now[0]) && !Double.isNaN(now[2])
 					&& !Double.isNaN(prev[0]) && !Double.isNaN(prev[2])) {
 				double dx = now[0] - prev[0];
 				double dz = now[2] - prev[2];
-				actual = SpeedGovernor.actualAlong(dx, dz, v[0] / speed, v[1] / speed);
+				actual = SpeedGovernor.actualAlong(dx, dz, dirX, dirZ);
 				now_measured.put(team, new double[]{dx, dz});
 				samples++;
 			}
-			now_target.put(team, speed);
+			now_target.put(team, target);
 			double[] vv = SableRafts.linearVelocity(world, raft);
 			now_peak.put(team, Math.hypot(vv[0], vv[2]));
 			double mass = SableRafts.mass(world, raft);
-			double impulse = SpeedGovernor.impulse(mass, actual, speed);
+			double impulse = SpeedGovernor.impulse(mass, actual, target);
 			if (impulse <= 0.0) {
 				continue;   // 已经追上目标：这一 tick 一句力都不施（也绝不倒车刹车）
 			}
-			if (SableRafts.push(world, raft, v[0] / speed * impulse, 0.0, v[1] / speed * impulse)) {
+			if (SableRafts.push(world, raft, dirX * impulse, 0.0, dirZ * impulse)) {
 				did++;
 			}
 		}
@@ -145,6 +158,19 @@ public final class RaftMotionService {
 		pushed = did;
 		wanted.clear();
 		return did;
+	}
+
+	/** 把本图 hazards 翻成纯规则可用的区间；没有配置时返回空列表。 */
+	private static List<HazardRule.Zone> hazardZones() {
+		ConfigModels.Arena arena = RoundManager.arenaOrNull();
+		if (arena == null || arena.hazards == null || arena.hazards.isEmpty()) {
+			return List.of();
+		}
+		List<HazardRule.Zone> out = new ArrayList<>();
+		for (ConfigModels.Arena.Hazard h : arena.hazards) {
+			out.add(new HazardRule.Zone(h.type, h.minX, h.minZ, h.maxX, h.maxZ));
+		}
+		return out;
 	}
 
 	/**

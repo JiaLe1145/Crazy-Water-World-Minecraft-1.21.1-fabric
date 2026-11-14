@@ -15,8 +15,11 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
+import net.minecraft.particle.ParticleTypes;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.sound.SoundCategory;
+import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.EntityHitResult;
@@ -109,9 +112,29 @@ public final class WeaponService {
 		}
 		lastValidAttack.put(sp.getUuid(), now);
 		double dealt = dev.nbw.raft.RaftCoreService.breakCore(team, spec.damage() * spec.coreMultiplier());
+		playCoreHitFeedback(sw, pos, team);
 		sp.sendMessage(net.minecraft.text.Text.literal("§c[cww] 破拆筏心 -" + Math.round(dealt)), true);
 		record(now, sp, null, wi.weaponId(), "破拆筏心");
 		return ActionResult.FAIL;   // 阻止原版挖方块
+	}
+
+	/**
+	 * 破拆筏心的表现层：命中一声闷响 + 火星，打空时再补爆炸/烟。
+	 *
+	 * <p>只发声音与粒子，不改任何判定；客户端渲染失败不影响服务端结算。
+	 * 这类效果 RCON 探针看不见，最终只能由真人验收（与 M2 §6 的视觉清单同一口径）。
+	 */
+	private static void playCoreHitFeedback(ServerWorld world, BlockPos pos, int team) {
+		double x = pos.getX() + 0.5;
+		double y = pos.getY() + 0.5;
+		double z = pos.getZ() + 0.5;
+		world.playSound(null, pos, SoundEvents.BLOCK_ANVIL_LAND, SoundCategory.PLAYERS, 0.6f, 1.2f);
+		world.spawnParticles(ParticleTypes.CRIT, x, y, z, 10, 0.35, 0.35, 0.35, 0.12);
+		if (dev.nbw.raft.RaftCoreService.isWreckage(team)) {
+			world.playSound(null, pos, SoundEvents.ENTITY_GENERIC_EXPLODE.value(), SoundCategory.PLAYERS, 1.0f, 0.8f);
+			world.spawnParticles(ParticleTypes.EXPLOSION, x, y, z, 1, 0.0, 0.0, 0.0, 0.0);
+			world.spawnParticles(ParticleTypes.SMOKE, x, y, z, 20, 0.5, 0.5, 0.5, 0.02);
+		}
 	}
 
 	/** 重读武器表（内置回退 + world 覆盖）。成功返回一行结论，失败返回原因（不抛、不崩）。 */
