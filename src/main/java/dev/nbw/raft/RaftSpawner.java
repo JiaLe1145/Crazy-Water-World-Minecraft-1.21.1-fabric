@@ -130,6 +130,12 @@ public final class RaftSpawner {
 		if (block == null) {
 			return "初始筏材质无法解析：" + blockId;
 		}
+		// 上一局/重启残留的旧名是 nbw_raft_<队>_<旧局>，当前局的 clearNameSlot 只认精确名，
+		// 清不到它们；旧筏与出生点上的新筏重叠会把新筏顶住/顶歪。开局按前缀统一清一次。
+		List<String> stale = SableRafts.removeByPrefix(world, NAME_PREFIX);
+		if (!stale.isEmpty()) {
+			NBW.LOGGER.warn("[raftgen] 开局清掉 {} 艘上一局/重启残留的旧筏：{}", stale.size(), stale);
+		}
 		int deckBlocks = SableRafts.deckCount(side);
 		if (arena != null && arena.limits != null && arena.limits.maxBlocksPerRaft > 0
 				&& deckBlocks > arena.limits.maxBlocksPerRaft) {

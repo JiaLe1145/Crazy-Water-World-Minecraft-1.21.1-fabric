@@ -442,6 +442,26 @@ public final class SableRafts {
 
 	// ---------------------------------------------------------------- 查找
 
+	/**
+	 * 删除名字以 {@code prefix} 开头的全部 sub-level。
+	 *
+	 * <p>为什么需要：开局发筏的唯名是 {@code nbw_raft_<队>_<局>}，上一局/重启残留的旧名
+	 * 与当前局不同，{@code findByName} 只认精确名，清不到它们。旧筏与出生点上的新筏重叠时，
+	 * 新筏会被顶住/倾斜（2026-11-14 test_sea 队1 实测）。这里按前缀做一次全局清扫。
+	 *
+	 * @return 被删除条目的 {@code name=id} 清单，给日志与运维核对
+	 */
+	public static List<String> removeByPrefix(ServerWorld world, String prefix) {
+		List<String> removed = new ArrayList<>();
+		for (ServerSubLevel sl : list(world)) {
+			String name = sl.getName();
+			if (name != null && name.startsWith(prefix) && remove(world, sl.getUniqueId())) {
+				removed.add(name + "=" + sl.getUniqueId());
+			}
+		}
+		return removed;
+	}
+
 	/** 按名字找筏（名字来自 {@code /sable name set} 或我们的开局生成逻辑）。重名时取第一个并告警。 */
 	public static @Nullable UUID findByName(ServerWorld world, String name) {
 		ServerSubLevel found = null;

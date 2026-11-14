@@ -4,7 +4,9 @@ import dev.nbw.NBW;
 import dev.nbw.cfg.ConfigModels;
 import dev.nbw.domain.ZoneModel;
 import dev.nbw.domain.loot.LootExclusion;
+import dev.nbw.raft.RaftSpawner;
 import dev.nbw.round.RoundManager;
+import dev.nbw.sable.SableRafts;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.item.ItemStack;
@@ -41,6 +43,14 @@ public final class LootService {
 	private static final java.util.Map<Long, Integer> cellLastRound = new java.util.HashMap<>();
 	private static final int CELL_SIZE = 8;
 
+	/**
+	 * 补给箱离任意在场筏中心的最小水平距离（格）。
+	 *
+	 * <p>4×4 筏的半对角线约 2.8 格；取 4.0 留出余量。实测：预铺箱刷在筏角下方会把筏子
+	 * 顶住——目标速度与施力都有、位置却不动，朝向还会倾斜（2026-11-14 test_sea 队1）。
+	 */
+	private static final double RAFT_CLEARANCE = 4.0;
+
 	/** 定时补箱：每 {@code format.loot.respawnIntervalSec} 补 {@code format.loot.respawnBatch} 个（缺省 4，02 §4）。 */
 	private static int RESPAWN_BATCH = 4;
 	/** 同屏最大漂浮物（02 §4：quick 16 / standard 24 / big 32）；缺省 24。 */
@@ -49,6 +59,8 @@ public final class LootService {
 	private static final int DESPAWN_TICKS = 120 * 20;
 	private static int tick;
 	private static int respawnIntervalTicks = 22 * 20;
+	/** 本局的服务端引用：局后把本局箱子方块还原，避免跨局卡筏/累积。 */
+	private static MinecraftServer server;
 
 	private LootService() {
 	}
@@ -57,6 +69,7 @@ public final class LootService {
 	 * PLAY 开始：读本局补箱间隔 + 按 prefill 撒首批箱子。
 	 */
 	public static void begin(MinecraftServer server) {
+		LootService.server = server;
 		ConfigModels.Format f = RoundManager.formatOrNull();
 		int sec = f != null && f.loot != null && f.loot.respawnIntervalSec > 0 ? f.loot.respawnIntervalSec : 22;
 		int batch = f != null && f.loot != null && f.loot.respawnBatch != null && f.loot.respawnBatch > 0
@@ -67,6 +80,11 @@ public final class LootService {
 		RESPAWN_BATCH = batch;
 		MAX_FLOATING = maxFloating;
 		tick = 0;
+		spawned.clear();   // 上一局的箱子列表不能算进本局同屏上限
+		int cleared = clearNearRafts(server);
+		if (cleared > 0) {
+			NBW.LOGGER.info("[loot] 开局清掉 {} 个刷在筏体附近的旧补给箱", cleared);
+		}
 		String out = spawnPrefill(server);
 		NBW.LOGGER.info("[loot] 开局：{}（补箱间隔 {}s / 每轮 {} 个 / 同屏上限 {}）", out, sec, batch, maxFloating);
 	}
@@ -151,6 +169,7 @@ public final class LootService {
 		int attempts = 0;
 		int skippedByAntiCamp = 0;
 		int skippedByExclude = 0;
+		int skippedByRaft = 0;
 		int maxAttempts = Math.max(count * 4, count);
 		boolean legendary = legendaryUnlocked();
 		List<LootExclusion.Rect> excluded = new ArrayList<>();
@@ -168,6 +187,10 @@ public final class LootService {
 			double radius = minR + (maxR - minR) * rnd.nextDouble();
 			int x = cx + (int) Math.round(Math.cos(angle) * radius);
 			int z = cz + (int) Math.round(Math.sin(angle) * radius);
+			if (tooCloseToRaft(world, x, z)) {
+				skippedByRaft++;   // 箱子不能刷在筏底/筏旁，否则会把筏子顶住（2026-11-14 实测）
+				continue;
+			}
 			if (LootExclusion.contains(x, z, excluded)) {
 				skippedByExclude++;   // 01 §5 / 03 loot.exclude：不刷物资区严格排除
 				continue;
@@ -186,9 +209,63 @@ public final class LootService {
 				ok++;
 			}
 		}
-		NBW.LOGGER.info("[loot] 撒补给箱 {} 个（环带 {}-{} 格，防蹲点跳过 {} 次，排除区跳过 {} 次）",
-				ok, minR, maxR, skippedByAntiCamp, skippedByExclude);
+		NBW.LOGGER.info("[loot] 撒补给箱 {} 个（环带 {}-{} 格，防蹲点跳过 {} 次，排除区跳过 {} 次，靠近筏体跳过 {} 次）",
+				ok, minR, maxR, skippedByAntiCamp, skippedByExclude, skippedByRaft);
 		return String.format(Locale.ROOT, "已撒补给箱 %d 个（环带 %d-%d 格）", ok, minR, maxR);
+	}
+
+	/**
+	 * 开局清掉任意在场筏中心 4 格内的旧补给箱。
+	 *
+	 * <p>为什么不能只靠 {@link #tooCloseToRaft}：那个只拦“新刷”的候选点；上一局/崩溃留下的
+	 * barrel 是实体方块，`reset()` 不会清它，下一局继续顶住筏子。2026-11-14 test_sea 队1
+	 * 就是被旧箱子顶住的。
+	 *
+	 * @return 实际清掉的箱子数
+	 */
+	private static int clearNearRafts(MinecraftServer server) {
+		ConfigModels.Arena arena = RoundManager.arenaOrNull();
+		if (arena == null || arena.sea == null) {
+			return 0;
+		}
+		ServerWorld world = server.getOverworld();
+		int y = arena.sea.waterLevel;
+		int cleared = 0;
+		for (var entry : RaftSpawner.current().entrySet()) {
+			double[] p = SableRafts.position(world, entry.getValue());
+			if (Double.isNaN(p[0]) || Double.isNaN(p[2])) {
+				continue;
+			}
+			int cx = (int) Math.floor(p[0]);
+			int cz = (int) Math.floor(p[2]);
+			for (int dx = -4; dx <= 4; dx++) {
+				for (int dz = -4; dz <= 4; dz++) {
+					if (Math.hypot(cx + dx + 0.5 - p[0], cz + dz + 0.5 - p[2]) >= RAFT_CLEARANCE) {
+						continue;
+					}
+					BlockPos pos = new BlockPos(cx + dx, y, cz + dz);
+					if (world.getBlockState(pos).isOf(Blocks.BARREL)) {
+						world.setBlockState(pos, Blocks.WATER.getDefaultState(), 3);
+						cleared++;
+					}
+				}
+			}
+		}
+		return cleared;
+	}
+
+	/** 候选点是否离任意在场筏太近；筏不在场/读不到位姿时跳过该筏，不阻止刷新。 */
+	private static boolean tooCloseToRaft(ServerWorld world, int x, int z) {
+		for (var entry : RaftSpawner.current().entrySet()) {
+			double[] p = SableRafts.position(world, entry.getValue());
+			if (Double.isNaN(p[0]) || Double.isNaN(p[2])) {
+				continue;
+			}
+			if (Math.hypot(x + 0.5 - p[0], z + 0.5 - p[2]) < RAFT_CLEARANCE) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/** 8×8 网格的键：防蹲点只需"这一片最近刷过没"，不需要精确坐标。 */
@@ -259,9 +336,28 @@ public final class LootService {
 				spawned.size(), MAX_FLOATING, DESPAWN_TICKS / 20, String.join(" ", tail));
 	}
 
-	/** 局后清理：箱子位置是局内状态；方块本身由下一局的地图重置/建海覆盖。 */
+	/**
+	 * 局后清理：把本局撒出的箱子方块还原成水，再清列表。
+	 *
+	 * <p>不能只清列表：`reset()` 后记忆丢失，下一局 `clearNearRafts` 也找不到它们；
+	 * 残留在水面的 barrel 会继续卡筏（2026-11-14 test_sea 实测）或占用同屏上限。
+	 */
 	public static void reset() {
+		if (server != null && !spawned.isEmpty()) {
+			ServerWorld world = server.getOverworld();
+			int removed = 0;
+			for (Crate c : spawned) {
+				if (world.getBlockState(c.pos()).isOf(Blocks.BARREL)) {
+					world.setBlockState(c.pos(), Blocks.WATER.getDefaultState(), 3);
+					removed++;
+				}
+			}
+			if (removed > 0) {
+				NBW.LOGGER.info("[loot] 局后还原 {} 个补给箱方块", removed);
+			}
+		}
 		spawned.clear();
 		tick = 0;
+		server = null;
 	}
 }
