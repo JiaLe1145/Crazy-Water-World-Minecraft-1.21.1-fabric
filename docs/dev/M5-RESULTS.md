@@ -14,6 +14,8 @@
 - 已接**实际效果**的事件：`supply_rain`（补 4 个补给箱，复用 `LootService.spawn`）。
 - 只广播、待后续接系统的事件：`storm` / `kraken` / `black_sea_surge` / `survivor_drift` / `bounty`。
 - 命令：`/cww event`（池大小 / 已触发 / 上次事件 / 下一发倒计时）。
+- **2026-11-14 现状**：调度已改为「先预告 8s、再触发」；storm / black_sea_surge / survivor_drift
+  已有实际效果，kraken / bounty 仍只广播。详见 §5.13。
 
 ### 验证（起服实测，test_3min：pool=["storm"]，间隔 60–90s）
 
@@ -40,6 +42,8 @@
   - 造成伤害：近战在 `WeaponService.onAttack`、远程在 `RangedWeaponItem.use` 里累计。
 - SETTLE 阶段广播多行面板：`—— 本局战绩 ——` + 击杀王前三（击杀数 + 伤害）。
 - 命令：`/cww stats`（击杀/阵亡读数）；`auditResidue` 里 `reset()`。
+- **2026-11-14 补**：SETTLE 时把本局战绩写成
+  `<world>/cww/state/matches/<match>.json`（结构化复盘证据，见 §5.14）。
 
 ### 验证（起服实测）
 
@@ -55,7 +59,8 @@
 
 - **观战/回放**：M5-3 的观战视角、录像回放没做。
 - **MVP 皮肤/舞台**：结算舞台（参考项目那种）按之前裁决不做。
-- **伤害读数**：`/cww stats` 只列击杀/阵亡，没列伤害（面板里有）。
+- ~~**伤害读数**：`/cww stats` 只列击杀/阵亡，没列伤害（面板里有）。~~
+  **2026-11-14 已补**：`/cww stats` 现在按击杀/阵亡/伤害三列各列前 5。
 
 ---
 
@@ -169,7 +174,7 @@
 ### 落地
 
 - **漂流幸存者**：`SurvivorService.spawnFloating(srv, n)` 在海上 20–70 格随机位置放村民（`§e漂流幸存者`）；
-  由事件 `survivor_drift` 触发（每次 2 个）。
+  由事件 `survivor_drift` 触发（2026-11-14 起按 02 §10 改为每次 3–4 个，见 §5.13）。
 - **钩竿招募**：`RopeService.cast`（grapnel）**优先**检查 16 格内有没有漂流幸存者——
   有就招募（+1 人 + 筏上放 1 个实体 + 广播），没有才走原来的"拉敌方"逻辑。
 - **人口上限**：`maxSurvivors = teamSize + 2`（02 §1 的 2/4/5 取简）。
@@ -363,3 +368,121 @@
 >
 > 本轮顺手修的探针口径：`wind_probe` 顺/逆风按**筏头**选（旧版写死 north，默认朝南的筏上变成逆风）；
 > `build_probe` 真实放置用 dirt，扩建成本要 4 木板，补 hotbar.2；`guard_probe` 两处 `%s` 直接接 tuple。
+
+---
+
+## 5.13 事件硬化：8 秒预告 + 幸存者聚集点人数（2026-11-14）
+
+### 落地
+
+- **预告两段式调度**（01 §9 硬约束：提前 5–10s 公告 + 音效）：到点先选中事件并预告 **8s**，
+  预告结束才真正 `fire`。事件在选中那一刻定死，预告名与最终触发名不会对不上。
+- 预告内容：聊天公告（中文事件名 + 一句效果提示）+ 每个参赛者位置放 `BLOCK_NOTE_BLOCK_PLING` 音效。
+- `/cww event` 在预告期间显示 `预告=<id> 还剩=<n>s`；触发后恢复 `下一发=<n>s`。
+- `/cww event fire` 强制触发会清掉待预告事件，避免下一 tick 又自动触发一次。
+- 事件结束公告改用中文名（`物资雨/风暴/海怪袭击/黑海倒流/幸存者聚集点/悬赏令`）。
+- `survivor_drift` 人数从 2 改为 **3–4**（02 §10）；无人小筏仍未做，先只落人数。
+
+### 验证（起服实测，`test_3min` + `flat_test`，2026-11-14）
+
+| 断言 | 实测 |
+|---|---|
+| 开局在“下一发”而不是预告 | `[event] 池=1 已触发=0 上次=无 下一发=69s 间隔=60-90s` |
+| 到点进入预告 | `[event] 池=1 已触发=0 上次=无 预告=storm 还剩=7s 下一发=7s 间隔=60-90s` |
+| 预告阶段不触发 | `已触发=0`（看到预告时） |
+| 预告后触发 | 墙钟差 **7.0s**（服务端窗 8s，轮询粒度 ±1s） |
+| 触发后回到下一发 | `[event] 池=1 已触发=1 上次=storm 下一发=81s 间隔=60-90s` |
+| 日志顺序 | `[预告] 8s 后：风暴` 出现 **1 次**，且位于 `触发 storm` 之前 |
+| 幸存者聚集点人数 | 日志 `[survivor] 海面漂出 3 个幸存者`；`[event] 幸存者聚集点：海面漂出 3 个` |
+| 单测 | `./gradlew test` **291 / 0** |
+
+> **探针文件未落库**：本轮写 `tools/event_probe.py` 时写文件权限被拒（用户拒绝 Write），
+> 因此用等价的 Node RCON 脚本执行了同一组命令与断言；命令与读数已记在上表。
+> 有写权限后应把这段固化进 `tools/event_probe.py`，再按交接 §6.1 的三态汇总补跑一次。
+>
+> 夹具口径：`test_3min` 的事件池是 `["storm"]`、间隔 60–90s，PLAY 硬上限 360s；
+> 假玩家给 `water_breathing + resistance 255 + regeneration 255`，避免缩圈伤害把两队打空。
+
+### 还没做的
+
+- **kraken / bounty 的实际效果**：仍只广播（海怪需要实体，悬赏需要奖励结算）。
+- **事件权重**：仍等概率抽，没有按局内时间加权。
+- **预告音效的真人听感**：服务端放了音效，客户端实际音量/时机需真人验收。
+- **事件叠加规则**：预告只在没有 `activeEvent` 时开始；若风暴持续时间跨过下一发间隔，
+  会等风暴结束再预告，不会抢窗口。这条是当前实现口径，没有额外机制。
+
+---
+
+## 5.14 战绩落盘：`state/matches/<match>.json`（2026-11-14）
+
+### 落地
+
+- `CombatStats.persist(server)` 在 **SETTLE** 阶段调用（`RoundManager.onPhaseEnter`），写
+  `<world>/cww/state/matches/<match>.json`。字段：
+  - 局级：`match`、`recordedAt`、`winner`、`cause`、`durationSec`、`survivors`、`participants`；
+  - 每人：`uuid`、`name`、`team`、`kills`、`deaths`、`damage`。
+- 落盘失败只写 `WARN`，不阻断结算；`RETURN` 阶段仍按原逻辑 `reset()` 清内存。
+- **修正了两个实测发现的问题**（不是推测）：
+  1. **路径**：初版写成 `<world>/state/matches`，与既有的 `<world>/cww/state/round.json` 目录约定不一致；
+     实测日志给出的是 `run/world/state/matches/98.json`。已改为 `<world>/cww/state/matches`。
+  2. **名字丢失**：玩家死亡后实体被移除（Carpet 假玩家尤其如此），SETTLE 时
+     `getPlayerManager().getPlayer(uuid)` 查不到人，`/cww stats` 把阵亡者打成 UUID 前缀
+     （实测 `阵亡 d4475a2a=1`）。现在在伤害/死亡钩子处缓存 `UUID → 名字`，
+     面板与 JSON 都使用缓存名（实测 `阵亡 xb8558=1`）。
+
+### 验证（起服实测，`test_3min` + `flat_test`，2026-11-14）
+
+| 断言 | 实测 |
+|---|---|
+| 砍刀命中并记录伤害 | `[survival] xb8558 … 血=5.0 流血=是`（真实 `onAttack` 路径） |
+| 击杀/阵亡名字 | `[stats] 击杀 xa8558=1 ｜阵亡 xb8558=1`（不再出现 UUID 前缀） |
+| 文件位置 | `run/world/cww/state/matches/99.json` 存在 |
+| JSON 内容 | `{"match":99,"winner":"赤队","cause":"WINNER_DECIDED","durationSec":44,"survivors":1,"participants":2,"players":[{"name":"xa8558","kills":1,"damage":9.0,…},{"name":"xb8558","deaths":1,…}]}` |
+| 汇总 | **12 PASS / 0 FAIL** |
+| 单测 | `./gradlew test` **291 / 0** |
+
+> 本轮同样用等价的 Node RCON 脚本执行（`tools/event_probe.py` / 战绩探针因写文件权限未落库）；
+> 需要补的探针：`tools/event_probe.py`、`tools/stats_probe.py`（命令与断言已记在 §5.13 与本表）。
+
+### 还没做的
+
+- **更多局级字段**：02 §11.2 还要求每队死亡时间、物资拾取分布、状态归零次数、航行次数、
+  事件响应；当前 JSON 只落了战绩与胜负结果，其余等复盘需求明确后再加，不先造字段。
+- **跨局汇总**：`matches/` 是逐局文件，没有自动聚合（P50 局时长、生产参与率等仍看
+  `cww/metrics.jsonl` 或人工汇总）。
+- **外观解锁**：01 §A11 的"外观解锁（无数值）"仍未做，等美术与结算 UI 一起。
+
+---
+
+## 5.15 黑海倒流：边界外扩 10%（2026-11-14）
+
+### 落地
+
+- `EventService.zoneRadiusMultiplier()`：`black_sea_surge` 生效期间返回 **1.10**，其余 1.0。
+- `ZoneService` 统一用**有效半径**（`model.radiusAt(sec) × 倍率`）做：
+  收缩公告、actionbar 倒计时、圈外伤害判定、`/cww zone` 读数。
+  这样不会出现“公告一个半径、伤害按另一个半径算”的分叉。
+- 事件公告改为：`黑海倒流：20s 内边界外扩 10%、圈外伤害 ×1.5`。
+- 事件结束（20s 到期）后倍率回到 1.0，边界立即收回；圈外玩家从下一 tick 起按基础半径判定。
+
+### 验证（起服实测，`test_3min` + `flat_test`，2026-11-14）
+
+| 断言 | 实测 |
+|---|---|
+| 开局基础半径 | `[zone] 进行 4s 半径=60.0` |
+| 事件期间外扩 | `[zone] 进行 4s 半径=66.0`（60 × 1.10） |
+| 20s 后恢复 | `[zone] 进行 26s 半径=60.0` |
+| 汇总 | **5 PASS / 0 FAIL** |
+| 单测 | `./gradlew test` **291 / 0** |
+
+> 夹具注意：`flat_test` 的第一段缩圈在 30s 触发，假玩家必须给
+> `resistance 255 + regeneration 255`，否则会在 30s 后被圈外伤害打空、提前 SETTLE，
+> 测试就永远读不到“事件结束后的半径”（本轮第一次就踩了这条，日志显示 `存活 0/2`）。
+
+### 还没做的 / 当前口径
+
+- **“随后伤害 ×1.5”**：02 §10 的原文是“边界外扩 10%，随后 P 段伤害 ×1.5”。
+  当前实现是**事件生效的 20s 内**圈外伤害 ×1.5（沿用 M3 补的旧逻辑），
+  不是“事件结束后再进入一个增伤窗口”。这是当前口径，若要做成“随后”的独立窗口，
+  需要再加一个 20s 的后效状态，属于新数值，等用户裁决。
+- **边界粒子墙/小地图**：仍只有 actionbar + darkness，没有视觉边界。

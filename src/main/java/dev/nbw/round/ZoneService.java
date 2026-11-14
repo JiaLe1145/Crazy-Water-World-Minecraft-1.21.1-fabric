@@ -60,7 +60,9 @@ public final class ZoneService {
 		}
 		int ticks = RoundManager.machine().tickInPhase();
 		int elapsed = ticks / 20;
-		double radius = model.radiusAt(elapsed);
+		// 黑海倒流事件会把边界短暂外扩 10%（EventService.zoneRadiusMultiplier）；
+		// 这里用“有效半径”统一做公告、actionbar 与圈外伤害判定，避免三处各算一套。
+		double radius = model.radiusAt(elapsed) * EventService.zoneRadiusMultiplier();
 
 		int stage = currentStage(elapsed);
 		if (stage > lastAnnouncedStage) {
@@ -157,8 +159,8 @@ public final class ZoneService {
 		int elapsed = RoundManager.machine().tickInPhase() / 20;
 		return String.format(Locale.ROOT,
 				"[zone] 进行 %ds 半径=%.1f 圈外伤害=%.2f/s 圈心=(%d,%d) 已收缩阶段=%d",
-				elapsed, model.radiusAt(elapsed), model.damageAt(elapsed), centerX, centerZ,
-				lastAnnouncedStage);
+				elapsed, model.radiusAt(elapsed) * EventService.zoneRadiusMultiplier(),
+				model.damageAt(elapsed), centerX, centerZ, lastAnnouncedStage);
 	}
 
 	/** 局后清理：圈层是局内状态，跨局不许残留。 */

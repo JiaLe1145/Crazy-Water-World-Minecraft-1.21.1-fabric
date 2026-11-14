@@ -357,6 +357,7 @@ public final class RoundManager {
 				for (String line : CombatStats.summary(server)) {   // 战绩面板（M5-3）
 					announce(line);
 				}
+				CombatStats.persist(server);   // 战绩落盘（M5-3）：state/matches/<match>.json
 				setParticipantsGameMode(GameMode.ADVENTURE);
 			}
 			case RETURN -> {
