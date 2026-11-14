@@ -336,8 +336,9 @@
   `/cww survival status` 增加 `失温=是/否`；进入/解除各发一次 actionbar。
   **没做**：篝火/干衣这类主动恢复物（02 §8 的对应生产物）；失温本身不掉血。
 - 单测 +7（`ExpansionRuleTest` 3 + `HypothermiaRuleTest` 4）；总数 **291/0**。
-- 现有探针备料已更新：`build_probe.py` / `m2_round.py` 的 `live_place` 会在 hotbar.1 放 64 线，
-  否则新扩建成本会把它们的放置全部拒掉。
+- 现有探针已适配：`build_probe.py` / `m2_round.py` 的 `live_place` 会在 hotbar.1 放 64 线，
+  否则新扩建成本会把它们的放置全部拒掉；`build_probe` 初始方块数与 cap 上限各 +1（物资箱 1 格）；
+  `m2_round.py` / `raftgen_probe.py` 初始质量 9.0 → **9.5**（物资箱 0.5）。
 
 ### 验证（起服实测，flat_test，2026-11-14）
 
