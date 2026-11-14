@@ -351,4 +351,5 @@
 | 汇总 | 物资箱+失温 **9 PASS / 0 FAIL**；扩建 **8 PASS / 0 FAIL** |
 
 > 验证方式备注同上：本机无可用 Python，用等价 Node RCON 脚本执行；
-> 相关 Python 探针已入库但未实跑，有环境时请复跑（尤其 `build_probe` / `m2_round` 的放置段）。
+> 本次新增 `tools/p3_probe.py`（物资箱 + 失温 + 扩建扣费三组断言），已入库但未实跑；
+> 有环境时请复跑（尤其 `build_probe` / `m2_round` 的放置段，它们已补线备料）。
