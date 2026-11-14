@@ -8,6 +8,7 @@ import dev.nbw.domain.raft.ChannelRule.Channel;
 import dev.nbw.domain.raft.ChannelRule.Inputs;
 import dev.nbw.domain.raft.ChannelRule.Outcome;
 import dev.nbw.domain.raft.ChannelRule.Result;
+import dev.nbw.domain.survivor.CraftsmanRule;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -29,10 +30,15 @@ class ChannelRuleTest {
 
 	/** 连续引导 n 个 tick，返回最后一个结果。 */
 	private static Result run(Channel start, UUID who, int ticks) {
+		return run(start, who, ticks, ChannelRule.CHANNEL_TICKS);
+	}
+
+	/** 同上，但带"本次引导的目标时长"（工匠 120）。 */
+	private static Result run(Channel start, UUID who, int ticks, int startTicks) {
 		Channel c = start;
 		Result last = null;
 		for (int i = 0; i < ticks; i++) {
-			last = ChannelRule.tick(c, holding(who));
+			last = ChannelRule.tick(c, holding(who), startTicks);
 			c = last.channel();
 		}
 		return last;
@@ -161,5 +167,39 @@ class ChannelRuleTest {
 		Result r = run(Channel.none(), A, ChannelRule.CHANNEL_TICKS);
 		assertEquals(Outcome.COMPLETED, r.outcome());
 		assertTrue(r.restored());
+	}
+
+	@Test
+	void craftsmanFinishesOnExactlyTheHundredAndTwentiethTick() {
+		int need = CraftsmanRule.repairChannelTicks(ChannelRule.CHANNEL_TICKS, true);
+		assertEquals(120, need, "工匠：8s → 6s（120 tick）");
+
+		Result r = run(Channel.none(), A, need - 1, need);
+		assertEquals(Outcome.ADVANCED, r.outcome(), "第 119 tick 还不该完成");
+		assertEquals(need - 1, r.channel().progressTicks());
+
+		r = ChannelRule.tick(r.channel(), holding(A), need);
+		assertEquals(Outcome.COMPLETED, r.outcome(), "第 120 tick 必须完成");
+		assertTrue(r.restored());
+	}
+
+	@Test
+	void craftsmanDurationIsCapturedWhenTheChannelStarts() {
+		int need = 120;
+		Channel c = run(Channel.none(), A, 80, need).channel();
+		assertEquals(need, c.requiredTicks(), "开始时的 120 被记在引导现场里");
+
+		// 中途即使适配层再报 160，也必须沿用开始时的 120（防止最后一秒塞工匠）。
+		Result r = run(c, A, 39, ChannelRule.CHANNEL_TICKS);
+		assertEquals(Outcome.ADVANCED, r.outcome(), "80+39=119，还差一格");
+		r = ChannelRule.tick(r.channel(), holding(A), ChannelRule.CHANNEL_TICKS);
+		assertEquals(Outcome.COMPLETED, r.outcome(), "按开始时的 120 完成，不被拉长到 160");
+	}
+
+	@Test
+	void craftsmanRemainingSecondsUsesItsOwnDuration() {
+		assertEquals(6, new Channel(A, 1, 120).remainingSeconds(), "工匠引导开局显示 6 秒");
+		assertEquals(1, new Channel(A, 101, 120).remainingSeconds());
+		assertEquals(0.5, new Channel(A, 60, 120).progressRatio(), 1e-9);
 	}
 }

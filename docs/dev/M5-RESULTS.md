@@ -218,3 +218,99 @@
 - **幸存者全部失去后恢复原速**：逻辑已写（`hasSurvivors` 为 false 即 ×1.0），但没在真人局里跑过"打光幸存者再拆"。
 - **破拆特效/音效**：只有 actionbar 文字。
 - **`coreMultiplier` 数值**：武器表里的值（木桨 +50% / 铁头锤 +150%）还没按 09 §2.1 逐件核对。
+
+---
+
+## 5.9 幸存者职业第二片：舵手（2026-11-14）
+
+### 落地
+
+- 新增 `domain/raft/HelmsmanRule`（纯函数）：有舵手时**目标速度与转向角冲量 ×1.15**，
+  无舵手严格 ×1.0。02 §6 原表的离散口径（单次位移 +1 格 / 冷却 −1 s）在连续航速模型下
+  由用户 2026-11-14 批准折算为这个倍率；船体上限 `MAX_TRAVEL_SPEED` 不变。
+- `raft/RemoteService`：遥控前进速度与转向冲量都走同一倍率；`raft/WindService`：帆的目标速度同样吃加成
+  （先乘倍率再夹上限，满帆顶到上限时加成自然被吸收）。
+- 新增 dev 夹具命令 `/cww survivor job <队> <序号> <职业>`：
+  `SurvivorJob.byName`（枚举名或中文名）+ `SurvivorService.setJob`（只改职业表与实体名，
+  不动人数/口粮/阵位）。自动化验证不再被"开局生产职业优先"的分配顺序挡住。
+- 单测 +5：`HelmsmanRuleTest` 4 条 + `SurvivorJobTest.byName…` 1 条；总数 **275/0**。
+
+### 验证（起服实测，flat_test，2026-11-14）
+
+| 断言 | 实测 |
+|---|---|
+| 队 0 改为舵手、队 1 保持水手 | `职业[舵手1]` / `职业[水手1]` |
+| 同 tick 同输入前进 40 tick | 舵手队 **7.963 格** vs 对照 **6.979 格**，比值 **1.141**（标称 1.15） |
+| 同 tick 同输入左转 12 tick | 偏航 **8.37°** vs **7.28°**，比值 **1.150** |
+| 汇总 | **9 PASS / 0 FAIL** |
+
+> **验证方式备注**：本机当前没有可用的 Python（只有 Microsoft Store 占位存根，执行即 exit 49），
+> 本轮用等价的 Node RCON 脚本执行了 `tools/helmsman_probe.py` 的同一组命令与断言；
+> **Python 探针本身本次未实跑**，下次有 Python 环境时请复跑一次（`helmsman_probe.py` 已入库）。
+
+### 还没做的（职业后半剩余）
+
+- 职业后半已全部落地：工匠见 §5.10，卫兵见 §5.11。
+
+---
+
+## 5.10 幸存者职业第三片：工匠（2026-11-14）
+
+### 落地
+
+- 新增 `domain/survivor/CraftsmanRule`（纯函数）：有工匠时 A2-v2 残骸修复引导
+  **8s → 6s**（160 → 120 tick，倍率 0.75，向上取整）；无工匠原样 160。
+- `domain/raft/ChannelRule.Channel` 增加 `requiredTicks`：时长在**引导开始那一刻**定格，
+  中途工匠上下筏不改已开始的引导（防止最后一秒塞工匠免费加速）。
+  新增 `tick(current, inputs, startTicks)`；旧 `tick(current, inputs)` 仍按 160，历史测试不变。
+- `raft/RaftCoreService`：按 `SurvivorService.hasJob(team, CRAFTSMAN)` 计算本次引导时长；
+  进度/打断日志、`raftcore status`、`raftcore hold` 回包都显示实际时长。
+- **明确没做**：01 §7 的"建造加速"——建造在本项目是**瞬时事件**，没有冷却或引导时长可缩短，
+  新增建造冷却属于新机制，不借工匠之名偷偷加；"重置沉筏倒计时"属于已删除的 A3 建材重修，
+  A2-v2 修复成功本身就会 `RaftSinking.cancelByCoreRestore` 解除倒计时。
+- 单测 +6：`ChannelRuleTest` 3 条（120 tick 完成 / 时长定格 / 工匠剩余秒数）+ `CraftsmanRuleTest` 3 条；总数 **281/0**。
+
+### 验证（起服实测，flat_test，2026-11-14）
+
+| 断言 | 实测 |
+|---|---|
+| 队 0 改为工匠、队 1 保持水手 | `职业[工匠1]` / `职业[水手1]` |
+| `raftcore hold` 回包 | 队0 `120 tick…工匠加成`；队1 `160 tick` |
+| 约 6.8 秒 | 队0 **INTACT**；队1 仍 **WRECKAGE(引导 142/160，剩 1s)** |
+| 约 9.8 秒 | 队0 保持 INTACT；队1 **INTACT** |
+| 汇总 | **10 PASS / 0 FAIL** |
+
+> 验证方式备注同上：本机无可用 Python，本轮用等价 Node RCON 脚本执行；
+> **`tools/craftsman_probe.py` 本身本次未实跑**，有 Python 环境时请复跑。
+
+---
+
+## 5.11 幸存者职业第四片：卫兵（2026-11-14）
+
+### 落地
+
+- 新增 `domain/combat/GuardRule`（纯函数）：射程 **12 格**（3D，从本队筏心量）、**20 tick 一发**、
+  **6.5 HP/发**。6.5 = 现役 5 件近战平均 DPS（≈11.2）× 0.6 的取整，用户批准"文档锚点"口径；
+  无追击、无友伤、风暴中照常。
+- `round/GuardService`：每名卫兵独立冷却；PLAY 内按筏心 12 格找最近敌方玩家，用
+  `mobAttack`（伤害来源=筏上卫兵村民实体）结算。**多卫兵 DPS 叠加**（每人独立 6.5 HP/s）。
+- 接进 `RoundManager` PLAY tick（幸存者贴回甲板之后）与 `auditResidue` 的 `reset`。
+- 新增 `/cww guard`：各队卫兵数 + 本局命中数。
+- 单测 +3：`GuardRuleTest`；总数 **284/0**。
+
+### 验证（起服实测，flat_test，2026-11-14）
+
+| 断言 | 实测 |
+|---|---|
+| 队 0 出现卫兵、队 1 保持水手 | `[guard] 队0 卫兵=1 命中=0｜队1 卫兵=0` |
+| 第一发（normal 难度） | 日志 `剩余 13.5 HP`（20 → 13.5 = **6.5**） |
+| 持续开火 | `cww guard` 命中 = 3 |
+| 12 格外站 2.2s | 20 → 20（完全不掉血） |
+| 同队站筏上 2.2s | 20 → 20（不误伤） |
+| 汇总 | **10 PASS / 0 FAIL** |
+
+> **难度依赖（重要）**：Minecraft 对 `mobAttack` 打玩家按难度缩放，Easy = **0.65×**。
+> dev 服 `server.properties` 是 `difficulty=easy`，实测一发只有 **4.25**，不是代码少打；
+> 探针会临时 `/difficulty normal` 取 6.5 锚点、收尾恢复 easy。**生产服若跑 Easy，卫兵实际 DPS 也会是 4.25。**
+>
+> 验证方式备注同上：本机无可用 Python，用等价 Node RCON 脚本执行；`tools/guard_probe.py` 未实跑。

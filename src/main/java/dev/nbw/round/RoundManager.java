@@ -197,6 +197,7 @@ public final class RoundManager {
 			SurvivalService.onEndTick(srv);   // 营养/水分：每秒衰减 + debuff + HUD
 			EventService.onEndTick(srv);   // 事件池：到点抽一发
 			SurvivorService.onEndTick(srv);   // 幸存者：口粮消耗 + 断粮离队
+			GuardService.onEndTick(srv);   // 卫兵：守筏自动射击（幸存者贴回甲板之后）
 			RaftSinking.onEndTick(srv);
 			RaftCoreService.onEndTick(srv);
 			WindService.apply(srv);   // 帆：登记风力目标（被动等风，方向跟随前进）
@@ -762,6 +763,7 @@ public final class RoundManager {
 		EventService.reset();   // 事件调度是局内的
 		CombatStats.reset();   // 战绩是局内的
 		SurvivorService.reset();   // 幸存者是局内的
+		GuardService.reset();   // 卫兵冷却与命中计数是局内的
 		PowerService.reset();   // 电量池是局内的
 		dev.nbw.content.GeneratorBlock.reset();   // 发电机冷却表是局内的
 	}

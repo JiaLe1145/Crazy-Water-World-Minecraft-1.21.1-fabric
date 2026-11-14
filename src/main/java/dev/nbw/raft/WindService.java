@@ -1,10 +1,13 @@
 package dev.nbw.raft;
 
 import dev.nbw.NBW;
+import dev.nbw.domain.raft.HelmsmanRule;
 import dev.nbw.domain.raft.SpeedGovernor;
 import dev.nbw.domain.raft.WindModel;
 import dev.nbw.domain.raft.WindModel.Wind;
+import dev.nbw.domain.survivor.SurvivorJob;
 import dev.nbw.round.EventService;
+import dev.nbw.round.SurvivorService;
 import dev.nbw.sable.SableRafts;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.world.ServerWorld;
@@ -108,8 +111,11 @@ public final class WindService {
 				continue;   // 静风或逆风：帆这一档连目标速度都没有
 			}
 			// 只登记"想以多大位移速度往前进方向走"。施力统一交给 RaftMotionService。
-			RaftMotionService.request(team, fwd[0], fwd[1],
-					SpeedGovernor.clampSpeed(SpeedGovernor.sailTarget(sails, tailwind)));
+			// 舵手同样加成帆速（01 §7 A6）：先乘倍率再夹上限，满帆时加成自然被上限吸收。
+			boolean hasHelmsman = SurvivorService.hasJob(team, SurvivorJob.HELMSMAN);
+			double target = SpeedGovernor.clampSpeed(
+					HelmsmanRule.speed(SpeedGovernor.sailTarget(sails, tailwind), hasHelmsman));
+			RaftMotionService.request(team, fwd[0], fwd[1], target);
 			pushed++;
 		}
 		return pushed;

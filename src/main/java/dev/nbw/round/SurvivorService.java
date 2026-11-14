@@ -384,6 +384,20 @@ public final class SurvivorService {
 		return hasJob(session.teamIndex(), job) ? 0.7 : 1.0;
 	}
 
+	/** 本队还在筏上的卫兵实体 UUID（守筏 AI 用；顺序与阵位无关）。 */
+	public static List<UUID> guards(int team) {
+		List<UUID> out = new ArrayList<>();
+		List<UUID> list = villagerIds.get(team);
+		if (list != null) {
+			for (UUID id : list) {
+				if (jobs.get(id) == SurvivorJob.GUARD) {
+					out.add(id);
+				}
+			}
+		}
+		return out;
+	}
+
 	/** 本队是否有该职业的幸存者。 */
 	public static boolean hasJob(int team, SurvivorJob job) {
 		List<UUID> list = villagerIds.get(team);
@@ -396,6 +410,33 @@ public final class SurvivorService {
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * dev/探针夹具：把某队第 {@code index} 名筏上幸存者的职业改成 {@code job}。
+	 *
+	 * <p>不改人数、口粮与阵位，只改职业表与实体名。自动化探针要验"舵手/工匠/卫兵"
+	 * 这类职业效果，不能让开局分配顺序（生产职业优先）挡住——真人招募到第 5 人才会
+	 * 自然出现舵手。命令入口是 {@code /cww survivor job <队> <序号> <职业>}。
+	 *
+	 * @return 可读结果；索引越界时说明现有几名，不抛异常
+	 */
+	public static String setJob(int team, int index, SurvivorJob job) {
+		List<UUID> list = villagerIds.get(team);
+		int have = list == null ? 0 : list.size();
+		if (list == null || index < 0 || index >= have) {
+			return "队 " + team + " 没有第 " + index + " 名幸存者（现有 " + have + " 名）";
+		}
+		UUID id = list.get(index);
+		jobs.put(id, job);
+		if (server != null) {
+			Entity entity = server.getOverworld().getEntity(id);
+			if (entity != null) {
+				entity.setCustomName(Text.literal("§a幸存者·队" + team + "·" + job.displayName()));
+			}
+		}
+		NBW.LOGGER.info("[survivor] 队 {} 第 {} 名幸存者职业改为 {}", team, index, job.name());
+		return "队 " + team + " 第 " + index + " 名幸存者已改为 " + job.displayName();
 	}
 
 	/** 本队当前各职业人数（只统计仍在筏上的实体）。 */

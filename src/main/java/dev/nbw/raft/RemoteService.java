@@ -4,9 +4,12 @@ import dev.nbw.NBW;
 import dev.nbw.content.NbwContent;
 import dev.nbw.domain.raft.HelmModel;
 import dev.nbw.domain.raft.HelmModel.Intent;
+import dev.nbw.domain.raft.HelmsmanRule;
 import dev.nbw.domain.raft.SpeedGovernor;
+import dev.nbw.domain.survivor.SurvivorJob;
 import dev.nbw.round.EventService;
 import dev.nbw.round.RoundManager;
+import dev.nbw.round.SurvivorService;
 import dev.nbw.sable.SableRafts;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.MinecraftServer;
@@ -125,14 +128,19 @@ public final class RemoteService {
 				continue;
 			}
 			Intent intent = e.getValue().intent();
+			// 舵手（01 §7 A6 / 02 §6）：本队有舵手时，遥控航速与转向冲量各 +15%。
+			// 只乘目标值，不碰 SpeedGovernor 的船体上限——满帆顶到上限时加成自然失效。
+			boolean hasHelmsman = SurvivorService.hasJob(team, SurvivorJob.HELMSMAN);
 			if (intent.linear() != 0) {
 				double[] fwd = SableRafts.forward(world, raft);
-				RaftMotionService.request(team, fwd[0] * intent.linear(), fwd[1] * intent.linear(),
-						SpeedGovernor.REMOTE_SPEED);
+				double speed = SpeedGovernor.clampSpeed(
+						HelmsmanRule.speed(SpeedGovernor.REMOTE_SPEED, hasHelmsman));
+				RaftMotionService.request(team, fwd[0] * intent.linear(), fwd[1] * intent.linear(), speed);
 				moved++;
 			}
 			if (intent.turn() != 0) {
-				SableRafts.applyYawImpulse(world, raft, intent.turn() * TURN_IMPULSE);
+				SableRafts.applyYawImpulse(world, raft,
+						intent.turn() * HelmsmanRule.turnImpulse(TURN_IMPULSE, hasHelmsman));
 				moved++;
 			}
 		}

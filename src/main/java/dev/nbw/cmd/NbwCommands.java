@@ -105,8 +105,16 @@ public final class NbwCommands {
 		root.then(eventNode);
 		// 战绩（M5-3）：读数
 		root.then(admin(CommandManager.literal("stats").executes(NbwCommands::statsStatus)));
-		// 幸存者（M5-2）：读数
-		root.then(admin(CommandManager.literal("survivor").executes(NbwCommands::survivorStatus)));
+		// 幸存者（M5-2）：读数 + dev 夹具改职业（验舵手/工匠/卫兵效果用）
+		var survivorNode = admin(CommandManager.literal("survivor").executes(NbwCommands::survivorStatus));
+		survivorNode.then(CommandManager.literal("job")
+				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
+						.then(CommandManager.argument("index", IntegerArgumentType.integer(0))
+								.then(CommandManager.argument("job", StringArgumentType.word())
+										.executes(NbwCommands::survivorSetJob)))));
+		root.then(survivorNode);
+		// 卫兵守筏读数（01 §7 A6）
+		root.then(admin(CommandManager.literal("guard").executes(NbwCommands::guardStatus)));
 		// 功率池（M4 补）：读数
 		root.then(admin(CommandManager.literal("power").executes(NbwCommands::powerStatus)));
 		// 筏心 HP / 破拆（反偷家 ×0.25）：读数 + dev 强制打
@@ -861,6 +869,27 @@ public final class NbwCommands {
 	private static int survivorStatus(CommandContext<ServerCommandSource> ctx) {
 		ctx.getSource().sendFeedback(() -> Text.literal(
 				dev.nbw.round.SurvivorService.status()), false);
+		return 1;
+	}
+
+	/** {@code /cww survivor job <队> <序号> <职业>}：dev 夹具，改某名幸存者的职业。 */
+	private static int survivorSetJob(CommandContext<ServerCommandSource> ctx) {
+		int team = IntegerArgumentType.getInteger(ctx, "team");
+		int index = IntegerArgumentType.getInteger(ctx, "index");
+		String raw = StringArgumentType.getString(ctx, "job");
+		dev.nbw.domain.survivor.SurvivorJob job =
+				dev.nbw.domain.survivor.SurvivorJob.byName(raw);
+		if (job == null) {
+			return tell(ctx, "未知职业 " + raw
+					+ "（可用：sailor/cook/medic/craftsman/helmsman/guard，或中文名）");
+		}
+		return tell(ctx, dev.nbw.round.SurvivorService.setJob(team, index, job));
+	}
+
+	/** {@code /cww guard}：各队卫兵数与本局命中数。 */
+	private static int guardStatus(CommandContext<ServerCommandSource> ctx) {
+		ctx.getSource().sendFeedback(() -> Text.literal(
+				dev.nbw.round.GuardService.status()), false);
 		return 1;
 	}
 

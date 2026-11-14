@@ -12,8 +12,13 @@ import java.util.Map;
  *       统一按 02 §9 的“周期 −30%”（倍率 0.7）；</li>
  * </ul>
  *
- * <p><b>明确未做</b>：工匠的建造/修筏加速、舵手的航速/转向加成、卫兵的守筏战斗。
- * 这三条需要新的数值或 AI 行为，等用户单独批准，不在这里偷偷拍板。
+ * <p><b>2026-11-14 第二/三片</b>：舵手的航速/转向加成（{@code domain/raft/HelmsmanRule}，
+ * 目标速度与转向冲量 ×1.15）、工匠的残骸修复加速（{@code domain/survivor/CraftsmanRule}，
+ * 8s → 6s）与卫兵的守筏射击（{@code domain/combat/GuardRule}，6.5 HP/s、筏心 12 格）
+ * 均已落地，均经用户批准。
+ *
+ * <p><b>明确未做</b>：工匠的"建造加速"（建造是瞬时事件，没有冷却可缩短；新增冷却属新机制）
+ * ——等用户单独批准，不在这里偷偷拍板。
  *
  * <p>开局分配顺序把三种生产职业放在最前：1 人队先有水手，2 人队水手+厨师，
  * 3 人队水手+厨师+医护。这样 4×4 初始筏在标准 3 人队下能立刻跑通水/食物/医疗三条生产链，
@@ -36,6 +41,23 @@ public enum SurvivorJob {
 
 	public String displayName() {
 		return displayName;
+	}
+
+	/**
+	 * 按名称解析职业（命令与探针夹具用）：接受枚举名 {@code helmsman}（大小写不敏感）
+	 * 或显示名 {@code 舵手}。未知输入返回 {@code null}，由调用方给可读报错。
+	 */
+	public static SurvivorJob byName(String raw) {
+		if (raw == null) {
+			return null;
+		}
+		String s = raw.trim();
+		for (SurvivorJob job : values()) {
+			if (job.name().equalsIgnoreCase(s) || job.displayName().equals(s)) {
+				return job;
+			}
+		}
+		return null;
 	}
 
 	/** 开局第 {@code index} 名幸存者的职业（循环取，生产职业优先）。 */

@@ -6,6 +6,9 @@ import dev.nbw.domain.raft.ChannelRule.Channel;
 import dev.nbw.domain.raft.ChannelRule.Inputs;
 import dev.nbw.domain.raft.ChannelRule.Outcome;
 import dev.nbw.domain.raft.ChannelRule.Result;
+import dev.nbw.domain.survivor.CraftsmanRule;
+import dev.nbw.domain.survivor.SurvivorJob;
+import dev.nbw.round.SurvivorService;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import org.jetbrains.annotations.Nullable;
@@ -106,8 +109,10 @@ public final class RaftCoreService {
 		holder.remove(teamIndex);
 		keepaliveUntil.remove(teamIndex);
 		NBW.LOGGER.warn("[raftcore] 队 {} 的筏心被摧毁，留下残骸；30s 沉筏倒计时开始，"
-				+ "本队可在残骸上持续右键 {}s 恢复（每局 {} 次）",
-				teamIndex, ChannelRule.CHANNEL_TICKS / 20, MAX_RESTORES_PER_MATCH);
+				+ "本队可在残骸上持续右键 {}s 恢复（有工匠 {}s；每局 {} 次）",
+				teamIndex, ChannelRule.CHANNEL_TICKS / 20,
+				CraftsmanRule.repairChannelTicks(ChannelRule.CHANNEL_TICKS, true) / 20,
+				MAX_RESTORES_PER_MATCH);
 	}
 
 	/** 筏心剩余 HP（缺省 CORE_HP）。 */
@@ -188,8 +193,11 @@ public final class RaftCoreService {
 		}
 		simulatedHolder.put(teamIndex, player);
 		simulatedHoldUntil.put(teamIndex, tick + ticks);
+		int required = CraftsmanRule.repairChannelTicks(ChannelRule.CHANNEL_TICKS,
+				SurvivorService.hasJob(teamIndex, SurvivorJob.CRAFTSMAN));
 		return "已登记模拟引导 " + ticks + " tick（到 tick " + tick + "+" + ticks
-				+ "；" + ChannelRule.CHANNEL_TICKS + " tick 才够修好）";
+				+ "；" + required + " tick 才够修好"
+				+ (required < ChannelRule.CHANNEL_TICKS ? "，工匠加成" : "") + "）";
 	}
 
 	// ---------------------------------------------------------------- 方块侧登记
@@ -289,7 +297,11 @@ public final class RaftCoreService {
 			boolean damaged = damagedThisTick.contains(who);
 
 			Channel current = channels.getOrDefault(teamIndex, Channel.none());
-			Result r = ChannelRule.tick(current, new Inputs(interacting ? who : null, interacting, damaged));
+			// 工匠（01 §7 A6）：本队有工匠时，这段引导的目标时长是 6s 而不是 8s。
+			// 只有"开始一段新引导"时生效；进行中的引导沿用 Channel.requiredTicks()。
+			int required = CraftsmanRule.repairChannelTicks(ChannelRule.CHANNEL_TICKS,
+					SurvivorService.hasJob(teamIndex, SurvivorJob.CRAFTSMAN));
+			Result r = ChannelRule.tick(current, new Inputs(interacting ? who : null, interacting, damaged), required);
 			channels.put(teamIndex, r.channel());
 
 			switch (r.outcome()) {
@@ -299,7 +311,7 @@ public final class RaftCoreService {
 					keepaliveUntil.remove(teamIndex);
 					if (current.progressTicks() > 0) {
 						NBW.LOGGER.info("[raftcore] 队 {} 的修复引导被打断（进度 {}/{}，已归零）",
-								teamIndex, current.progressTicks(), ChannelRule.CHANNEL_TICKS);
+								teamIndex, current.progressTicks(), current.requiredTicks());
 					}
 				}
 				case IDLE -> holder.remove(teamIndex);
@@ -308,7 +320,7 @@ public final class RaftCoreService {
 					int progress = r.channel().progressTicks();
 					if (progress % 40 == 0) {
 						NBW.LOGGER.info("[raftcore] 队 {} 修复进度 {}/{} tick",
-								teamIndex, progress, ChannelRule.CHANNEL_TICKS);
+								teamIndex, progress, r.channel().requiredTicks());
 					}
 				}
 			}
@@ -353,7 +365,7 @@ public final class RaftCoreService {
 			Channel c = channels.getOrDefault(e.getKey(), Channel.none());
 			sb.append("队").append(e.getKey()).append('=').append(e.getValue());
 			if (c.active()) {
-				sb.append("(引导 ").append(c.progressTicks()).append('/').append(ChannelRule.CHANNEL_TICKS)
+				sb.append("(引导 ").append(c.progressTicks()).append('/').append(c.requiredTicks())
 						.append("，剩 ").append(c.remainingSeconds()).append("s)");
 			}
 			sb.append(" 已用额度 ").append(restoresUsed.getOrDefault(e.getKey(), 0))

@@ -6,6 +6,9 @@ import java.util.UUID;
  * 残骸修复引导（01 §4.3.2 已批准 A2-v2）：玩家对筏心残骸<b>持续右键 8 秒</b>恢复筏心，
  * 期间<b>受到伤害即打断</b>。
  *
+ * <p><b>2026-11-14 工匠加成</b>：队伍里有工匠时，本次引导时长折算为 6 秒（120 tick），
+ * 由适配层在<b>引导开始</b>时传入；中途工匠上下筏不改已开始的引导。
+ *
  * <p>纯函数，零 Minecraft 依赖。适配层每 tick 只报三个事实（引导者是谁、还在不在有效交互、
  * 这一 tick 有没有受伤），判定与进度全在这里。时序规则最容易写错，所以必须不起服就能测干净。
  *
@@ -34,11 +37,19 @@ public final class ChannelRule {
 	 *
 	 * <p>同一处残骸同时只认一个引导者：允许两人交替的话，就能用"你被打了换我上"
 	 * 绕过打断惩罚，这条机制当场失效。
+	 *
+	 * <p>{@code requiredTicks} 在<b>引导开始那一刻</b>定格（工匠队伍是 120，其他 160）：
+	 * 中途工匠上/下筏不改变这次引导的时长，避免"最后一秒塞个工匠"变成免费加速。
 	 */
-	public record Channel(UUID leader, int progressTicks) {
+	public record Channel(UUID leader, int progressTicks, int requiredTicks) {
+
+		/** 旧口径：不显式给时长时按基础 160 tick。测试与历史调用都走这个。 */
+		public Channel(UUID leader, int progressTicks) {
+			this(leader, progressTicks, CHANNEL_TICKS);
+		}
 
 		public static Channel none() {
-			return new Channel(null, 0);
+			return new Channel(null, 0, CHANNEL_TICKS);
 		}
 
 		public boolean active() {
@@ -47,11 +58,11 @@ public final class ChannelRule {
 
 		/** 剩余秒数（向上取整），给 HUD 与播报用。 */
 		public int remainingSeconds() {
-			return (CHANNEL_TICKS - progressTicks + 19) / 20;
+			return Math.max(0, (requiredTicks - progressTicks + 19) / 20);
 		}
 
 		public double progressRatio() {
-			return (double) progressTicks / CHANNEL_TICKS;
+			return (double) progressTicks / requiredTicks;
 		}
 	}
 
@@ -85,6 +96,16 @@ public final class ChannelRule {
 	 * 反过来写会让被打死的那一 tick 既算受伤又算续上了进度。
 	 */
 	public static Result tick(Channel current, Inputs in) {
+		return tick(current, in, CHANNEL_TICKS);
+	}
+
+	/**
+	 * 推进一 tick（可指定本次引导的时长）。
+	 *
+	 * @param startTicks 只在<b>开始一段新引导</b>时使用（工匠队伍 120，其他 160）；
+	 *                   引导进行中始终沿用 {@link Channel#requiredTicks()}，中途不来回来回改
+	 */
+	public static Result tick(Channel current, Inputs in, int startTicks) {
 		boolean someone = in.who() != null && in.interacting();
 
 		if (!someone) {
@@ -96,17 +117,22 @@ public final class ChannelRule {
 		}
 		if (!current.active() || !current.leader().equals(in.who())) {
 			// 新人接手（含从空现场开始）：从第 1 tick 计，别人剩下的进度不算
-			return new Result(new Channel(in.who(), 1), Outcome.ADVANCED);
+			return new Result(new Channel(in.who(), 1, Math.max(1, startTicks)), Outcome.ADVANCED);
 		}
 		int next = current.progressTicks() + 1;
-		if (next >= CHANNEL_TICKS) {
+		if (next >= current.requiredTicks()) {
 			return new Result(Channel.none(), Outcome.COMPLETED);
 		}
-		return new Result(new Channel(current.leader(), next), Outcome.ADVANCED);
+		return new Result(new Channel(current.leader(), next, current.requiredTicks()), Outcome.ADVANCED);
 	}
 
 	/** 恰好走满 160 tick 才完成；第 159 tick 还差一格。 */
 	public static boolean isComplete(int progressTicks) {
 		return progressTicks >= CHANNEL_TICKS;
+	}
+
+	/** 按本次引导的实际时长判断是否完成（工匠队伍是 120）。 */
+	public static boolean isComplete(int progressTicks, int requiredTicks) {
+		return progressTicks >= requiredTicks;
 	}
 }

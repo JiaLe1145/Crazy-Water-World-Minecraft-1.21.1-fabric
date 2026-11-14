@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 /** 幸存者职业分配（01 §7 / 待批 A6 第一片）。 */
 class SurvivorJobTest {
@@ -33,6 +34,19 @@ class SurvivorJobTest {
 				SurvivorJob.leastRepresented(Map.of(SurvivorJob.SAILOR, 2, SurvivorJob.COOK, 1,
 						SurvivorJob.MEDIC, 1, SurvivorJob.CRAFTSMAN, 1, SurvivorJob.HELMSMAN, 1)),
 				"只剩卫兵最少时补卫兵");
+	}
+
+	@Test
+	void byNameAcceptsEnumAndDisplayNameButRejectsGarbage() {
+		assertEquals(SurvivorJob.HELMSMAN, SurvivorJob.byName("helmsman"),
+				"命令与探针用小写枚举名");
+		assertEquals(SurvivorJob.HELMSMAN, SurvivorJob.byName("舵手"),
+				"中文显示名也要能解析，方便手测");
+		assertEquals(SurvivorJob.GUARD, SurvivorJob.byName("GUARD"),
+				"枚举名大小写不敏感");
+		assertNull(SurvivorJob.byName("pirate"),
+				"未知职业必须返回 null 让命令层报错，不能静默默认成水手");
+		assertNull(SurvivorJob.byName(null));
 	}
 
 	@Test
