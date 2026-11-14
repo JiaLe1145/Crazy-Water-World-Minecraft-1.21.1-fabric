@@ -2,15 +2,21 @@ package dev.nbw.round;
 
 import dev.nbw.NBW;
 import dev.nbw.cfg.ConfigModels;
+import dev.nbw.combat.WeaponService;
 import dev.nbw.loot.LootService;
+import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.entity.effect.StatusEffects;
+import net.minecraft.item.ItemStack;
+import net.minecraft.registry.Registries;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.Text;
+import net.minecraft.util.Identifier;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Random;
@@ -23,8 +29,8 @@ import java.util.UUID;
  * 预告结束才真正生效。预告事件在选中那一刻就定死，玩家看到的名字与最终触发的一定是同一个。
  *
  * <p>已接实际效果：supply_rain（补箱）、storm（禁航 + 远程失准 + 压暗）、
- * black_sea_surge（圈外伤害 ×1.5）、survivor_drift（海面漂出 3–4 名幸存者）。
- * kraken / bounty 仍只广播，等实体与悬赏结算落地（M5 尾巴，不是漏做）。
+ * black_sea_surge（边界外扩 + 圈外伤害 ×1.5）、survivor_drift（海面漂出 3–4 名幸存者）、
+ * bounty（标记玩家，击杀者获得 Epic 武备）。kraken 仍只广播，等海怪实体落地。
  */
 public final class EventService {
 
@@ -33,6 +39,13 @@ public final class EventService {
 	/** 幸存者聚集点的人数区间（02 §10：3–4 名）。 */
 	private static final int SURVIVOR_MIN = 3;
 	private static final int SURVIVOR_MAX = 4;
+	/**
+	 * 悬赏令上限。02 §10 原文是“至完成”，但“目标整局不死”会永久占住事件窗口，
+	 * 后面的风暴/物资雨都排不进来；这里取 120s 作为实现口径（未完成自动过期）。
+	 */
+	private static final int BOUNTY_TICKS = 120 * 20;
+	/** 悬赏奖励池：只放 Epic 武备；killer 已有近战时不发 warhammer，避免撞持有上限。 */
+	private static final String[] EPIC_WEAPONS = {"harpoon_gun", "warhammer"};
 
 	private static List<String> pool = List.of();
 	private static int minSec = 150;
@@ -47,8 +60,40 @@ public final class EventService {
 	/** 当前生效的事件与到期 tick（同刻最多 1 个，02 §10）。 */
 	private static String activeEvent = "";
 	private static long activeUntilTick;
+	/** 悬赏目标（null = 没有悬赏）；名字单独存一份，目标死亡后实体查不到也要能公告。 */
+	private static UUID bountyTarget;
+	private static String bountyTargetName = "";
 
 	private EventService() {
+	}
+
+	/**
+	 * 挂死亡事件：悬赏目标被杀时给击杀者发 Epic 武备。
+	 * 由 {@code NBW.onInitialize} 调用一次；没有悬赏时这个监听器什么都不做。
+	 */
+	public static void register() {
+		ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
+			if (bountyTarget == null || !(entity instanceof ServerPlayerEntity victim)) {
+				return;
+			}
+			if (!bountyTarget.equals(victim.getUuid())) {
+				return;
+			}
+			MinecraftServer srv = victim.getServer();
+			if (srv == null) {
+				return;
+			}
+			ServerPlayerEntity killer = source.getAttacker() instanceof ServerPlayerEntity k && !k.equals(victim)
+					? k : null;
+			if (killer == null) {
+				announce(srv, "§7[事件] 悬赏目标 " + bountyTargetName + " 死亡，无人领赏");
+			} else {
+				String reward = grantEpicWeapon(killer);
+				announce(srv, "§6[事件] 悬赏完成：" + killer.getName().getString() + " 击杀 "
+						+ bountyTargetName + "，获得 Epic 武备 " + reward);
+			}
+			clearBounty();
+		});
 	}
 
 	/** PLAY 开始：读池与间隔，排第一发。 */
@@ -68,6 +113,8 @@ public final class EventService {
 		activeUntilTick = 0;
 		pendingEvent = "";
 		pendingFireTick = 0;
+		bountyTarget = null;
+		bountyTargetName = "";
 		scheduleNext(srv);
 		NBW.LOGGER.info("[event] 事件池 {} 个，间隔 {}-{}s，第一发 tick={}",
 				pool.size(), minSec, maxSec, nextFireTick);
@@ -77,9 +124,14 @@ public final class EventService {
 	public static void onEndTick(MinecraftServer srv) {
 		long now = srv.getTicks();
 		if (!activeEvent.isEmpty() && now >= activeUntilTick) {
-			announce(srv, "§7[事件] " + displayName(activeEvent) + " 结束");
-			activeEvent = "";
-			activeUntilTick = 0;
+			if ("bounty".equals(activeEvent)) {
+				announce(srv, "§7[事件] 悬赏令到期：" + bountyTargetName + " 未被击杀");
+				clearBounty();
+			} else {
+				announce(srv, "§7[事件] " + displayName(activeEvent) + " 结束");
+				activeEvent = "";
+				activeUntilTick = 0;
+			}
 		}
 		if (stormActive()) {
 			// 风暴的视野压暗是持续效果：即使事件池为空（管理员强制触发）也必须继续 tick。
@@ -148,6 +200,44 @@ public final class EventService {
 		}
 	}
 
+	/** 从参赛者里随机挑一个活着的非旁观者；没有就返回 null（事件空放）。 */
+	private static ServerPlayerEntity pickBountyTarget(MinecraftServer srv) {
+		List<ServerPlayerEntity> candidates = new ArrayList<>();
+		for (UUID id : RoundManager.participantIds()) {
+			ServerPlayerEntity p = srv.getPlayerManager().getPlayer(id);
+			if (p != null && !p.isSpectator() && !p.isDead()) {
+				candidates.add(p);
+			}
+		}
+		return candidates.isEmpty() ? null : candidates.get(rnd.nextInt(candidates.size()));
+	}
+
+	/**
+	 * 发一件 Epic 武备。killer 已经持有近战时不再发 warhammer，
+	 * 否则会撞 09 §5.1 的“每人 ≤1 件近战”护栏；此时只发远程的鱼叉枪。
+	 */
+	private static String grantEpicWeapon(ServerPlayerEntity killer) {
+		String id = EPIC_WEAPONS[rnd.nextInt(EPIC_WEAPONS.length)];
+		if ("warhammer".equals(id) && WeaponService.meleeHeld(killer) > 0) {
+			id = "harpoon_gun";
+		}
+		ItemStack stack = new ItemStack(Registries.ITEM.get(Identifier.of(NBW.MOD_ID, id)));
+		if (!killer.getInventory().insertStack(stack)) {
+			killer.dropItem(stack, false);   // 背包满就掉在脚下，不静默吞掉奖励
+		}
+		return id;
+	}
+
+	/** 清掉悬赏状态（目标死亡/到期/局后）。GLOWING 会自然到期，不必额外移除。 */
+	private static void clearBounty() {
+		bountyTarget = null;
+		bountyTargetName = "";
+		if ("bounty".equals(activeEvent)) {
+			activeEvent = "";
+			activeUntilTick = 0;
+		}
+	}
+
 	/** 事件的中文名（预告、结束公告与 {@code /cww event} 共用）。 */
 	public static String displayName(String event) {
 		if (event == null) {
@@ -172,7 +262,7 @@ public final class EventService {
 			case "kraken" -> "（海怪出没）";
 			case "black_sea_surge" -> "（边界外扩 10% / 圈外伤害 ×1.5）";
 			case "survivor_drift" -> "（海面漂出 3–4 名幸存者）";
-			case "bounty" -> "（标记一名玩家）";
+			case "bounty" -> "（标记一名玩家，击杀者得 Epic 武备）";
 			default -> "";
 		};
 	}
@@ -215,7 +305,21 @@ public final class EventService {
 				int n = SurvivorService.spawnFloating(srv, want);
 				announce(srv, "§6[事件] 幸存者聚集点：海面漂出 " + n + " 个（钩竿可招募）");
 			}
-			case "bounty" -> announce(srv, "§6[事件] 悬赏目标已标记（待 M5-3）");
+			case "bounty" -> {
+				ServerPlayerEntity target = pickBountyTarget(srv);
+				if (target == null) {
+					announce(srv, "§6[事件] 悬赏令：场上没有可标记的玩家");
+				} else {
+					bountyTarget = target.getUuid();
+					bountyTargetName = target.getName().getString();
+					activeEvent = "bounty";
+					activeUntilTick = now + BOUNTY_TICKS;
+					// 发光让全场都能看见目标；持续时间比事件窗口多 1s，避免最后一刻闪烁。
+					target.addStatusEffect(new StatusEffectInstance(StatusEffects.GLOWING,
+							BOUNTY_TICKS + 20, 0, false, false, true));
+					announce(srv, "§c[事件] 悬赏令：目标 " + bountyTargetName + "（击杀者获得 Epic 武备，120s 内有效）");
+				}
+			}
 			default -> announce(srv, "§6[事件] " + event);
 		}
 		NBW.LOGGER.info("[event] 触发 {}（累计 {}）", event, fired);
@@ -264,6 +368,11 @@ public final class EventService {
 					pool.size(), fired, lastEvent.isEmpty() ? "无" : lastEvent,
 					pendingEvent, remain, remain, minSec, maxSec);
 		}
+		if ("bounty".equals(activeEvent)) {
+			long remain = Math.max(0, (activeUntilTick - now + 19) / 20);
+			return String.format(Locale.ROOT, "[event] 池=%d 已触发=%d 上次=%s 悬赏=%s 剩=%ds",
+					pool.size(), fired, lastEvent.isEmpty() ? "无" : lastEvent, bountyTargetName, remain);
+		}
 		long remain = Math.max(0, (nextFireTick - now) / 20);
 		return String.format(Locale.ROOT, "[event] 池=%d 已触发=%d 上次=%s 下一发=%ds 间隔=%d-%ds",
 				pool.size(), fired, lastEvent.isEmpty() ? "无" : lastEvent, remain, minSec, maxSec);
@@ -278,6 +387,8 @@ public final class EventService {
 		lastEvent = "";
 		activeEvent = "";
 		activeUntilTick = 0;
+		bountyTarget = null;
+		bountyTargetName = "";
 		fired = 0;
 	}
 }
