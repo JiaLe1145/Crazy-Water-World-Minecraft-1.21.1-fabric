@@ -230,8 +230,9 @@ def main():
     expect(base["columns"] == side * side,
            "列数是完全平方数（列=%d → 边长 %d，甲板是 side×side）" % (base["columns"], side))
     expect(side == 4, "初始筏按用户裁决削弱到 4×4，实测边长 %d（列 %d）" % (side, base["columns"]))
-    expect(base["blocks"] == base["columns"] + base["facilities"],
-           "方块数 = 列数 + 设施数（甲板每列一格、设施叠在甲板上）：%s" % base)
+    # 初始筏还有 1 个队伍物资箱（2026-11-14）：它是甲板列上的实体方块，但不是设施，也不新增列。
+    expect(base["blocks"] == base["columns"] + base["facilities"] + 1,
+           "方块数 = 列数 + 设施数 + 物资箱 1 格（甲板每列一格、设施与箱子叠在甲板上）：%s" % base)
     expect(base["facilities"] == 1, "初始筏只该有筏心 1 个设施：%s" % base)
     chunks0 = base["chunks"]
 
@@ -410,7 +411,7 @@ def main():
                    "列数=%d（扫描盒 ±12 罩得住边长 %d 的筏，上限才不是少算的）：%s"
                    % (CAP_SIDE * CAP_SIDE, CAP_SIDE, n0))
             expect(capb and capb["blocks"] == n0["blocks"] + CAP_FILL,
-                   "夹具图上限生效：maxBlocks=%s == 甲板 %d + 筏心 1 + 补 %d"
+                   "夹具图上限生效：maxBlocks=%s == 甲板 %d + 筏心 1 + 物资箱 1 + 补 %d"
                    % (capb and capb["blocks"], CAP_SIDE * CAP_SIDE, CAP_FILL))
             need = capb["blocks"] - n0["blocks"]
             echo = rig_facilities(p, 0, need)
@@ -467,7 +468,8 @@ def write_cap_arena(p):
     except (OSError, ValueError) as e:
         print("  读不到内置 test_sea：%s" % e)
         return False
-    cap = CAP_SIDE * CAP_SIDE + 1 + CAP_FILL
+    # 甲板 100 + 筏心 1 + 物资箱 1 + 补 CAP_FILL；物资箱是 2026-11-14 新增的实体方块
+    cap = CAP_SIDE * CAP_SIDE + 1 + 1 + CAP_FILL
     limits = arena.setdefault("limits", {})
     limits["initialRaftSide"] = CAP_SIDE
     limits["maxBlocksPerRaft"] = cap
