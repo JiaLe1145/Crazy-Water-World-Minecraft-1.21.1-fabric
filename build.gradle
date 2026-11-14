@@ -37,8 +37,15 @@ dependencies {
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
 	// Sable：M0 验证的核心依赖。用本地 jar（Modrinth CDN 14KB/s，不进构建缓存重复拉取）。
-	// veil 与 forge-config-api-port 已 embedded 在 sable jar 内，imguimc 为 optional，均不单独引入。
-	modImplementation files("libs/sable-fabric-1.21.1-2.0.6.jar")
+	// veil / forge-config-api-port / sable_rapier / sablecompanion 都 embedded 在 sable jar 的
+	// fabric.mod.json "jars" 里，imguimc 为 optional，均不单独引入。
+	//
+	// 注意 dev 运行期必须走 run 目录的 mods/（见文件末尾 syncDevMods）：
+	// Loom 重映射 libs 里的 mod jar 时会**丢掉 fabric.mod.json 的 "jars" 列表**
+	// （实测 remapped jar 里 META-INF/jars/* 还在，但清单里已无引用），
+	// Loader 于是看不到内嵌的 veil，runClient 直接报 "sable 需要 veil 但未安装"。
+	// 所以这里只给编译期用；运行期的原始 jar（含 jars 清单）由 syncDevMods 放进 mods/。
+	modCompileOnly files("libs/sable-fabric-1.21.1-2.0.6.jar")
 
 	// sable-companion 只从 sable jar 的 META-INF/jars/ 里解出来这一份，**只给编译期用**：
 	// Pose3dc / BoundingBox3ic / JOMLConversion 这些几何类型只存在于这个嵌套 jar，
@@ -78,5 +85,37 @@ java {
 	withSourcesJar()
 	sourceCompatibility = JavaVersion.VERSION_21
 	targetCompatibility = JavaVersion.VERSION_21
+}
+
+// ---------------------------------------------------------------------------
+// dev 运行目录的 mods/ 同步
+// ---------------------------------------------------------------------------
+// 运行期 Sable 必须从 mods/ 加载**原始 jar**：只有原始 jar 的 fabric.mod.json 还带 "jars"，
+// Loader 才会展开内嵌的 veil / sable_rapier / sablecompanion / forge-config-api-port。
+// （Loom 重映射后的 classpath jar 会丢掉 "jars"，见上面 dependencies 里的说明。）
+def devModsDirs = [file("run-client/mods"), file("run/mods")]
+def sableDevJar = file("libs/sable-fabric-1.21.1-2.0.6.jar")
+
+tasks.register("syncDevMods") {
+	group = "fabric"
+	description = "把 Sable 原始 jar 同步到 dev 运行目录的 mods/（保留内嵌 mod 声明）"
+	inputs.file(sableDevJar)
+	outputs.files(devModsDirs.collect { new File(it, sableDevJar.name) })
+	doLast {
+		devModsDirs.each { dir ->
+			def dest = new File(dir, sableDevJar.name)
+			if (!dest.exists() || dest.lastModified() < sableDevJar.lastModified()) {
+				dir.mkdirs()
+				java.nio.file.Files.copy(
+					sableDevJar.toPath(), dest.toPath(),
+					java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+				logger.lifecycle("[syncDevMods] ${dest}")
+			}
+		}
+	}
+}
+
+tasks.matching { it.name == "runClient" || it.name == "runServer" }.configureEach {
+	dependsOn "syncDevMods"
 }
 
