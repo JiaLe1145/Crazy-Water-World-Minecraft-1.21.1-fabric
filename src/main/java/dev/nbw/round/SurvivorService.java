@@ -2,6 +2,7 @@ package dev.nbw.round;
 
 import dev.nbw.NBW;
 import dev.nbw.domain.survivor.SurvivorFormation;
+import dev.nbw.domain.survivor.SurvivorJob;
 import dev.nbw.raft.RaftSpawner;
 import dev.nbw.sable.SableRafts;
 import net.minecraft.entity.Entity;
@@ -12,6 +13,7 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -47,6 +49,8 @@ public final class SurvivorService {
 	private static final Map<Integer, Double> provisions = new LinkedHashMap<>();
 	/** 每队筏上的幸存者实体 UUID（视觉/占位；先不做 AI/招募）。 */
 	private static final Map<Integer, List<UUID>> villagerIds = new LinkedHashMap<>();
+	/** 筏上实体 UUID → 职业；招募/离队时同步维护。 */
+	private static final Map<UUID, SurvivorJob> jobs = new LinkedHashMap<>();
 	/** 海面上的漂流幸存者（可被钩竿拉上筏）。 */
 	private static final List<UUID> floatingIds = new ArrayList<>();
 	private static MinecraftServer server;
@@ -65,6 +69,7 @@ public final class SurvivorService {
 		survivors.clear();
 		provisions.clear();
 		villagerIds.clear();
+		jobs.clear();
 		floatingIds.clear();
 		tick = 0;
 		for (var team : RoundManager.machine().teams()) {
@@ -83,15 +88,17 @@ public final class SurvivorService {
 	private static void spawnVillagers(MinecraftServer srv, int team, int count) {
 		List<UUID> list = villagerIds.computeIfAbsent(team, k -> new ArrayList<>());
 		for (int i = 0; i < count; i++) {
-			UUID id = spawnOneVillager(srv, team, i, count);
+			SurvivorJob job = SurvivorJob.initialByIndex(i);
+			UUID id = spawnOneVillager(srv, team, i, count, job);
 			if (id != null) {
 				list.add(id);
+				jobs.put(id, job);
 			}
 		}
 	}
 
 	/** 放 1 个筏上幸存者，返回 UUID；失败返 null。 */
-	private static UUID spawnOneVillager(MinecraftServer srv, int team, int index, int total) {
+	private static UUID spawnOneVillager(MinecraftServer srv, int team, int index, int total, SurvivorJob job) {
 		ServerWorld world = srv.getOverworld();
 		var a = RoundManager.anchorAt(team);
 		if (a == null) {
@@ -111,12 +118,12 @@ public final class SurvivorService {
 		v.setAiDisabled(true);   // 站桩：不 wander、不打人
 		v.setInvulnerable(true);   // 不被黑海/流弹误杀（它是"口粮压力"的视觉，不是战斗单位）
 		v.setNoGravity(true);      // 位置由 followRafts 每 tick 贴回甲板，不交给重力/地形
-		v.setCustomName(Text.literal("§a幸存者·队" + team));
+		v.setCustomName(Text.literal("§a幸存者·队" + team + "·" + job.displayName()));
 		v.setCustomNameVisible(true);
 		v.setPersistent();
 		world.spawnEntity(v);
-		NBW.LOGGER.info("[survivor] 队 {} 幸存者落位 local=({}, {}, {}) world=({}, {}, {})",
-				team, local[0], local[1], local[2], pos[0], pos[1], pos[2]);
+		NBW.LOGGER.info("[survivor] 队 {} 幸存者({}) 落位 local=({}, {}, {}) world=({}, {}, {})",
+				team, job.displayName(), local[0], local[1], local[2], pos[0], pos[1], pos[2]);
 		return v.getUuid();
 	}
 
@@ -237,12 +244,14 @@ public final class SurvivorService {
 			e.discard();
 		}
 		survivors.merge(team, 1, Integer::sum);
-		UUID id = spawnOneVillager(server, team, 0, 1);
+		SurvivorJob job = SurvivorJob.leastRepresented(jobCounts(team));
+		UUID id = spawnOneVillager(server, team, 0, 1, job);
 		if (id != null) {
 			villagerIds.computeIfAbsent(team, k -> new ArrayList<>()).add(id);
+			jobs.put(id, job);
 		}
-		announce(server, team, "§a[幸存者] 队伍 N" + team + " 招募了 1 名漂流幸存者（现 "
-				+ survivors.get(team) + "）");
+		announce(server, team, "§a[幸存者] 队伍 N" + team + " 招募了 1 名漂流幸存者·" + job.displayName()
+				+ "（现 " + survivors.get(team) + "）");
 		return true;
 	}
 
@@ -254,6 +263,7 @@ public final class SurvivorService {
 			return;
 		}
 		UUID id = list.remove(list.size() - 1);
+		jobs.remove(id);
 		var e = server.getOverworld().getEntity(id);
 		if (e != null) {
 			e.discard();
@@ -273,6 +283,7 @@ public final class SurvivorService {
 			}
 		}
 		villagerIds.clear();
+		jobs.clear();
 	}
 
 	/**
@@ -360,16 +371,46 @@ public final class SurvivorService {
 	}
 
 	/**
-	 * 生产岗位效率（02 §9）：有幸存者的队，设施冷却按此倍率缩短（−30% 周期）。
+	 * 生产岗位效率（02 §9）：队伍里有<b>对应职业</b>的幸存者时，设施周期 −30%。
 	 *
-	 * @return 0.7 = 有幸存者、1.0 = 没有（无队伍也按 1.0）
+	 * @param job 该设施对应的岗位（过滤器=水手、厨台/堆肥=厨师、医疗箱=医护）
+	 * @return 0.7 = 有该职业、1.0 = 没有（无队伍也按 1.0）
 	 */
-	public static double productionSpeedFor(ServerPlayerEntity player) {
+	public static double productionSpeedFor(ServerPlayerEntity player, SurvivorJob job) {
 		var session = RoundManager.machine().session(player.getUuid());
 		if (session == null || session.teamIndex() < 0) {
 			return 1.0;
 		}
-		return survivors.getOrDefault(session.teamIndex(), 0) > 0 ? 0.7 : 1.0;
+		return hasJob(session.teamIndex(), job) ? 0.7 : 1.0;
+	}
+
+	/** 本队是否有该职业的幸存者。 */
+	public static boolean hasJob(int team, SurvivorJob job) {
+		List<UUID> list = villagerIds.get(team);
+		if (list == null) {
+			return false;
+		}
+		for (UUID id : list) {
+			if (jobs.get(id) == job) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** 本队当前各职业人数（只统计仍在筏上的实体）。 */
+	public static Map<SurvivorJob, Integer> jobCounts(int team) {
+		Map<SurvivorJob, Integer> counts = new EnumMap<>(SurvivorJob.class);
+		List<UUID> list = villagerIds.get(team);
+		if (list != null) {
+			for (UUID id : list) {
+				SurvivorJob job = jobs.get(id);
+				if (job != null) {
+					counts.merge(job, 1, Integer::sum);
+				}
+			}
+		}
+		return counts;
 	}
 
 	/** 本队还有幸存者吗（反偷家 ×0.25 的判定用，01 §A3-v2）。 */
@@ -381,7 +422,15 @@ public final class SurvivorService {
 	public static String teamStatus(int team) {
 		int count = survivors.getOrDefault(team, 0);
 		double prov = provisions.getOrDefault(team, 0.0);
-		return String.format(Locale.ROOT, "队%d 幸存者=%d 口粮=%.1f", team, count, prov);
+		StringBuilder jobsText = new StringBuilder();
+		for (Map.Entry<SurvivorJob, Integer> e : jobCounts(team).entrySet()) {
+			if (jobsText.length() > 0) {
+				jobsText.append(',');
+			}
+			jobsText.append(e.getKey().displayName()).append(e.getValue());
+		}
+		return String.format(Locale.ROOT, "队%d 幸存者=%d 口粮=%.1f 职业[%s]",
+				team, count, prov, jobsText);
 	}
 
 	/** 全局读数：给 {@code /cww survivor}。 */
@@ -412,6 +461,7 @@ public final class SurvivorService {
 		clearFloating();
 		survivors.clear();
 		provisions.clear();
+		jobs.clear();
 		tick = 0;
 		server = null;
 	}

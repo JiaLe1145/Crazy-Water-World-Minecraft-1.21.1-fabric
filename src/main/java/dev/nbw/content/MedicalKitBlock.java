@@ -1,5 +1,6 @@
 package dev.nbw.content;
 
+import dev.nbw.domain.survivor.SurvivorJob;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.entity.player.PlayerEntity;
@@ -40,9 +41,11 @@ public final class MedicalKitBlock extends Block {
 			return ActionResult.PASS;
 		}
 		int now = sw.getServer().getTicks();
+		int cooldownTicks = (int) Math.round(COOLDOWN_SECONDS * 20
+				* dev.nbw.round.SurvivorService.productionSpeedFor(sp, SurvivorJob.MEDIC));   // 有医护：−30% 周期
 		Integer last = lastUse.get(pos);
-		if (last != null && now - last < COOLDOWN_SECONDS * 20) {
-			int remain = (COOLDOWN_SECONDS * 20 - (now - last)) / 20 + 1;
+		if (last != null && now - last < cooldownTicks) {
+			int remain = (cooldownTicks - (now - last)) / 20 + 1;
 			sp.sendMessage(Text.literal("§e[cww] 医疗箱冷却中（还要 " + remain + "s）"), true);
 			return ActionResult.SUCCESS;
 		}

@@ -1,5 +1,6 @@
 package dev.nbw.content;
 
+import dev.nbw.domain.survivor.SurvivorJob;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.entity.player.PlayerEntity;
@@ -47,7 +48,7 @@ public final class ItemProductBlock extends Block {
 		}
 		int now = sw.getServer().getTicks();
 		int cooldownTicks = (int) Math.round(cooldownSeconds * 20
-				* dev.nbw.round.SurvivorService.productionSpeedFor(sp));   // 有幸存者：−30% 周期
+				* dev.nbw.round.SurvivorService.productionSpeedFor(sp, SurvivorJob.COOK));   // 有厨师：−30% 周期
 		Integer last = lastUse.get(pos);
 		if (last != null && now - last < cooldownTicks) {
 			int remain = (cooldownTicks - (now - last)) / 20 + 1;
