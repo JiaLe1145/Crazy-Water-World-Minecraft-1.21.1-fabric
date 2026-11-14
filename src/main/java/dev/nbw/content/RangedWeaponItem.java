@@ -1,5 +1,7 @@
 package dev.nbw.content;
 
+import dev.nbw.domain.combat.WeatherCombatRule;
+import dev.nbw.round.EventService;
 import dev.nbw.round.RoundManager;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.player.PlayerEntity;
@@ -65,9 +67,18 @@ public final class RangedWeaponItem extends Item {
 			return TypedActionResult.success(sp.getStackInHand(hand));
 		}
 		lastUse.put(sp.getUuid(), now);
+		boolean storm = EventService.stormActive();
+		if (WeatherCombatRule.musketDisabledByStorm(storm, spec.id())) {
+			sp.sendMessage(Text.literal("§7[cww] 风暴中火铳失效"), true);
+			return TypedActionResult.success(sp.getStackInHand(hand));
+		}
 		LivingEntity target = findTarget(sw, sp, spec.range());
 		if (target == null) {
 			sp.sendMessage(Text.literal("§7[cww] 未命中"), true);
+			return TypedActionResult.success(sp.getStackInHand(hand));
+		}
+		if (WeatherCombatRule.rangedMissesInStorm(storm, sw.getRandom().nextFloat())) {
+			sp.sendMessage(Text.literal("§7[cww] 风暴中射偏了（精度 −50%）"), true);
 			return TypedActionResult.success(sp.getStackInHand(hand));
 		}
 		sw.getServer().execute(() -> {

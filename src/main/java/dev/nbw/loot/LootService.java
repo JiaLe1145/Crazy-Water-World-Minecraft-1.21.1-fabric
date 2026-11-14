@@ -3,6 +3,7 @@ package dev.nbw.loot;
 import dev.nbw.NBW;
 import dev.nbw.cfg.ConfigModels;
 import dev.nbw.domain.ZoneModel;
+import dev.nbw.domain.loot.LootExclusion;
 import dev.nbw.round.RoundManager;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.entity.BlockEntity;
@@ -149,8 +150,15 @@ public final class LootService {
 		int ok = 0;
 		int attempts = 0;
 		int skippedByAntiCamp = 0;
+		int skippedByExclude = 0;
 		int maxAttempts = Math.max(count * 4, count);
 		boolean legendary = legendaryUnlocked();
+		List<LootExclusion.Rect> excluded = new ArrayList<>();
+		if (arena.loot != null && arena.loot.exclude != null) {
+			for (ConfigModels.Arena.Loot.Exclude e : arena.loot.exclude) {
+				excluded.add(new LootExclusion.Rect(e.minX, e.minZ, e.maxX, e.maxZ));
+			}
+		}
 		while (ok < count && attempts < maxAttempts) {
 			if (spawned.size() >= MAX_FLOATING) {
 				break;   // 同屏上限（02 §4）：满了就不再撒
@@ -160,6 +168,10 @@ public final class LootService {
 			double radius = minR + (maxR - minR) * rnd.nextDouble();
 			int x = cx + (int) Math.round(Math.cos(angle) * radius);
 			int z = cz + (int) Math.round(Math.sin(angle) * radius);
+			if (LootExclusion.contains(x, z, excluded)) {
+				skippedByExclude++;   // 01 §5 / 03 loot.exclude：不刷物资区严格排除
+				continue;
+			}
 			long cell = cellKey(x, z);
 			Integer usedRound = cellLastRound.get(cell);
 			if (usedRound != null && usedRound >= round - 2) {
@@ -174,7 +186,8 @@ public final class LootService {
 				ok++;
 			}
 		}
-		NBW.LOGGER.info("[loot] 撒补给箱 {} 个（环带 {}-{} 格，防蹲点跳过 {} 次）", ok, minR, maxR, skippedByAntiCamp);
+		NBW.LOGGER.info("[loot] 撒补给箱 {} 个（环带 {}-{} 格，防蹲点跳过 {} 次，排除区跳过 {} 次）",
+				ok, minR, maxR, skippedByAntiCamp, skippedByExclude);
 		return String.format(Locale.ROOT, "已撒补给箱 %d 个（环带 %d-%d 格）", ok, minR, maxR);
 	}
 

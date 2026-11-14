@@ -130,6 +130,10 @@ public final class RoundManager {
 				// 淘汰后观战（M5-3）：死亡瞬间先切成旁观，重生时就是旁观视角（不必等 onRespawn）
 				if (machine.phase() == Phase.PLAY) {
 					player.changeGameMode(GameMode.SPECTATOR);
+					String tail = spectatorTail(player.getUuid());
+					player.sendMessage(Text.literal("§7[cww] 你已被淘汰｜" + tail), false);
+					// 这条日志是探针唯一能读到的"观战提示已下发"证据（RCON 读不到玩家聊天）。
+					NBW.LOGGER.info("[round] spectator notice: {}｜{}", player.getNameForScoreboard(), tail);
 				}
 			}
 		});
@@ -148,17 +152,22 @@ public final class RoundManager {
 				Transitions.edgeCount(), machine.config().teamCount(), machine.config().teamSize());
 	}
 
-	/** 大厅与非 PLAY 阶段禁止玩家互殴（04 §3 阶段内权限集中）。 */
+	/** 大厅与非 PLAY 阶段禁止玩家互殴（04 §3 阶段内权限集中）；PLAY 内同队也禁止（02 §8 friendly fire 默认关闭）。 */
 	private static boolean allowPlayerVsPlayer(Entity target, Entity attacker) {
 		if (!(target instanceof ServerPlayerEntity) || !(attacker instanceof ServerPlayerEntity)) {
 			return true;
 		}
-		if (machine.phase().allowsPvp()) {
-			return true;
+		if (!machine.phase().allowsPvp()) {
+			NBW.LOGGER.info("[round] pvp blocked in phase {}: {} -> {}", machine.phase(),
+					attacker.getNameForScoreboard(), target.getNameForScoreboard());
+			return false;
 		}
-		NBW.LOGGER.info("[round] pvp blocked in phase {}: {} -> {}", machine.phase(),
-				attacker.getNameForScoreboard(), target.getNameForScoreboard());
-		return false;
+		if (!target.equals(attacker) && machine.sameTeam(target.getUuid(), attacker.getUuid())) {
+			NBW.LOGGER.info("[round] friendly fire blocked: {} -> {}", attacker.getNameForScoreboard(),
+					target.getNameForScoreboard());
+			return false;
+		}
+		return true;
 	}
 
 	// ---------------------------------------------------------------- tick 与副作用
@@ -194,6 +203,7 @@ public final class RoundManager {
 			RemoteService.onEndTick(srv);   // 遥控器：登记马达目标 + 施转向角冲量
 			RescueService.onEndTick(srv);   // 扒边：只挪玩家位置，筏的目标仍由下一行合成
 			RaftMotionService.onEndTick(srv);   // 各目标合成之后，本 tick 只施一发控制冲量
+			broadcastSpectatorStatus(srv);   // 观战 actionbar 最后发，避免被圈层 actionbar 覆盖
 		}
 		// 恢复出来的这一局必须能晚点认领筏子：重启那一刻 Sable 还没把 sub-level 载进容器，
 		// 一次性 rebindFromWorld 实测就是"重认领 0 艘筏"，之后这一局再也看不见自己的筏。
@@ -603,6 +613,45 @@ public final class RoundManager {
 			p.changeGameMode(mode);
 		}
 		NBW.LOGGER.info("[round] game mode {} applied to {} / {} participants", mode, players.size(), ids.size());
+	}
+
+	/**
+	 * 淘汰观战提示的尾巴：本队还有谁活着。
+	 *
+	 * <p>只拼表现层文字，存活判定在 {@link RoundMachine#aliveTeammates(UUID)}，两者分工明确。
+	 */
+	private static String spectatorTail(UUID id) {
+		PlayerSession s = machine.session(id);
+		if (s == null) {
+			return "观战中";
+		}
+		List<UUID> mates = machine.aliveTeammates(id);
+		if (mates.isEmpty()) {
+			return "观战中｜本队已全灭";
+		}
+		List<String> names = new ArrayList<>();
+		for (UUID mate : mates) {
+			ServerPlayerEntity p = server == null ? null : server.getPlayerManager().getPlayer(mate);
+			names.add(p == null ? "?" : p.getNameForScoreboard());
+		}
+		return "观战中｜存活队友：" + String.join("、", names);
+	}
+
+	/** 淘汰后每 2 秒刷一次 actionbar；放在 PLAY tick 末尾，避免被圈层 actionbar 覆盖。 */
+	private static void broadcastSpectatorStatus(MinecraftServer srv) {
+		if (machine.tickInPhase() % 40 != 0) {
+			return;
+		}
+		for (UUID id : currentParticipants()) {
+			PlayerSession s = machine.session(id);
+			if (s == null || !s.isEliminated()) {
+				continue;
+			}
+			ServerPlayerEntity p = srv.getPlayerManager().getPlayer(id);
+			if (p != null) {
+				p.sendMessage(Text.literal("§7[cww] " + spectatorTail(id)), true);
+			}
+		}
 	}
 
 	private static void placeInLobby(ServerPlayerEntity player) {

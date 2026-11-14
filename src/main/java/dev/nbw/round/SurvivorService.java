@@ -1,9 +1,14 @@
 package dev.nbw.round;
 
 import dev.nbw.NBW;
+import dev.nbw.domain.survivor.SurvivorFormation;
+import dev.nbw.raft.RaftSpawner;
+import dev.nbw.sable.SableRafts;
+import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 
 import java.util.ArrayList;
@@ -19,6 +24,11 @@ import java.util.UUID;
  *
  * <p><b>2026-11-09 实体化第一段</b>：开局在筏上放对应数量的村民占位（禁 AI、无敌、带名字），
  * 断粮离队时同步删实体。真正的"会走动/可招募/给岗位加成"仍留后续。
+ *
+ * <p><b>2026-11-14 跟随收口</b>：村民不再留在出生点，而是按
+ * {@link SurvivorFormation} 的甲板局部阵位每 tick 贴回筏面（{@code SableRafts.localToWorld}），
+ * 所以筏子移动、转向、下沉时人都跟着。这里刻意<b>不</b>依赖"实体随 sub-level"——
+ * 那条能力在 M0 没有完全验证，先用确定的服务端重定位把行为做对，后续再决定是否换成原生承载。
  *
  * <p>口粮来源：海水过滤器/厨台/堆肥农场每产出一份，给本队 +1 口粮（见 {@link #addProvisions}）。
  */
@@ -48,9 +58,14 @@ public final class SurvivorService {
 	/** PLAY 开始：每队按人数发幸存者 + 缓冲口粮，并在筏上放对应数量的实体。 */
 	public static void begin(MinecraftServer srv) {
 		server = srv;
+		int stale = sweepStaleSurvivors(srv);
+		if (stale > 0) {
+			NBW.LOGGER.info("[survivor] 开局清掉 {} 个上一局/重启残留的幸存者实体", stale);
+		}
 		survivors.clear();
 		provisions.clear();
 		villagerIds.clear();
+		floatingIds.clear();
 		tick = 0;
 		for (var team : RoundManager.machine().teams()) {
 			int members = team.members().size();
@@ -77,25 +92,73 @@ public final class SurvivorService {
 
 	/** 放 1 个筏上幸存者，返回 UUID；失败返 null。 */
 	private static UUID spawnOneVillager(MinecraftServer srv, int team, int index, int total) {
-		var world = srv.getOverworld();
+		ServerWorld world = srv.getOverworld();
 		var a = RoundManager.anchorAt(team);
 		if (a == null) {
 			return null;
 		}
-		var v = net.minecraft.entity.EntityType.VILLAGER.create(world);
+		var v = EntityType.VILLAGER.create(world);
 		if (v == null) {
 			return null;
 		}
-		double ang = Math.PI * 2.0 * index / Math.max(1, total);
-		v.refreshPositionAndAngles(a.x() + 0.5 + Math.cos(ang) * 1.2, a.y(),
-				a.z() + 0.5 + Math.sin(ang) * 1.2, 0.0f, 0.0f);
+		double[] local = SurvivorFormation.localOffset(index, total);
+		double[] pos = survivorWorldPos(world, team, local);
+		if (pos == null) {
+			// 发筏失败/已被清场：先退回锚点，下一 tick 若能找到筏会重新贴回甲板。
+			pos = new double[]{a.x() + 0.5 + local[0], a.y() + local[1], a.z() + 0.5 + local[2]};
+		}
+		v.refreshPositionAndAngles(pos[0], pos[1], pos[2], 0.0f, 0.0f);
 		v.setAiDisabled(true);   // 站桩：不 wander、不打人
 		v.setInvulnerable(true);   // 不被黑海/流弹误杀（它是"口粮压力"的视觉，不是战斗单位）
+		v.setNoGravity(true);      // 位置由 followRafts 每 tick 贴回甲板，不交给重力/地形
 		v.setCustomName(Text.literal("§a幸存者·队" + team));
 		v.setCustomNameVisible(true);
 		v.setPersistent();
 		world.spawnEntity(v);
+		NBW.LOGGER.info("[survivor] 队 {} 幸存者落位 local=({}, {}, {}) world=({}, {}, {})",
+				team, local[0], local[1], local[2], pos[0], pos[1], pos[2]);
 		return v.getUuid();
+	}
+
+	/**
+	 * 把甲板局部阵位换算成世界坐标；筏不在场/读不到位姿时返回 null。
+	 *
+	 * <p>这是"幸存者跟着筏走"的唯一坐标口径：绝不能拿锚点世界坐标加偏移——
+	 * 筏子开走之后那样算出来的是出生点旁边的水。
+	 */
+	private static double[] survivorWorldPos(ServerWorld world, int team, double[] local) {
+		UUID raft = RaftSpawner.raftOf(team);
+		if (raft == null) {
+			return null;
+		}
+		double[] pos = SableRafts.localToWorld(world, raft, local[0], local[1], local[2]);
+		return Double.isNaN(pos[0]) ? null : pos;
+	}
+
+	/** 每 tick 把每队幸存者贴回当前筏面的局部阵位（跟随移动/转向/下沉）。 */
+	private static void followRafts(MinecraftServer srv) {
+		ServerWorld world = srv.getOverworld();
+		for (Map.Entry<Integer, List<UUID>> entry : villagerIds.entrySet()) {
+			int team = entry.getKey();
+			List<UUID> list = entry.getValue();
+			if (list == null || list.isEmpty()) {
+				continue;
+			}
+			int total = list.size();
+			for (int i = 0; i < list.size(); i++) {
+				Entity entity = world.getEntity(list.get(i));
+				if (entity == null) {
+					continue;   // 区块未加载/实体已被清理：下一 tick 再试
+				}
+				double[] local = SurvivorFormation.localOffset(i, total);
+				double[] pos = survivorWorldPos(world, team, local);
+				if (pos == null) {
+					continue;
+				}
+				entity.setPosition(pos[0], pos[1], pos[2]);
+				entity.setVelocity(0.0, 0.0, 0.0);
+			}
+		}
 	}
 
 	/** 幸存者人口上限（02 §1：quick/standard/big 2/4/5；这里按 teamSize+2 取简）。 */
@@ -212,12 +275,55 @@ public final class SurvivorService {
 		villagerIds.clear();
 	}
 
+	/**
+	 * 清掉上一局/重启残留的幸存者实体。
+	 *
+	 * <p>为什么需要：村民是 {@code setPersistent()}，但 {@link #reset()} 只能删内存表里
+	 * 记着的 UUID；重启后内存表为空，上一局的村民会留在世界里并累积。
+	 * （2026-11-14 探针实测：同一队 0 出现两只同名村民。）
+	 * 只按我们自己的名字前缀清，避免误伤地图作者放的装饰村民。
+	 *
+	 * @return 实际清掉的实体数
+	 */
+	private static int sweepStaleSurvivors(MinecraftServer srv) {
+		ServerWorld world = srv.getOverworld();
+		int removed = 0;
+		for (Entity e : world.getEntitiesByType(EntityType.VILLAGER, v -> {
+			Text name = v.getCustomName();
+			if (name == null) {
+				return false;
+			}
+			String s = name.getString();
+			return s.startsWith("§a幸存者·队") || "§e漂流幸存者".equals(s);
+		})) {
+			e.discard();
+			removed++;
+		}
+		return removed;
+	}
+
+	/** 局后清掉海面漂流幸存者；它们也是持久实体，不能只清 UUID 列表。 */
+	private static void clearFloating() {
+		if (server == null) {
+			floatingIds.clear();
+			return;
+		}
+		for (UUID id : floatingIds) {
+			Entity e = server.getOverworld().getEntity(id);
+			if (e != null) {
+				e.discard();
+			}
+		}
+		floatingIds.clear();
+	}
+
 	/** PLAY 每 tick：每秒扣口粮；断粮则每 30s 离队 1 人。 */
 	public static void onEndTick(MinecraftServer srv) {
 		if (survivors.isEmpty()) {
 			return;
 		}
 		tick++;
+		followRafts(srv);   // 每 tick 贴回筏面；放在口粮结算之前，位置与生存逻辑互不依赖
 		if (tick % 20 == 0) {
 			for (Map.Entry<Integer, Integer> e : survivors.entrySet()) {
 				int team = e.getKey();
@@ -303,6 +409,7 @@ public final class SurvivorService {
 	/** 局后清理。 */
 	public static void reset() {
 		clearVillagers();
+		clearFloating();
 		survivors.clear();
 		provisions.clear();
 		tick = 0;

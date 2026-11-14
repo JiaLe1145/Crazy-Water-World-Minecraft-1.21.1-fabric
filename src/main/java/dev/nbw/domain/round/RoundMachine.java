@@ -320,6 +320,49 @@ public final class RoundMachine {
 		return sessions.get(id);
 	}
 
+	/**
+	 * 两名玩家是否在<b>同一支已分队的队伍</b>里。
+	 *
+	 * <p>用于 friendly fire 判定：02 §8 要求默认关闭同队伤害。未报名/未分队/不同队
+	 * 一律返回 false，让调用方走原来的"允许"分支——这条规则不能把大厅玩家或旁观者误伤成"同队"。
+	 */
+	public boolean sameTeam(UUID a, UUID b) {
+		if (a == null || b == null) {
+			return false;
+		}
+		PlayerSession sa = sessions.get(a);
+		PlayerSession sb = sessions.get(b);
+		return sa != null && sb != null && sa.teamIndex() >= 0 && sa.teamIndex() == sb.teamIndex();
+	}
+
+	/**
+	 * 本队仍存活的队友（<b>不含自己</b>）。给淘汰后的观战提示用。
+	 *
+	 * <p>没有会话/没有分队时返回空列表，调用方据此显示“本队已全灭”还是“存活队友：…”；
+	 * 这条规则放在 domain，UI 只负责把名字拼成字符串。
+	 */
+	public List<UUID> aliveTeammates(UUID id) {
+		PlayerSession s = sessions.get(id);
+		if (s == null || s.teamIndex() < 0) {
+			return List.of();
+		}
+		MatchTeam team = teamAt(s.teamIndex());
+		if (team == null) {
+			return List.of();
+		}
+		List<UUID> out = new ArrayList<>();
+		for (UUID member : team.membersOrdered()) {
+			if (member.equals(id)) {
+				continue;
+			}
+			PlayerSession mate = sessions.get(member);
+			if (mate != null && mate.isAlive()) {
+				out.add(member);
+			}
+		}
+		return out;
+	}
+
 	// ---------------------------------------------------------------- 阶段推进
 
 	public void setConfig(RoundConfig newConfig) {

@@ -4,6 +4,7 @@ import dev.nbw.NBW;
 import dev.nbw.domain.raft.SpeedGovernor;
 import dev.nbw.domain.raft.WindModel;
 import dev.nbw.domain.raft.WindModel.Wind;
+import dev.nbw.round.EventService;
 import dev.nbw.sable.SableRafts;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.world.ServerWorld;
@@ -85,6 +86,9 @@ public final class WindService {
 	 * @return 本 tick 登记了几艘船的风力目标（给探针与日志用）
 	 */
 	public static int apply(MinecraftServer server) {
+		if (EventService.stormActive()) {
+			return 0;   // 风暴：帆与遥控一起失效（02 §10 / 01 §9）
+		}
 		if (current.calm()) {
 			return 0;
 		}

@@ -34,6 +34,7 @@ dist/
 
 # 第三方参考源码（只读，绝不入库）
 docs/raft-movement/ref/
+sable-main/
 
 # 第三方依赖 jar 不入库（体积大 + 许可要求单独分发）
 libs/

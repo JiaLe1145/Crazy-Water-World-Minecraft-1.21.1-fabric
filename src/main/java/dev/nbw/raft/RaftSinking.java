@@ -176,9 +176,10 @@ public final class RaftSinking {
 					break;
 				}
 			}
-			// 幸存者职业尚未实现（M5），此刻 anySurvivorAlive 恒为 false，
-			// 所以 teamWiped 等价于"本队玩家全灭"。第二条触发路径来自筏心（A2）。
-			SinkTrigger trigger = new SinkTrigger(!anyPlayerAlive,
+			// 01 §4.3.1 A3-v4：全队打光 = 既无玩家存活、也无幸存者存活。
+			// 幸存者目前是队级计数（SurvivorService），这条判定仍以设计语义为准。
+			boolean anySurvivorAlive = dev.nbw.round.SurvivorService.hasSurvivors(index);
+			SinkTrigger trigger = new SinkTrigger(SinkRule.teamWiped(anyPlayerAlive, anySurvivorAlive),
 					RaftCoreService.isWreckage(index));
 			SinkState next = SinkRule.tick(stateOf(index), trigger);
 			if (next != stateOf(index)) {

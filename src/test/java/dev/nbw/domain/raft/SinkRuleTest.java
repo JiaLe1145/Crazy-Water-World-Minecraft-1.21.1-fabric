@@ -127,4 +127,13 @@ class SinkRuleTest {
 		assertEquals(1, new SinkState(SinkState.SinkPhase.COUNTDOWN, 20).remainingSeconds());
 		assertEquals(2, new SinkState(SinkState.SinkPhase.COUNTDOWN, 21).remainingSeconds());
 	}
+
+	@Test
+	void teamWipedNeedsBothPlayersAndSurvivorsGone() {
+		// 01 §4.3.1 A3-v4：幸存者必须是"全队打光"的一部分，不能只看玩家。
+		assertTrue(SinkRule.teamWiped(false, false), "玩家与幸存者都没了才是全队打光");
+		assertFalse(SinkRule.teamWiped(true, false), "还有玩家活着就不该沉");
+		assertFalse(SinkRule.teamWiped(false, true), "还有幸存者活着就不该沉——这正是 A3-v4 要防的误判");
+		assertFalse(SinkRule.teamWiped(true, true));
+	}
 }

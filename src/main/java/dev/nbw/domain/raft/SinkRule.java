@@ -40,6 +40,20 @@ public final class SinkRule {
 		}
 	}
 
+	/**
+	 * 01 §4.3.1 A3-v4：全队打光 = <b>既无玩家存活、也无幸存者存活</b>。
+	 *
+	 * <p>把这条组合判断放在 domain，而不是让适配层各处自己写
+	 * {@code !playerAlive && !survivorAlive}：幸存者现在是队级计数，
+	 * 但以后若改成实体/职业，这条设计语义仍然不变，测试也仍然有效。
+	 *
+	 * @param anyPlayerAlive    本队是否还有活着的玩家
+	 * @param anySurvivorAlive  本队是否还有活着的幸存者
+	 */
+	public static boolean teamWiped(boolean anyPlayerAlive, boolean anySurvivorAlive) {
+		return !anyPlayerAlive && !anySurvivorAlive;
+	}
+
 	/** 非法的沉筏状态组合：说明适配层传错了东西，必须炸出来而不是继续算。 */
 	public static final class IllegalSinkState extends RuntimeException {
 		private static final long serialVersionUID = 1L;

@@ -3,6 +3,8 @@ package dev.nbw.round;
 import dev.nbw.NBW;
 import dev.nbw.cfg.ConfigModels;
 import dev.nbw.loot.LootService;
+import net.minecraft.entity.effect.StatusEffectInstance;
+import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
@@ -57,13 +59,17 @@ public final class EventService {
 
 	/** PLAY 每 tick：清过期事件；到点抽一发（同刻最多 1 个，02 §10）。 */
 	public static void onEndTick(MinecraftServer srv) {
-		if (pool.isEmpty()) {
-			return;
-		}
 		if (!activeEvent.isEmpty() && srv.getTicks() >= activeUntilTick) {
 			announce(srv, "§7[事件] " + activeEvent + " 结束");
 			activeEvent = "";
 			activeUntilTick = 0;
+		}
+		if (stormActive()) {
+			// 风暴的视野压暗是持续效果：即使事件池为空（管理员强制触发）也必须继续 tick。
+			tickStormEffects(srv);
+		}
+		if (pool.isEmpty()) {
+			return;
 		}
 		if (!activeEvent.isEmpty()) {
 			return;   // 已有事件在生效，不叠加
@@ -74,6 +80,19 @@ public final class EventService {
 		fire(srv);
 		scheduleNext(srv);
 		NBW.LOGGER.info("[event] 下一发 tick={}", nextFireTick);
+	}
+
+	/** 风暴期间每秒刷新一次 DARKNESS（02 §10 的“视野 −30%”在当前效果体系里的近似）。 */
+	private static void tickStormEffects(MinecraftServer srv) {
+		if (srv.getTicks() % 20 != 0) {
+			return;
+		}
+		for (UUID id : RoundManager.participantIds()) {
+			ServerPlayerEntity p = srv.getPlayerManager().getPlayer(id);
+			if (p != null && !p.isSpectator()) {
+				p.addStatusEffect(new StatusEffectInstance(StatusEffects.DARKNESS, 40, 0, false, false, false));
+			}
+		}
 	}
 
 	private static void scheduleNext(MinecraftServer srv) {
@@ -106,7 +125,7 @@ public final class EventService {
 			case "storm" -> {
 				activeEvent = "storm";
 				activeUntilTick = now + 45 * 20;
-				announce(srv, "§6[事件] 风暴来袭：45s 内航行受阻");
+				announce(srv, "§6[事件] 风暴来袭：45s 内帆/遥控失效、远程精度 −50%");
 			}
 			case "black_sea_surge" -> {
 				activeEvent = "black_sea_surge";

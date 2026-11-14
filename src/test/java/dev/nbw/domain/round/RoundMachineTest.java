@@ -562,6 +562,48 @@ class RoundMachineTest {
 	}
 
 	@Test
+	void aliveTeammatesExcludesDeadAndSelf() {
+		RoundMachine m = new RoundMachine(cfg(2, 2, 4, 200));
+		startMatch(m, 4);
+		runToPlay(m);
+		UUID a = m.teams().get(0).membersOrdered().get(0);
+		UUID b = m.teams().get(0).membersOrdered().get(1);
+
+		assertEquals(List.of(b), m.aliveTeammates(a), "同队另一人活着时应被列出");
+		assertEquals(List.of(a), m.aliveTeammates(b), "从另一侧看也应列出对方、且不含自己");
+
+		m.onDeath(a);
+		assertEquals(List.of(b), m.aliveTeammates(a), "自己死亡后仍应列出活着的队友，但不含自己");
+		assertTrue(m.aliveTeammates(b).isEmpty(), "唯一队友死亡后观战提示应显示本队已全灭");
+
+		m.onDeath(b);
+		assertTrue(m.aliveTeammates(a).isEmpty(), "两名队友都死亡后不再列出任何人");
+		assertTrue(m.aliveTeammates(b).isEmpty(), "两名队友都死亡后不再列出任何人");
+
+		UUID noSeat = id(777);
+		assertTrue(m.aliveTeammates(noSeat).isEmpty(), "没有会话/没有分队时返回空列表");
+	}
+
+	@Test
+	void sameTeamOnlyWhenBothAreSeatedOnTheSameTeam() {
+		RoundMachine m = new RoundMachine(cfg(2, 2, 4, 200));
+		startMatch(m, 4);
+		UUID t0a = m.teams().get(0).membersOrdered().get(0);
+		UUID t0b = m.teams().get(0).membersOrdered().get(1);
+		UUID t1 = m.teams().get(1).membersOrdered().get(0);
+
+		assertTrue(m.sameTeam(t0a, t0b), "同队两人必须判同队（friendly fire 要拦）");
+		assertFalse(m.sameTeam(t0a, t1), "不同队不能判同队");
+		assertFalse(m.sameTeam(t0a, id(999)), "未知玩家不能判同队");
+
+		RoundMachine lobby = new RoundMachine(cfg(2, 2, 4, 200));
+		UUID queued = id(42);
+		assertNull(lobby.queue(queued, "queued"), "报名不应被拒");
+		assertFalse(lobby.sameTeam(queued, queued), "未分队的人不构成同队");
+		assertFalse(lobby.sameTeam(queued, t0a), "未分队 vs 已分队也不构成同队");
+	}
+
+	@Test
 	void configRejectsImpossibleSpecs() {
 		assertThrows(IllegalArgumentException.class, () -> new RoundConfig(0, 3, 4, 20, 20, 20, 20, 20));
 		assertThrows(IllegalArgumentException.class, () -> new RoundConfig(4, 3, 4, 0, 20, 20, 20, 20));
