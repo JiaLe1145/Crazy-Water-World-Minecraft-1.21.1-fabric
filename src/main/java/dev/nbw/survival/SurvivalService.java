@@ -1,6 +1,7 @@
 package dev.nbw.survival;
 
 import dev.nbw.NBW;
+import dev.nbw.domain.survival.HypothermiaRule;
 import dev.nbw.domain.survival.SurvivalRule;
 import dev.nbw.net.StatusPayload;
 import dev.nbw.round.RoundManager;
@@ -39,6 +40,8 @@ public final class SurvivalService {
 	/** 流血/骨折的到期 tick（受伤系统，M4-3）：流血 2♥/s 掉到 1 血自停；骨折 45s 禁冲刺。 */
 	private static final Map<UUID, Integer> bleedingUntil = new LinkedHashMap<>();
 	private static final Map<UUID, Integer> fractureUntil = new LinkedHashMap<>();
+	/** 失温计时（01 §5 / 02 §8）：每秒喂一次 isWet，连续 10s 后消耗 ×1.5。 */
+	private static final Map<UUID, HypothermiaRule.State> wetStates = new LinkedHashMap<>();
 	private static MinecraftServer server;
 	private static int tick;
 
@@ -74,6 +77,7 @@ public final class SurvivalService {
 		lastDamageTick.clear();
 		bleedingUntil.clear();
 		fractureUntil.clear();
+		wetStates.clear();
 		tick = 0;
 		for (UUID id : RoundManager.participantIds()) {
 			states.put(id, new State(SurvivalRule.MAX, SurvivalRule.MAX));
@@ -137,9 +141,22 @@ public final class SurvivalService {
 			}
 			boolean combat = now - lastDamageTick.getOrDefault(e.getKey(), Integer.MIN_VALUE / 2)
 					< COMBAT_WINDOW_TICKS;
+			// 失温（01 §5 / 02 §8）：连续湿身 10s → 营养/水分消耗 ×1.5；连续干燥 3s 解除。
+			HypothermiaRule.State previousWet = wetStates.getOrDefault(e.getKey(), HypothermiaRule.State.none());
+			HypothermiaRule.State wet = HypothermiaRule.tick(previousWet, p.isWet());
+			wetStates.put(e.getKey(), wet);
+			boolean wasHypothermic = HypothermiaRule.active(previousWet);
+			boolean isHypothermic = HypothermiaRule.active(wet);
+			if (isHypothermic != wasHypothermic) {
+				p.sendMessage(net.minecraft.text.Text.literal(isHypothermic
+						? "§b[cww] 你失温了：营养/水分消耗 ×1.5（离开水/雨 3s 解除）"
+						: "§b[cww] 失温解除"), true);
+			}
+			double wetMultiplier = HypothermiaRule.drainMultiplier(wet);
 			double nDecay = SurvivalRule.decay(
-					combat ? SurvivalRule.NUTRITION_PER_MIN_COMBAT : SurvivalRule.NUTRITION_PER_MIN, 20);
-			double hDecay = SurvivalRule.decay(SurvivalRule.HYDRATION_PER_MIN, 20);
+					combat ? SurvivalRule.NUTRITION_PER_MIN_COMBAT : SurvivalRule.NUTRITION_PER_MIN, 20)
+					* wetMultiplier;
+			double hDecay = SurvivalRule.decay(SurvivalRule.HYDRATION_PER_MIN, 20) * wetMultiplier;
 			State s = e.getValue();
 			double n = SurvivalRule.clamp(s.nutrition() - nDecay);
 			double h = SurvivalRule.clamp(s.hydration() - hDecay);
@@ -241,11 +258,13 @@ public final class SurvivalService {
 		int now = srv.getTicks();
 		boolean bleeding = bleedingUntil.getOrDefault(p.getUuid(), 0) > now;
 		boolean fractured = fractureUntil.getOrDefault(p.getUuid(), 0) > now;
-		return String.format(Locale.ROOT, "%s 营养=%.1f(%s) 水分=%.1f(%s) 血=%.1f 流血=%s 骨折=%s｜人数=%d",
+		boolean hypothermic = HypothermiaRule.active(wetStates.get(p.getUuid()));
+		return String.format(Locale.ROOT, "%s 营养=%.1f(%s) 水分=%.1f(%s) 血=%.1f 流血=%s 骨折=%s 失温=%s｜人数=%d",
 				p.getName().getString(), s.nutrition(),
 				SurvivalRule.nutritionLow(s.nutrition()) ? "低" : "正常",
 				s.hydration(), SurvivalRule.hydrationLow(s.hydration()) ? "低" : "正常",
-				p.getHealth(), bleeding ? "是" : "否", fractured ? "是" : "否", states.size());
+				p.getHealth(), bleeding ? "是" : "否", fractured ? "是" : "否",
+				hypothermic ? "是" : "否", states.size());
 	}
 
 	/** 局后清理：状态与挨打时间都是局内的。 */
@@ -254,6 +273,7 @@ public final class SurvivalService {
 		lastDamageTick.clear();
 		bleedingUntil.clear();
 		fractureUntil.clear();
+		wetStates.clear();
 		tick = 0;
 	}
 }

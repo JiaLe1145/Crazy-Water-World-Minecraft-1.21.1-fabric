@@ -115,6 +115,8 @@ public final class NbwCommands {
 		root.then(survivorNode);
 		// 卫兵守筏读数（01 §7 A6）
 		root.then(admin(CommandManager.literal("guard").executes(NbwCommands::guardStatus)));
+		// 队伍物资箱读数（01 §4.1）
+		root.then(admin(CommandManager.literal("supply").executes(NbwCommands::supplyStatus)));
 		// 功率池（M4 补）：读数
 		root.then(admin(CommandManager.literal("power").executes(NbwCommands::powerStatus)));
 		// 筏心 HP / 破拆（反偷家 ×0.25）：读数 + dev 强制打
@@ -327,6 +329,20 @@ public final class NbwCommands {
 		bcOn.then(bcKind);
 		bcAs.then(bcOn);
 		build.then(CommandManager.literal("check").then(bcAs));
+		// 扩建收费的确定性入口：不瞄准、不放方块，只跑真实扣费函数（dev/探针）。
+		var bchPlayer = CommandManager.argument("player", StringArgumentType.word());
+		var bchTeam = CommandManager.argument("team", IntegerArgumentType.integer(0));
+		var bchLx = CommandManager.argument("lx", IntegerArgumentType.integer(-64, 64));
+		var bchLy = CommandManager.argument("ly", IntegerArgumentType.integer(-64, 64));
+		var bchLz = CommandManager.argument("lz", IntegerArgumentType.integer(-64, 64));
+		var bchBlock = CommandManager.argument("block", StringArgumentType.greedyString());
+		bchBlock.executes(NbwCommands::buildCharge);
+		bchLz.then(bchBlock);
+		bchLy.then(bchLz);
+		bchLx.then(bchLy);
+		bchTeam.then(bchLx);
+		bchPlayer.then(bchTeam);
+		build.then(CommandManager.literal("charge").then(bchPlayer));
 		root.then(build);
 
 		// ---- 武器（09 §2.1，已批准 A17 近战切片）：list / reload / give / status（审计读数）
@@ -613,6 +629,18 @@ public final class NbwCommands {
 		return 1;
 	}
 
+	/** {@code /cww build charge <玩家> <队> <lx> <ly> <lz> <方块>}：扩建扣费的 dev 夹具。 */
+	private static int buildCharge(CommandContext<ServerCommandSource> ctx) {
+		String name = StringArgumentType.getString(ctx, "player");
+		int team = IntegerArgumentType.getInteger(ctx, "team");
+		int lx = IntegerArgumentType.getInteger(ctx, "lx");
+		int ly = IntegerArgumentType.getInteger(ctx, "ly");
+		int lz = IntegerArgumentType.getInteger(ctx, "lz");
+		String block = StringArgumentType.getString(ctx, "block");
+		return tell(ctx, "build charge → " + BuildService.chargeProbe(
+				ctx.getSource().getServer(), name, team, lx, ly, lz, block));
+	}
+
 	private static int buildLast(CommandContext<ServerCommandSource> ctx) {
 		List<String> recent = BuildService.recent();
 		if (recent.isEmpty()) {
@@ -884,6 +912,24 @@ public final class NbwCommands {
 					+ "（可用：sailor/cook/medic/craftsman/helmsman/guard，或中文名）");
 		}
 		return tell(ctx, dev.nbw.round.SurvivorService.setJob(team, index, job));
+	}
+
+	/** {@code /cww supply}：各队初始物资箱的内容读数。 */
+	private static int supplyStatus(CommandContext<ServerCommandSource> ctx) {
+		var srv = ctx.getSource().getServer();
+		StringBuilder sb = new StringBuilder("[supply] ");
+		for (var team : RoundManager.machine().teams()) {
+			if (team.members().isEmpty()) {
+				continue;
+			}
+			sb.append(dev.nbw.raft.RaftSpawner.supplyStatus(srv, team.index())).append("｜");
+		}
+		if (sb.length() == "[supply] ".length()) {
+			sb.append("本局没有队伍");
+		}
+		String out = sb.toString();
+		ctx.getSource().sendFeedback(() -> Text.literal(out), false);
+		return 1;
 	}
 
 	/** {@code /cww guard}：各队卫兵数与本局命中数。 */

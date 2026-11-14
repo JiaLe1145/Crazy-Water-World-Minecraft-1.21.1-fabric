@@ -93,6 +93,8 @@ def live_place(p, name, xyz):
     # 不能只用 give：开局每人发了一个遥控器，give 会把木板放进别的背包格，
     # 假玩家主手还拿着遥控器时右键不会放方块。显式放进 hotbar.0 并选中。
     p("item replace entity %s hotbar.0 with %s 64" % (name, ITEM))
+    # 扩建成本（02 §5）：甲板层每格扣 3 木板 + 1 线；不放线会被拒。
+    p("item replace entity %s hotbar.1 with minecraft:string 64" % name)
     p("player %s hotbar 0" % name)
     p("gamemode survival %s" % name)
     for d in (3.5, 4.5):

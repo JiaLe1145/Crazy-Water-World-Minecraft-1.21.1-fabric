@@ -3,10 +3,16 @@ package dev.nbw.raft;
 import dev.nbw.NBW;
 import dev.nbw.cfg.ConfigModels;
 import dev.nbw.content.NbwContent;
+import dev.nbw.content.NbwWeapons;
 import dev.nbw.content.RaftCoreBlockEntity;
+import dev.nbw.domain.raft.RaftLayout;
 import dev.nbw.round.RoundManager;
 import dev.nbw.sable.SableRafts;
 import net.minecraft.block.Block;
+import net.minecraft.block.Blocks;
+import net.minecraft.block.entity.ChestBlockEntity;
+import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
 import net.minecraft.registry.Registries;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.world.ServerWorld;
@@ -176,6 +182,10 @@ public final class RaftSpawner {
 			String coreErr = placeCore(world, id, index);
 			if (coreErr != null) {
 				failures.add("队 " + index + " " + coreErr);
+			}
+			String chestErr = placeSupplyBox(world, id, index, side);
+			if (chestErr != null) {
+				failures.add("队 " + index + " " + chestErr);
 			}
 			if (!SableRafts.holdLoaded(world, id)) {
 				failures.add("队 " + index + " 加载票没上成功（筏子可能在中途被卸载）");
@@ -363,6 +373,70 @@ public final class RaftSpawner {
 			return "筏心方块实体没被创建（方块注册或 BE 类型不匹配）";
 		}
 		return null;
+	}
+
+	/**
+	 * 队伍物资箱（01 §4.1）：初始筏角落放一个原版箱子，内含 1 木桨 + 8 木板 + 2 淡水。
+	 *
+	 * <p>位置取甲板角落的设施层（{@code deckStart, FACILITY_Y, deckStart}）：角落是帆位序列的最后一格，
+	 * 4×4 开局只开放 2 个设施位，正常玩家不会把帆摆到那里，物资箱因此不会挡掉"开局两件设施"。
+	 *
+	 * <p><b>已知边界</b>：原版箱子没有队伍锁——敌人登筏后也能打开。这是"队伍物资箱"的最小实现，
+	 * 队伍锁/开箱日志留作后续（01 §4.1 的 A1 待批项）。
+	 */
+	private static String placeSupplyBox(ServerWorld world, UUID raftId, int teamIndex, int side) {
+		int x = RaftLayout.deckStart(side);
+		int z = RaftLayout.deckStart(side);
+		if (!SableRafts.setPlotBlock(world, raftId, x, RaftLayout.FACILITY_Y, z,
+				Blocks.CHEST.getDefaultState())) {
+			return "物资箱没能写进 plot";
+		}
+		if (!(SableRafts.plotBlockEntity(world, raftId, x, RaftLayout.FACILITY_Y, z)
+				instanceof ChestBlockEntity chest)) {
+			return "物资箱方块实体没被创建（方块实体类型不匹配）";
+		}
+		int slot = 0;
+		var paddle = NbwWeapons.item("paddle");
+		if (paddle != null) {
+			chest.setStack(slot++, new ItemStack(paddle));
+		}
+		chest.setStack(slot++, new ItemStack(Items.OAK_PLANKS, 8));
+		if (NbwContent.freshWater != null) {
+			chest.setStack(slot++, new ItemStack(NbwContent.freshWater, 2));
+		}
+		chest.markDirty();
+		NBW.LOGGER.info("[raftgen] 队 {} 物资箱落位 local=({}, {}, {})，内容 木桨={} 木板=8 淡水={}",
+				teamIndex, x, RaftLayout.FACILITY_Y, z, paddle != null, NbwContent.freshWater != null);
+		return null;
+	}
+
+	/**
+	 * 运维/探针读数：某队物资箱里还有什么（按注册 id 计数）。
+	 *
+	 * <p>箱子是原版方块实体，内容不在我们的内存表里；读数必须从 plot BE 现读，
+	 * 否则"箱子发出来了"与"里面真有东西"会各说各话。
+	 */
+	public static String supplyStatus(MinecraftServer server, int teamIndex) {
+		ServerWorld world = server.getOverworld();
+		UUID raft = raftOf(teamIndex);
+		if (raft == null) {
+			return "队 " + teamIndex + " 没有筏";
+		}
+		int side = deckSide();
+		if (!(SableRafts.plotBlockEntity(world, raft, RaftLayout.deckStart(side),
+				RaftLayout.FACILITY_Y, RaftLayout.deckStart(side)) instanceof ChestBlockEntity chest)) {
+			return "队 " + teamIndex + " 的物资箱读不到（可能已被拆掉）";
+		}
+		StringBuilder sb = new StringBuilder("队").append(teamIndex).append(" 物资箱[");
+		for (int i = 0; i < chest.size(); i++) {
+			ItemStack stack = chest.getStack(i);
+			if (stack.isEmpty()) {
+				continue;
+			}
+			sb.append(Registries.ITEM.getId(stack.getItem()).getPath())
+					.append("×").append(stack.getCount()).append(' ');
+		}
+		return sb.append("]").toString();
 	}
 
 	private static @Nullable Block resolveBlock(String id) {

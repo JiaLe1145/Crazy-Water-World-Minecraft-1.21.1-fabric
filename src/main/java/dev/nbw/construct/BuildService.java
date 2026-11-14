@@ -4,6 +4,7 @@ import dev.nbw.NBW;
 import dev.nbw.cfg.ConfigModels;
 import dev.nbw.content.NbwContent;
 import dev.nbw.domain.construct.BuildRules;
+import dev.nbw.domain.construct.ExpansionRule;
 import dev.nbw.raft.RaftSpawner;
 import dev.nbw.round.MetricsService;
 import dev.nbw.round.RoundManager;
@@ -11,13 +12,19 @@ import dev.nbw.sable.SableRafts;
 import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
+import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.BlockItem;
 import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
+import net.minecraft.registry.tag.ItemTags;
+import net.minecraft.registry.Registries;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.util.Identifier;
 import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
@@ -117,6 +124,15 @@ public final class BuildService {
 			deniedPlace++;
 			notice(sw, sp, reason);
 			record(sw, sp.getName().getString(), "放置", target, reason);
+			return ActionResult.FAIL;
+		}
+		Context chargeCtx = resolve(sw, sp, target);
+		boolean placingPlank = new ItemStack(blockItem).isIn(ItemTags.PLANKS);
+		String costDenied = chargeExpansion(chargeCtx, sp, blockItem.getBlock().getDefaultState(), placingPlank);
+		if (costDenied != null) {
+			deniedPlace++;
+			notice(sw, sp, costDenied);
+			record(sw, sp.getName().getString(), "扩建", target, costDenied);
 			return ActionResult.FAIL;
 		}
 		placed++;
@@ -228,6 +244,99 @@ public final class BuildService {
 				c.lx(), c.ly(), c.lz(), limits.maxRaftArea, neighborMask,
 				scan.blocks(), limits.maxBlocksPerRaft, scan.columns(),
 				isFacility(toPlace), scan.facilities(), limits.maxFacilities);
+	}
+
+	/**
+	 * 扩建甲板收费（02 §5：每 1 格甲板 = 4 木 + 1 布；本轮"布"取线）。
+	 *
+	 * <p>只对<b>甲板层（局部 y=0）的非设施方块</b>收费：设施与上层建筑不收；
+	 * 放在 y=0 的方块视为"一格甲板"（含补被炸掉的甲板）。收费从放置者背包扣，
+	 * 创造模式跳过。返回 null 表示允许（已扣或无需扣），否则是可读拒绝原因（不扣）。
+	 *
+	 * <p>为什么先扣再交给原版放：{@code UseBlockCallback} 只能在放置前拦；
+	 * 建造规则已经过了，原版放置基本不会失败，代价是极小概率的"扣了没放上"。
+	 */
+	private static @Nullable String chargeExpansion(Context c, ServerPlayerEntity player,
+			BlockState place, boolean placingPlank) {
+		if (!c.located() || c.ly() != 0) {
+			return null;
+		}
+		if (isFacility(place)) {
+			return null;
+		}
+		if (player.isCreative()) {
+			return null;
+		}
+		int needPlanks = ExpansionRule.extraPlanks(placingPlank);
+		int needString = ExpansionRule.stringCost();
+		var inventory = player.getInventory();
+		int havePlanks = 0;
+		int haveString = 0;
+		for (int i = 0; i < inventory.size(); i++) {
+			ItemStack stack = inventory.getStack(i);
+			if (stack.isEmpty()) {
+				continue;
+			}
+			if (stack.isIn(ItemTags.PLANKS)) {
+				havePlanks += stack.getCount();
+			} else if (stack.isOf(Items.STRING)) {
+				haveString += stack.getCount();
+			}
+		}
+		// 需求是"4 木板总量"：放下木板时其中 1 块由原版消耗，所以背包必须先有 4 块，
+		// 扣完额外的 3 块后还能剩 1 块给这次放置；否则会把主手那叠扣空、方块放不出去。
+		if (havePlanks < ExpansionRule.PLANKS_PER_CELL || haveString < needString) {
+			return "扩建一块甲板需要 4 木板（放下的木板算 1 块）+ 1 线；背包现有 "
+					+ havePlanks + " 木板 / " + haveString + " 线";
+		}
+		consume(inventory, s -> s.isIn(ItemTags.PLANKS), needPlanks);
+		consume(inventory, s -> s.isOf(Items.STRING), needString);
+		return null;
+	}
+
+	private static void consume(net.minecraft.entity.player.PlayerInventory inventory,
+			java.util.function.Predicate<ItemStack> match, int amount) {
+		int left = amount;
+		for (int i = 0; i < inventory.size() && left > 0; i++) {
+			ItemStack stack = inventory.getStack(i);
+			if (stack.isEmpty() || !match.test(stack)) {
+				continue;
+			}
+			int take = Math.min(left, stack.getCount());
+			stack.decrement(take);
+			left -= take;
+		}
+	}
+
+	/**
+	 * dev/探针夹具：在指定 plot 局部坐标上跑一次扩建扣费判定，<b>不真正放方块</b>。
+	 *
+	 * <p>存在的理由：扩建收费发生在 {@code UseBlockCallback} 里，验证它需要假玩家用真人
+	 * 站位去瞄准甲板边缘（build_probe 那套 48 个站位的搜索）。收费本身与瞄准无关，
+	 * 这个入口直接复用同一条 {@link #chargeExpansion} 代码，让"扣 3 木 1 线 / 材料不足拒绝"
+	 * 可以稳定复现，而不是靠运气命中。
+	 *
+	 * @return 可读结果（"允许（已扣费）" 或 "拒绝：…"）
+	 */
+	public static String chargeProbe(MinecraftServer server, String playerName, int team,
+			int lx, int ly, int lz, String blockId) {
+		ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerName);
+		if (player == null) {
+			return "找不到在线玩家 " + playerName;
+		}
+		UUID raft = RaftSpawner.raftOf(team);
+		if (raft == null) {
+			return "队 " + team + " 没有筏";
+		}
+		Identifier key = Identifier.tryParse(blockId.contains(":") ? blockId : "minecraft:" + blockId);
+		Block block = key == null ? null : Registries.BLOCK.get(key);
+		if (block == null) {
+			return "不认识方块 id：" + blockId;
+		}
+		Context c = new Context(team, team, raft, lx, ly, lz, true);
+		boolean placingPlank = new ItemStack(block).isIn(ItemTags.PLANKS);
+		String reason = chargeExpansion(c, player, block.getDefaultState(), placingPlank);
+		return reason == null ? "允许（已扣费）" : "拒绝：" + reason;
 	}
 
 	/**

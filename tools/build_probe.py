@@ -164,6 +164,8 @@ def live_place(p, name, xyz, item):
     """
     # 遥控器会占住背包格；显式放进 hotbar.0 并选中，保证右键拿的是方块。
     p("item replace entity %s hotbar.0 with %s 64" % (name, item))
+    # 扩建成本（02 §5）：甲板层每格扣 3 木板 + 1 线；不放线的话每次放置都会被拒。
+    p("item replace entity %s hotbar.1 with minecraft:string 64" % name)
     p("player %s hotbar 0" % name)
     p("gamemode survival %s" % name)
     for d in (3.5, 4.5):
