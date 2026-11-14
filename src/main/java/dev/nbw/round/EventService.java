@@ -3,6 +3,7 @@ package dev.nbw.round;
 import dev.nbw.NBW;
 import dev.nbw.cfg.ConfigModels;
 import dev.nbw.combat.WeaponService;
+import dev.nbw.domain.round.EventWeight;
 import dev.nbw.loot.LootService;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.minecraft.entity.effect.StatusEffectInstance;
@@ -148,7 +149,12 @@ public final class EventService {
 				return;
 			}
 			// 到点只“选中并预告”，真正生效在 WARN_TICKS 之后。
-			pendingEvent = pool.get(rnd.nextInt(pool.size()));
+			// 权重表见 02 §10（高=物资雨 / 中=风暴·海怪·倒流 / 低=聚集点·悬赏），纯函数在 domain。
+			String picked = EventWeight.pick(pool, rnd);
+			if (picked == null) {
+				return;   // 空池/全零权重：本 tick 不触发，下一 tick 再来
+			}
+			pendingEvent = picked;
 			pendingFireTick = now + WARN_TICKS;
 			warn(srv, pendingEvent);
 			NBW.LOGGER.info("[event] 预告 {}，{} tick 后触发", pendingEvent, WARN_TICKS);
