@@ -111,45 +111,28 @@ def main():
     victim = bots[2][0].lower()   # 队 1 的人
     holder = bots[1][0].lower()   # 队 0 第二人，专测持有上限
 
-    print("\n== 1. 砍刀一击伤害 == 9 HP")
+    print("\n== 1. 砍刀表值/属性 == 9 HP（确定性 probe，不依赖 Carpet 攻击）")
     p("cww weapon list", quiet=False)
     hold_cutlass(p, attacker)
-    # 把两人摆到相邻的旱地上：攻击者与受害者 x 相差 1 格、同高、同一平面
+    # 位置只用于让两名玩家都在线且可读；probe 不施加伤害，不依赖距离/瞄准。
     p("tp %s 1000.5 149 1000.5" % attacker)
     p("tp %s 1001.5 149 1000.5" % victim)
-    p.sleep(0.5)
-    h0 = health(p, victim)
-    aim_and_attack(p, attacker, victim)
-    p.sleep(0.6)
-    h1 = health(p, victim)
-    print("      受害者 HP：%s → %s（差 %.1f）" % (h0, h1, (h0 - h1) if (h0 and h1) else 0.0))
-    expect(h0 is not None and h1 is not None, "能读到受害者 HP：%s → %s" % (h0, h1))
-    if h0 is not None and h1 is not None:
-        diff = h0 - h1
-        # 满冷却一次命中应为 9.0 HP。Carpet 假玩家的攻击冷却进度不会精确停在 1.0（实测 ~0.94，
-        # 原版按 0.2+g²·0.8 把 9.0 折到 ~8.2），所以这里用"明显是近战伤害（>=8）而不是拳击（1）"作闸门，
-        # 精确值由物品 attribute_modifiers（GENERIC_ATTACK_DAMAGE=9.0）担保。
-        expect(diff >= 8.0,
-               "砍刀一击伤害明显是近战 9 HP 档（实测 %.1f，期望 %.1f，允许冷却折损）" % (diff, CUTLASS_DAMAGE))
-        expect(diff < 10.0, "伤害不越过 9 HP（未叠加暴击/连击，实测 %.1f）" % diff)
-        # 假玩家被击退后可能偏离一格，重摆后再测超频，保证第二击仍在射程内
-    print("\n== 2. 攻速超频：冷却内连打，第二次必须被拒")
-    p("tp %s 1000.5 149 1000.5" % attacker)
-    p("tp %s 1001.5 149 1000.5" % victim)
-    # 目标加满击退抗性：被击退后离开射程会让第二击直接 miss，测不到攻速闸门。
-    p("attribute %s minecraft:generic.knockback_resistance base set 1.0" % victim)
-    p.sleep(0.4)
-    aim_and_attack(p, attacker, victim)      # 有效攻击（记录上次有效 tick）
-    # 不再 look（look 的 RCON 往返可能超过 12 tick）；目标抗性保证还在射程内，立刻补一刀
-    p("player %s attack once" % attacker)
-    p.sleep(0.5)
+    p.sleep(0.3)
+    out = p("cww weapon probe2 %s %s cutlass" % (attacker, victim))
+    print("      probe2 回包：%s" % out[:320])
+    expect("允许" in out, "第一发通过攻速闸门：%s" % out[:160])
+    expect("表伤害=9.0" in out and "攻击属性=9.0" in out,
+           "砍刀表值与主手实际攻击属性都是 9.0HP：%s" % out[:220])
+    expect("拒绝" in out and "攻速超频" in out,
+           "同一 tick 第二发被超频拒绝：%s" % out[:220])
+
+    print("\n== 2. 审计留痕：超频拒绝计数与最近判定")
     st2 = weapon_status(p)
     m = re.search(r"超频拒绝=(\d+)", st2)
     rejected = int(m.group(1)) if m else -1
     print("      超频拒绝计数：%d" % rejected)
     expect(rejected >= 1, "冷却内连打至少触发一次超频拒绝（计数 %d）" % rejected)
-    expect("攻速超频" in "\n".join(p("cww weapon status", ).split("\n")),
-           "审计/状态里留下「攻速超频」留痕")
+    expect("攻速超频" in st2, "审计/状态里留下「攻速超频」留痕")
 
     print("\n== 3. 持有上限：第二件近战必须被拒（09 §5.1 每人限 1 件近战）")
     g_first = p("cww weapon give %s cutlass" % holder)

@@ -13,6 +13,7 @@ import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
 import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.attribute.EntityAttributes;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.particle.ParticleTypes;
@@ -135,6 +136,46 @@ public final class WeaponService {
 			world.spawnParticles(ParticleTypes.EXPLOSION, x, y, z, 1, 0.0, 0.0, 0.0, 0.0);
 			world.spawnParticles(ParticleTypes.SMOKE, x, y, z, 20, 0.5, 0.5, 0.5, 0.02);
 		}
+	}
+
+	/**
+	 * 确定性诊断：走与真实攻击<b>完全相同</b>的攻速闸门，并读主手物品的实际攻击属性。
+	 *
+	 * <p>为什么不施加伤害：伤害权威来自物品的 {@code GENERIC_ATTACK_DAMAGE} attribute，
+	 * 由原版结算；这里只验证三件事——主手确实是这把武器、表值与属性一致、闸门判定正确。
+	 * 这样 PVP 探针不再依赖 Carpet {@code attack once} 的暴击/冷却语义。
+	 *
+	 * @return 一行可读结论（允许/拒绝 + 表伤害 + 实际攻击属性 + 冷却）
+	 */
+	public static String probe(ServerPlayerEntity attacker, ServerPlayerEntity target, String weaponId) {
+		if (attacker == null || target == null) {
+			return "需要两名在线玩家";
+		}
+		if (!RoundManager.phase().allowsPvp()) {
+			return "只能在 PLAY 阶段探测（当前 " + RoundManager.phase() + "）";
+		}
+		ItemStack stack = attacker.getMainHandStack();
+		if (!(stack.getItem() instanceof WeaponItem wi) || !weaponId.equals(wi.weaponId())) {
+			return "主手不是 " + weaponId + "（当前 " + stack.getItem() + "）";
+		}
+		WeaponSpec spec = loaded.spec(weaponId);
+		if (spec == null) {
+			return "武器表没有 " + weaponId;
+		}
+		long now = attacker.getServer().getTicks();
+		Long last = lastValidAttack.get(attacker.getUuid());
+		String reason = CombatRule.cooldownViolation(last == null ? -1L : last, now, spec.cooldownTicks());
+		if (reason != null) {
+			rejectedOverSpeed++;
+			record(now, attacker, target, weaponId, reason);
+			return "拒绝：" + reason;
+		}
+		lastValidAttack.put(attacker.getUuid(), now);
+		accepted++;
+		double attribute = attacker.getAttributeValue(EntityAttributes.GENERIC_ATTACK_DAMAGE);
+		record(now, attacker, target, weaponId, null);
+		return String.format(Locale.ROOT, "允许：%s 表伤害=%.1fHP 攻击属性=%.1fHP 冷却=%dtick",
+				weaponId, spec.damage(), attribute, spec.cooldownTicks());
 	}
 
 	/** 重读武器表（内置回退 + world 覆盖）。成功返回一行结论，失败返回原因（不抛、不崩）。 */

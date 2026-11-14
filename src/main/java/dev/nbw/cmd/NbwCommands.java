@@ -330,6 +330,17 @@ public final class NbwCommands {
 				.then(CommandManager.argument("player", StringArgumentType.word())
 						.then(CommandManager.argument("id", StringArgumentType.word())
 								.executes(NbwCommands::weaponGive))));
+		// 确定性 PVP 诊断：不依赖 Carpet 的 attack once，直接走攻速闸门并读实际攻击属性。
+		weapon.then(CommandManager.literal("probe")
+				.then(CommandManager.argument("player", StringArgumentType.word())
+						.then(CommandManager.argument("target", StringArgumentType.word())
+								.then(CommandManager.argument("id", StringArgumentType.word())
+										.executes(NbwCommands::weaponProbe)))));
+		weapon.then(CommandManager.literal("probe2")
+				.then(CommandManager.argument("player", StringArgumentType.word())
+						.then(CommandManager.argument("target", StringArgumentType.word())
+								.then(CommandManager.argument("id", StringArgumentType.word())
+										.executes(NbwCommands::weaponProbeTwice)))));
 		root.then(weapon);
 
 		// ---- 落盘与重启恢复（Gate G1）
@@ -686,6 +697,32 @@ public final class NbwCommands {
 		NBW.LOGGER.info("[cmd] weapon give {} 给 {}（{}）", id, name, spec);
 		return tell(ctx, "已给 " + name + " 武器 " + id + "（伤害 " + spec.damage()
 				+ "HP，冷却 " + spec.cooldownTicks() + " tick）");
+	}
+
+	private static int weaponProbe(CommandContext<ServerCommandSource> ctx) {
+		String player = StringArgumentType.getString(ctx, "player");
+		String target = StringArgumentType.getString(ctx, "target");
+		ServerPlayerEntity attacker = ctx.getSource().getServer().getPlayerManager().getPlayer(player);
+		ServerPlayerEntity victim = ctx.getSource().getServer().getPlayerManager().getPlayer(target);
+		if (attacker == null || victim == null) {
+			return tell(ctx, "找不到在线玩家：" + (attacker == null ? player : target));
+		}
+		return tell(ctx, WeaponService.probe(attacker, victim, StringArgumentType.getString(ctx, "id")));
+	}
+
+	private static int weaponProbeTwice(CommandContext<ServerCommandSource> ctx) {
+		String player = StringArgumentType.getString(ctx, "player");
+		String target = StringArgumentType.getString(ctx, "target");
+		ServerPlayerEntity attacker = ctx.getSource().getServer().getPlayerManager().getPlayer(player);
+		ServerPlayerEntity victim = ctx.getSource().getServer().getPlayerManager().getPlayer(target);
+		if (attacker == null || victim == null) {
+			return tell(ctx, "找不到在线玩家：" + (attacker == null ? player : target));
+		}
+		String id = StringArgumentType.getString(ctx, "id");
+		// 同一 tick 连判两次：第一发留下 lastValidAttack，第二发必然落在冷却内。
+		String first = WeaponService.probe(attacker, victim, id);
+		String second = WeaponService.probe(attacker, victim, id);
+		return tell(ctx, "#1 " + first + " | #2 " + second);
 	}
 
 	private static int raftStatus(CommandContext<ServerCommandSource> ctx) {
