@@ -3,6 +3,7 @@ package dev.nbw.net;
 import dev.nbw.NBW;
 import dev.nbw.content.RaftCoreBlockEntity;
 import dev.nbw.domain.net.HoldPolicy;
+import dev.nbw.domain.net.PacketRateLimit;
 import dev.nbw.raft.RaftCoreService;
 import dev.nbw.raft.RemoteService;
 import dev.nbw.rescue.RescueService;
@@ -15,7 +16,9 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.BlockPos;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -47,6 +50,10 @@ import java.util.UUID;
  */
 public final class NbwNetworking {
 
+	/** 每玩家输入包计数（hold/move 共用一条限速，正常客户端合计约 10/s，上限 40/s）。 */
+	private static final Map<UUID, PacketRateLimit.State> packetRate = new HashMap<>();
+	private static final Map<UUID, Long> lastRateWarn = new HashMap<>();
+
 	private NbwNetworking() {
 	}
 
@@ -57,18 +64,49 @@ public final class NbwNetworking {
 			final ServerPlayerEntity player = context.player();
 			final MinecraftServer server = context.server();
 			// 自定义包不一定在主线程到达；世界与 BE 只能在服务端线程动。慢一帧远比崩一次好。
-			server.execute(() -> handle(player, payload));
+			server.execute(() -> {
+				if (!admit(server, player)) {
+					return;   // 超频包直接丢，不读方块、不续期任何窗口
+				}
+				handle(player, payload);
+			});
 		});
 		PayloadTypeRegistry.playC2S().register(MovePayload.ID, MovePayload.CODEC);
 		ServerPlayNetworking.registerGlobalReceiver(MovePayload.ID, (payload, context) -> {
 			final ServerPlayerEntity player = context.player();
 			final MinecraftServer server = context.server();
-			server.execute(() -> RemoteService.onMove(player,
-					payload.forward(), payload.backward(), payload.left(), payload.right()));
+			server.execute(() -> {
+				if (!admit(server, player)) {
+					return;   // 同上：恶意客户端刷 move 包时不让它进服务端线程
+				}
+				RemoteService.onMove(player,
+						payload.forward(), payload.backward(), payload.left(), payload.right());
+			});
 		});
 		// S2C：生存状态（营养/水分）推给客户端 HUD（M4-1）。只注册 codec，接收器在客户端那一半。
 		PayloadTypeRegistry.playS2C().register(StatusPayload.ID, StatusPayload.CODEC);
 		NBW.LOGGER.info("[net] 已注册 nbw:hold（长按：筏心修复/救援）+ nbw:move（遥控器 WASD）+ nbw:status（S2C 生存状态）");
+	}
+
+	/**
+	 * 每玩家输入包限速（Gate G5）：正常客户端约 10 包/秒，上限 40 包/秒。
+	 * 超限只丢弃、不回包（不给探测器任何反馈）；日志每秒最多一行。
+	 */
+	private static boolean admit(MinecraftServer server, ServerPlayerEntity player) {
+		long now = server.getTicks();
+		PacketRateLimit.State next = PacketRateLimit.admit(packetRate.get(player.getUuid()), now,
+				PacketRateLimit.DEFAULT_MAX_PER_SECOND);
+		if (next == null) {
+			Long last = lastRateWarn.get(player.getUuid());
+			if (last == null || now - last >= 20) {
+				lastRateWarn.put(player.getUuid(), now);
+				NBW.LOGGER.warn("[net] {} 输入包超频，丢弃（上限 {}/s）",
+						player.getNameForScoreboard(), PacketRateLimit.DEFAULT_MAX_PER_SECOND);
+			}
+			return false;
+		}
+		packetRate.put(player.getUuid(), next);
+		return true;
 	}
 
 	private static void handle(ServerPlayerEntity player, HoldPayload payload) {

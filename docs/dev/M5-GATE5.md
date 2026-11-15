@@ -67,7 +67,8 @@
 | `tools/bounty_probe.py` | **15 PASS / 0 FAIL** | 120s 到期、GLOWING、击杀领赏、奖励进背包、状态清除 |
 | `tools/stats_probe.py` | **13 PASS / 0 FAIL** | 真实命中伤害、死亡名字缓存、`state/matches/<match>.json` 字段 |
 | `tools/security_probe.py` | **10 PASS / 0 FAIL** | 攻速超频、远程装填冷却、隔墙打不中（正/负对照）、旁观者绳索/钩竿 |
-| 单测 `./gradlew test` | **299 / 0** | 含 `EventWeightTest` 8 条 |
+| `PacketRateLimitTest` | **5 / 0** | 输入包 40/s 限速：爆发、丢弃、跨秒重置、窗口边界、关闭限流 |
+| 单测 `./gradlew test` | **304 / 0** | 含 `EventWeightTest` 8 条 + `PacketRateLimitTest` 5 条 |
 
 ---
 
@@ -90,8 +91,8 @@
    可勾选清单（配置非法、满员、掉线、重连、跨局残留、极端人数/面积等）。
 3. **反作弊/泄露用例**：已建 [`M5-ANTICHEAT.md`](M5-ANTICHEAT.md) 矩阵；
    本轮实跑攻速超频、远程装填、隔墙遮挡、旁观者绳索/钩竿，并修了旁观者战斗/控制/建造全链路
-   与远程遮挡。**仍开口**：真客户端伪造包复验、`nbw:hold/move` 包洪泛限流、绳索/钩竿连点冷却、
-   钩竿隔墙判定、物品复制穷举。
+   与远程遮挡；`nbw:hold/move` 已加 40 包/秒限速（纯单测 5 条）。
+   **仍开口**：真客户端伪造包/包洪泛端到端复验、绳索/钩竿连点冷却、钩竿隔墙判定、物品复制穷举。
 4. **生产启动脚本**：`ops/start.ps1` 的崩溃自动重启没有在本轮用生产 `server.jar` 跑过；
    本轮跑的是 dev `gradlew runServer`。
 5. ~~**备份恢复脚本化**~~ → **已完成**：`ops/restore.ps1` + `restore.bat`，
