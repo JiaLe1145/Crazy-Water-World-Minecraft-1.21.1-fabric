@@ -1,0 +1,102 @@
+# M5 · 反作弊与泄露用例清单（Gate G5）
+
+> 对应 `03-里程碑.md` Gate G5 的「反作弊与泄露用例全过」。
+> 本文件是**清单**：每条写清攻击面、服务端防护点、验证状态与证据；未防护的明确写“未防护/待裁决”，
+> 不把代码审查冒充满分。
+
+状态图例：
+
+- ✅ **已实跑**：有探针或命令实测，读数是绿的。
+- 🟡 **代码审查/需真客户端**：防护已写，但 Carpet 假玩家造不出该攻击包，需真人客户端复验。
+- ❌ **未防护/待裁决**：当前没有服务端限制，或需要新数值才能决定。
+
+---
+
+## 1. 本轮实测（2026-11-15）
+
+`tools/security_probe.py` **10 PASS / 0 FAIL**：
+
+| 断言 | 实测 |
+|---|---|
+| 近战攻速闸门：同一 tick 第一发允许、第二发拒绝 | `#1 允许：cutlass … 冷却=12tick｜#2 拒绝：攻速超频（距上次有效攻击仅 0 tick）` |
+| 远程装填冷却 | 第一发 `冷却剩余(执行前)=0tick`；立刻第二发 `=29tick`，第二发不造成伤害 |
+| 远程隔墙正/负对照 | 无墙：`20.0 → 16.17`；有墙：`16.83 → 16.83`（不降） |
+| 旁观者绳索/钩竿 | `旁观者不能用绳索/钩竿` |
+| 单测 | `./gradlew test` **299 / 0** |
+
+> 远程用例用 dev 夹具 `/cww weapon ranged <玩家>` 走真实 `RangedWeaponItem.use`
+> （冷却 + 命中 + 方块遮挡）。Carpet 的 `use once` 不会触发自定义 `Item.use`，不能拿它当证据。
+
+---
+
+## 2. 用例矩阵
+
+| # | 用例 | 攻击面 | 服务端防护点 | 状态 | 证据 |
+|---|---|---|---|---|---|
+| 1 | 近战攻速超频 | 伪造攻击包 / 宏连点 | `WeaponService` 攻速闸门（按 UUID + tick） | ✅ | `security_probe` / `pvp_probe` |
+| 2 | 远程装填超频 | 宏连点右键 | `RangedWeaponItem.lastUse`（按玩家 + 武器实例） | ✅ | `security_probe`（29 tick） |
+| 3 | 远程隔墙打人 | 伪造瞄准 / 隔墙射击 | `findTarget` 方块 raycast（`COLLIDER`） | ✅ | `security_probe` 正/负对照 |
+| 4 | 旁观者绳索/钩竿 | 淘汰后伪造右键/命令 | `RopeService.cast` 的 `isSpectator` 门 | ✅ | `security_probe` |
+| 5 | 越界长按 | 伪造 `nbw:hold` 坐标 | `HoldPolicy` 甲板局部帧距离 + `REACH_BLOCKS` | ✅ | `M2-RESULTS §3.15` / `cww net probe` |
+| 6 | 建造越权/越界/超限 | 伪造放置 | `BuildRules` 归属 + 建造区 + 方块/设施上限 | ✅ | `build_probe` 60/60 |
+| 7 | 近战持有上限 | 拿第二件近战 | `CombatRule.holdViolation` + `weapon give` | ✅ | `pvp_probe` |
+| 8 | 消耗品刷回血 | 宏连点淡水/绷带 | 物品 `use` 显式 `decrement(1)`（非创造） | ✅ | M4-RESULTS / 代码审查 |
+| 9 | 生产设施刷产出 | 连点过滤器/厨台/医疗箱 | 按方块位置记冷却 | ✅ | M4-RESULTS 各节 |
+| 10 | 队伍/阶段越权 | 伪造交互包 | `RoundManager.phase()` + 服务端 session 分队 | ✅ | `build_probe` / `RoundMachine` |
+| 11 | 旁观者近战/破拆 | 淘汰后伪造攻击包 | `WeaponService.onAttack/onCoreAttack` 的 `isSpectator` 门 | 🟡 | 代码审查；真客户端复验 |
+| 12 | 旁观者远程 | 淘汰后伪造 use 包 | `RangedWeaponItem.use` 的 `isSpectator` 门 | 🟡 | 代码审查；真客户端复验 |
+| 13 | 旁观者遥控 | 淘汰后伪造 `nbw:move` | `RemoteService.onMove` 的 `isSpectator` 门 | 🟡 | 代码审查；真客户端复验 |
+| 14 | 旁观者建造/交互 | 淘汰后伪造交互包 | `BuildService` 三个事件的 `isSpectator` 门 | 🟡 | 代码审查；真客户端复验 |
+| 15 | 观战者吃圈伤/状态/被救援 | — | `ZoneService`/`SurvivalService`/`RescueService` 跳过旁观者 | 🟡 | 代码审查；真客户端复验 |
+| 16 | 包重放/伪造 `nbw:hold`/`nbw:move` | 自写客户端 | 服务端重算坐标/阶段/主手/队伍；无重放 nonce | 🟡 | 状态型包，重放窗口有限；需真客户端用例 |
+| 17 | 包洪泛（hold/move） | 自写客户端高频发包 | **无速率限制** | ❌ | 需裁决是否加限流；本会话未改 |
+| 18 | 绳索/钩竿连点 | 宏连点 | **无冷却** | ❌ | 设计未给冷却；需裁决 |
+| 19 | 钩竿隔墙拉人 | 伪造右键 | 只查射程/队伍，不查方块遮挡 | 🟡 | 设计未要求 LOS，待玩法裁决 |
+| 20 | 物品复制 | 容器/死亡/背包 | 未发现可利用路径：箱子用原版 loot table，消耗品显式扣减，局后清背包 | 🟡 | 代码审查；无自动化用例 |
+
+> “泄露”在这里按“可利用漏洞/信息泄露”理解：悬赏目标、圈层半径、观战视角是**设计上公开**的信息，
+> 不算泄露；未公开的会话/队伍状态只存在于服务端。
+
+---
+
+## 3. 本轮修复（不是文档，是代码）
+
+1. **旁观者战斗/控制/建造全链路**：
+   - `WeaponService.onAttack` / `onCoreAttack`：旁观者不能挥击/破拆。
+   - `RangedWeaponItem.use`：旁观者不能开枪。
+   - `RopeService.cast`：旁观者不能用绳索/钩竿；绳索目标也跳过旁观者。
+   - `RemoteService.onMove`：旁观者不能遥控。
+   - `BuildService` 的放置/起手破坏/实际破坏：旁观者一律拒绝。
+   - `SurvivalService` / `RescueService` / `ZoneService`：旁观者不再吃状态、圈伤或被救援。
+2. **远程 hitscan 遮挡**：`RangedWeaponItem.findTarget` 在选中目标前做方块 raycast，
+   射线先撞到方块（且比目标中心更近）就跳过。实测有墙时 `目标=无目标`、血量不降。
+3. **dev 夹具**：`/cww weapon ranged <玩家>` 走真实 `RangedWeaponItem.use`，给探针验冷却与遮挡；
+   回包带 `冷却剩余(执行前)=Ntick`，不靠“等 1.5 秒再猜”。
+
+---
+
+## 4. 还没做的（Gate G5 仍未签字）
+
+1. **真客户端复验**：旁观者近战/远程/遥控/建造四条目前是代码审查。需要真人客户端或自写包发送器，
+   构造“已淘汰玩家发攻击/使用/移动/放置包”，确认服务端拒绝。
+2. **包限流**：`nbw:hold` / `nbw:move` 没有每玩家速率上限。正常客户端 hold 约 10/s、move 约 10/s，
+   恶意客户端可以发几千/s；当前每个包都会 `server.execute`。加限流需要定阈值（建议 20–40/s），
+   属服务端防护，不改玩法。
+3. **绳索/钩竿冷却**：目前是瞬发、无冷却，宏连点可以反复拉人。设计只给了射程，没给冷却；
+   是否加“1 秒/20 tick 最小间隔”需要用户裁决，不自己加。
+4. **钩竿视线**：当前不查方块遮挡；如果“隔墙钩人”被判为不合理，需要把远程武器的 raycast
+   同样用到 `LineRule` 上，并补探针。
+5. **物品复制全面审计**：本轮只做了代码审查，没有穷举容器/漏斗/发射器/死亡掉落组合；
+   Gate G5 的“泄露用例全过”还不能签字。
+
+---
+
+## 5. 复跑
+
+```bash
+./gradlew test
+RCON_PORT=25576 RCON_PASSWORD=nbwm0 ./run/py-embed/python.exe -I -X utf8 tools/security_probe.py
+```
+
+> 依赖 dev 服在跑；脚本自己清假玩家/收尾。远程用例会在 `flat_test` 的 y=150 铺一层石板，
+> 因为该图水面在 y=149，直接 tp 到 149 会泡水漂走（实测 1s 偏 1 格，瞄准点会失效）。

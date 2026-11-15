@@ -105,6 +105,9 @@ public final class BuildService {
 		if (!(world instanceof ServerWorld sw) || !(player instanceof ServerPlayerEntity sp)) {
 			return ActionResult.PASS;
 		}
+		if (sp.isSpectator()) {
+			return ActionResult.FAIL;   // 观战者不能放置/使用方块：防伪造交互包绕过“只观战”
+		}
 		ItemStack stack = sp.getStackInHand(hand);
 		if (!(stack.getItem() instanceof BlockItem blockItem)) {
 			// 手上不是方块，是在使用方块（桨台、筏心、箱子）——不归建造规则管
@@ -145,6 +148,9 @@ public final class BuildService {
 		if (!(world instanceof ServerWorld sw) || !(player instanceof ServerPlayerEntity sp)) {
 			return ActionResult.PASS;
 		}
+		if (sp.isSpectator()) {
+			return ActionResult.FAIL;   // 观战者不能起手挖任何方块
+		}
 		String reason = gateBreak(sw, sp, pos);
 		if (reason != null) {
 			// 起手就拦：不出现挖掘进度条，玩家立刻知道"这格不归你动"。
@@ -159,6 +165,9 @@ public final class BuildService {
 			BlockPos pos, BlockState state, @Nullable BlockEntity blockEntity) {
 		if (!(world instanceof ServerWorld sw) || !(player instanceof ServerPlayerEntity sp)) {
 			return true;
+		}
+		if (sp.isSpectator()) {
+			return false;   // 观战者不能破坏方块
 		}
 		String reason = gateBreak(sw, sp, pos);
 		if (reason != null) {

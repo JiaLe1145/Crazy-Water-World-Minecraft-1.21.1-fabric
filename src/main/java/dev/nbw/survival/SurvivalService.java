@@ -116,8 +116,8 @@ public final class SurvivalService {
 			for (UUID id : states.keySet()) {
 				if (fractureUntil.getOrDefault(id, 0) > now) {
 					ServerPlayerEntity p = srv.getPlayerManager().getPlayer(id);
-					if (p != null) {
-						p.setSprinting(false);   // 骨折：无法冲刺
+					if (p != null && !p.isSpectator()) {
+						p.setSprinting(false);   // 骨折：无法冲刺；观战者不参与状态结算
 					}
 				}
 			}
@@ -127,8 +127,8 @@ public final class SurvivalService {
 		}
 		for (Map.Entry<UUID, State> e : states.entrySet()) {
 			ServerPlayerEntity p = srv.getPlayerManager().getPlayer(e.getKey());
-			if (p == null || p.isDead()) {
-				continue;
+			if (p == null || p.isDead() || p.isSpectator()) {
+				continue;   // 观战者不再吃营养/水分/流血结算
 			}
 			// 流血：2♥/s = 4 HP/s，掉到 1 血自停（Gate G4：不致死）
 			if (bleedingUntil.getOrDefault(e.getKey(), 0) > now) {

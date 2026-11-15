@@ -365,6 +365,11 @@ public final class NbwCommands {
 						.then(CommandManager.argument("target", StringArgumentType.word())
 								.then(CommandManager.argument("id", StringArgumentType.word())
 										.executes(NbwCommands::weaponProbeTwice)))));
+		// 远程武器夹具：Carpet 的 use once 不触发自定义 Item.use，这条路直接走真实的
+		// RangedWeaponItem.use（冷却 + 命中 + 方块遮挡），给安全探针验“隔墙打不中”。
+		weapon.then(CommandManager.literal("ranged")
+				.then(CommandManager.argument("player", StringArgumentType.word())
+						.executes(NbwCommands::weaponRanged)));
 		root.then(weapon);
 
 		// ---- 落盘与重启恢复（Gate G1）
@@ -759,6 +764,30 @@ public final class NbwCommands {
 		String first = WeaponService.probe(attacker, victim, id);
 		String second = WeaponService.probe(attacker, victim, id);
 		return tell(ctx, "#1 " + first + " | #2 " + second);
+	}
+
+	/**
+	 * {@code /cww weapon ranged <玩家>}：按主手远程武器走一次真实的 {@code RangedWeaponItem.use}。
+	 *
+	 * <p>为什么需要它：Carpet 假玩家的 {@code use once} 不会触发我们的自定义 {@code Item.use}，
+	 * 所以"隔墙能不能打中"一直只能靠读代码。这条夹具让安全探针能直接验冷却、命中与遮挡。
+	 * 它只代替"客户端右键"这一个动作，服务端判定一行不改。
+	 */
+	private static int weaponRanged(CommandContext<ServerCommandSource> ctx) {
+		String name = StringArgumentType.getString(ctx, "player");
+		ServerPlayerEntity p = ctx.getSource().getServer().getPlayerManager().getPlayer(name);
+		if (p == null) {
+			return tell(ctx, "找不到在线玩家 " + name);
+		}
+		if (!(p.getMainHandStack().getItem() instanceof dev.nbw.content.RangedWeaponItem rw)) {
+			return tell(ctx, "主手不是远程武器（先 /cww weapon give 或 item replace）");
+		}
+		int before = rw.cooldownRemaining(p);
+		var result = rw.use(p.getServerWorld(), p, net.minecraft.util.Hand.MAIN_HAND);
+		return tell(ctx, "远程使用已执行：" + result.getResult()
+				+ "｜冷却剩余(执行前)=" + before + "tick"
+				+ "｜朝向=" + p.getRotationVector()
+				+ "｜目标=" + rw.probeTarget(p.getServerWorld(), p));
 	}
 
 	private static int raftStatus(CommandContext<ServerCommandSource> ctx) {

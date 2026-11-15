@@ -52,6 +52,9 @@ public final class RopeService {
 		if (casterTeam < 0) {
 			return "你没有分队";
 		}
+		if (caster.isSpectator()) {
+			return "旁观者不能用绳索/钩竿";
+		}
 
 		// 钩竿的第一用途：把海面漂流幸存者拉上筏（招募优先于拉敌人，2026-11-09）
 		if (grapnel) {
@@ -69,8 +72,8 @@ public final class RopeService {
 		double bestDist = Double.MAX_VALUE;
 		String sampleDenied = "没有可拉的人";
 		for (ServerPlayerEntity p : world.getPlayers()) {
-			if (p.getUuid().equals(caster.getUuid())) {
-				continue;
+			if (p.getUuid().equals(caster.getUuid()) || p.isSpectator()) {
+				continue;   // 旁观者既不能被拉，也不能成为绳索/钩竿的目标
 			}
 			var s = RoundManager.machine().session(p.getUuid());
 			int team = s == null ? -1 : s.teamIndex();

@@ -64,6 +64,9 @@ public final class RemoteService {
 	 */
 	public static void onMove(ServerPlayerEntity player, boolean forward, boolean backward,
 			boolean left, boolean right) {
+		if (player.isSpectator()) {
+			return;   // 淘汰观战者不能遥控：防伪造 nbw:move 包让死人开船
+		}
 		if (!RoundManager.phase().allowsPvp()) {
 			return;   // 非 PLAY：不推进（PVP 本身已由 RoundManager 闸掉，这里只防误操作）
 		}

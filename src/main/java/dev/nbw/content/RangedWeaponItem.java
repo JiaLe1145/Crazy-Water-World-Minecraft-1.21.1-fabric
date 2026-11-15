@@ -12,8 +12,10 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 import net.minecraft.util.Hand;
 import net.minecraft.util.TypedActionResult;
+import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.RaycastContext;
 import net.minecraft.world.World;
 
 import java.util.HashMap;
@@ -55,6 +57,9 @@ public final class RangedWeaponItem extends Item {
 		if (world.isClient() || !(user instanceof ServerPlayerEntity sp)) {
 			return TypedActionResult.pass(user.getStackInHand(hand));
 		}
+		if (sp.isSpectator()) {
+			return TypedActionResult.pass(sp.getStackInHand(hand));   // 观战者不能开枪
+		}
 		if (!RoundManager.phase().allowsPvp()) {
 			return TypedActionResult.pass(sp.getStackInHand(hand));
 		}
@@ -95,6 +100,22 @@ public final class RangedWeaponItem extends Item {
 		return TypedActionResult.success(sp.getStackInHand(hand));
 	}
 
+	/** dev 探针：按当前朝向找目标，返回名字或“无目标”；不改变冷却/伤害。 */
+	public String probeTarget(ServerWorld world, ServerPlayerEntity shooter) {
+		LivingEntity target = findTarget(world, shooter, spec.range());
+		return target == null ? "无目标" : target.getName().getString();
+	}
+
+	/** dev 探针：还剩多少 tick 冷却（0 = 可以开枪）。 */
+	public int cooldownRemaining(ServerPlayerEntity player) {
+		Integer last = lastUse.get(player.getUuid());
+		if (last == null) {
+			return 0;
+		}
+		int now = player.getServer().getTicks();
+		return Math.max(0, spec.cooldownTicks() - (now - last));
+	}
+
 	/** 射线最近活体：垂直距离 < 0.8 格、在射程内、取最近。 */
 	private static LivingEntity findTarget(ServerWorld world, ServerPlayerEntity shooter, double range) {
 		Vec3d eye = shooter.getEyePos();
@@ -105,16 +126,25 @@ public final class RangedWeaponItem extends Item {
 		LivingEntity best = null;
 		double bestAlong = Double.MAX_VALUE;
 		for (net.minecraft.entity.Entity e : candidates) {
-			if (!(e instanceof LivingEntity le) || le.isDead()) {
+			if (!(e instanceof LivingEntity le) || le.isDead() || le.isSpectator()) {
 				continue;
 			}
-			Vec3d toEntity = le.getPos().add(0.0, le.getHeight() * 0.5, 0.0).subtract(eye);
+			Vec3d targetCenter = le.getPos().add(0.0, le.getHeight() * 0.5, 0.0);
+			Vec3d toEntity = targetCenter.subtract(eye);
 			double along = toEntity.dotProduct(dir);
 			if (along < 0.0 || along > range) {
 				continue;
 			}
 			double perp = toEntity.subtract(dir.multiply(along)).length();
 			if (perp > 0.8) {
+				continue;
+			}
+			// 方块遮挡：hitscan 不能穿墙。射线先撞到方块（且比目标中心更近）就不算命中。
+			// Sable 的筏体方块也在父世界碰撞体里，所以隔着一层甲板/船壳也打不到人。
+			HitResult blockHit = world.raycast(new RaycastContext(eye, targetCenter,
+					RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, shooter));
+			if (blockHit.getType() == HitResult.Type.BLOCK
+					&& blockHit.getPos().distanceTo(eye) < along - 0.3) {
 				continue;
 			}
 			if (along < bestAlong) {

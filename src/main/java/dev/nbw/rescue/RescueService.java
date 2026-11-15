@@ -250,6 +250,9 @@ public final class RescueService {
 		int half = half();
 		Map<UUID, Obs> out = new LinkedHashMap<>();
 		for (ServerPlayerEntity p : world.getPlayers()) {
+			if (p.isSpectator()) {
+				continue;   // 观战者不参与扒边/伸手：防被绳索或状态机把人拉来拉去
+			}
 			Obs o = observe(world, p, half);
 			out.put(o.id(), o);
 		}

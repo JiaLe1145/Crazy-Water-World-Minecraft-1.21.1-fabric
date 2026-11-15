@@ -83,6 +83,9 @@ public final class WeaponService {
 		if (!(world instanceof ServerWorld sw) || !(player instanceof ServerPlayerEntity sp)) {
 			return ActionResult.PASS;
 		}
+		if (sp.isSpectator()) {
+			return ActionResult.PASS;   // 淘汰观战者不能破拆：防伪造交互包绕过“只观战”规则
+		}
 		if (!RoundManager.phase().allowsPvp()) {
 			return ActionResult.PASS;
 		}
@@ -198,6 +201,9 @@ public final class WeaponService {
 			Entity target, EntityHitResult hit) {
 		if (!(world instanceof ServerWorld sw) || !(player instanceof ServerPlayerEntity sp)) {
 			return ActionResult.PASS;
+		}
+		if (sp.isSpectator()) {
+			return ActionResult.PASS;   // 淘汰观战者不能挥击：防伪造攻击包让观战者参与 PVP
 		}
 		// 只在 PLAY 生效：非 PLAY 阶段挥击不该触发攻速闸门/击退/审计（PVP 本身已由 RoundManager 闸掉）。
 		if (!RoundManager.phase().allowsPvp()) {

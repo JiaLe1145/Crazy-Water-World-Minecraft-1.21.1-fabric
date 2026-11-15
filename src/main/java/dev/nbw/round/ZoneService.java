@@ -99,8 +99,8 @@ public final class ZoneService {
 		int hit = 0;
 		for (UUID id : ids) {
 			ServerPlayerEntity p = server.getPlayerManager().getPlayer(id);
-			if (p == null || p.isDead()) {
-				continue;
+			if (p == null || p.isDead() || p.isSpectator()) {
+				continue;   // 观战者不吃圈外伤害
 			}
 			double d = Math.hypot(p.getX() - centerX, p.getZ() - centerZ);
 			if (d > radius) {
