@@ -217,6 +217,41 @@ public final class NbwNetworking {
 		return sb.toString();
 	}
 
+	/**
+	 * {@code /cww net flood <玩家> <次数>}：在<b>当前 tick</b> 连续喂 N 个输入包给限速闸门，
+	 * 报告放行/丢弃数。
+	 *
+	 * <p>这是 Gate G5「包洪泛」用例在无真客户端条件下的自动化替身：它调用的是
+	 * {@code nbw:hold} / {@code nbw:move} 接收器共用的同一个 {@link #admit} 与同一份
+	 * {@link #packetRate} 状态，因此能证明限速确实接在入口上、且跨秒会重置；
+	 * <b>它不经过 Fabric 的解码与网络传输</b>，真客户端伪造包仍需单独复验——这条区别
+	 * 必须写进证据，不能拿本入口冒充 wire-level 用例。
+	 *
+	 * <p>命令本身在服务端线程执行，循环期间 tick 不会前进，所以 1000 次里应恰好放行 40 次。
+	 */
+	public static String floodProbe(MinecraftServer server, ServerPlayerEntity player, int count) {
+		final long now = server.getTicks();
+		final UUID id = player.getUuid();
+		int allowed = 0;
+		int dropped = 0;
+		for (int i = 0; i < count; i++) {
+			PacketRateLimit.State next = PacketRateLimit.admit(packetRate.get(id), now,
+					PacketRateLimit.DEFAULT_MAX_PER_SECOND);
+			if (next == null) {
+				dropped++;
+				continue;
+			}
+			packetRate.put(id, next);
+			allowed++;
+		}
+		PacketRateLimit.State st = packetRate.get(id);
+		return String.format(Locale.ROOT,
+				"[net] 伪造洪泛 %s：本 tick 送入 %d 包，放行=%d 丢弃=%d｜窗口=%d 计数=%d 上限=%d/s",
+				player.getNameForScoreboard(), count, allowed, dropped,
+				st == null ? -1 : st.windowIndex(), st == null ? -1 : st.count(),
+				PacketRateLimit.DEFAULT_MAX_PER_SECOND);
+	}
+
 	private static String className(@Nullable Object be) {
 		return be == null ? "null" : be.getClass().getSimpleName();
 	}

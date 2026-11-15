@@ -303,6 +303,12 @@ public final class NbwCommands {
 		npPlayer.then(npDeck);
 		npPlayer.then(npAt);
 		net.then(CommandManager.literal("probe").then(npPlayer));
+		// 包洪泛的自动化替身（Gate G5）：走 hold/move 接收器同一个限速闸门。
+		// 它证明"入口接了限速、跨秒重置"，但不是 wire-level 伪造包，证据里要写明区别。
+		net.then(CommandManager.literal("flood")
+				.then(CommandManager.argument("player", StringArgumentType.word())
+						.then(CommandManager.argument("count", IntegerArgumentType.integer(1, 100000))
+								.executes(NbwCommands::netFlood))));
 		root.then(net);
 
 		// ---- 建造规则（M2-6 / 01 §4.2）：上限与归属判定的观测面
@@ -584,6 +590,23 @@ public final class NbwCommands {
 		int ticks = IntegerArgumentType.getInteger(ctx, "ticks");
 		String line = RescueService.reach(ctx.getSource().getServer(), player, ticks);
 		ctx.getSource().sendFeedback(() -> Text.literal("[cww] " + line), true);
+		return 1;
+	}
+
+	/**
+	 * {@code /cww net flood <玩家> <次数>}：走 hold/move 共用的限速闸门，报告放行/丢弃。
+	 * 只在 dev/管理员命令树里，生产玩家用不到。
+	 */
+	private static int netFlood(CommandContext<ServerCommandSource> ctx) throws CommandSyntaxException {
+		String playerName = StringArgumentType.getString(ctx, "player");
+		int count = IntegerArgumentType.getInteger(ctx, "count");
+		ServerPlayerEntity player = ctx.getSource().getServer().getPlayerManager().getPlayer(playerName);
+		if (player == null) {
+			ctx.getSource().sendError(Text.literal("[cww] 找不到在线玩家 " + playerName));
+			return 0;
+		}
+		String line = NbwNetworking.floodProbe(ctx.getSource().getServer(), player, count);
+		ctx.getSource().sendFeedback(() -> Text.literal(line), false);
 		return 1;
 	}
 

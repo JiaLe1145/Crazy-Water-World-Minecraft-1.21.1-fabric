@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """反作弊/泄露用例探针（Gate G5，2026-11-15）。
 
-覆盖能自动化的三条：
+覆盖能自动化的：
   1. 近战攻速超频：同一 tick 连判两次，第二发必须被服务端拒绝。
-  2. 旁观者不能用绳索/钩竿：淘汰观战者即使伪造命令也不能拉人。
-  3. 远程 hitscan 不能穿墙：中间有方块时打不中，拆掉后同一发能命中。
+  2. 输入包洪泛：`/cww net flood` 走 hold/move 接收器同一个限速闸门，1000 包只能过 40。
+  3. 旁观者伪造长按包：`/cww net probe` 在旁观者身上可达上限必须是 0、判定必须 REJECT。
+  4. 旁观者不能用绳索/钩竿：淘汰观战者即使伪造命令也不能拉人。
+  5. 远程 hitscan 不能穿墙：中间有方块时打不中，拆掉后同一发能命中。
+  6. 钩竿隔墙/连点：当前实现口径的测量（设计未裁决，标 INCONCLUSIVE）。
 
 **测不了的**（Carpet 假玩家发不出自定义包 / 不能模拟真实客户端交互）：
-  - 伪造 nbw:hold / nbw:move 包、包重放、包洪泛；
+  - wire-level 伪造 nbw:hold / nbw:move 包与包重放（本探针的 flood 只到服务端接收器入口）；
   - 旁观者伪造远程武器/建造交互包；
   这些在 docs/dev/M5-ANTICHEAT.md 里标 INCONCLUSIVE/需真客户端，不在这里凑绿灯。
 """
@@ -84,7 +87,33 @@ def main():
     expect("#2" in out and ("冷却" in out or "拒" in out or "超频" in out),
            "第二发被攻速闸门拒绝（%s）" % out[:160])
 
-    print("== 2. 旁观者不能用绳索/钩竿")
+    print("== 2. 输入包洪泛：hold/move 共用限速 40/s")
+    # 这条走的是服务端接收器共用的 admit()，不是 wire-level 伪造包；区别写进证据。
+    flood = p("cww net flood %s 1000" % a)
+    print("      <%s>" % flood[:240])
+    m = re.search(r"放行=(\d+) 丢弃=(\d+)", flood)
+    expect(m is not None and int(m.group(1)) == 40 and int(m.group(2)) == 960,
+           "同一 tick 1000 包只放行 40、丢 960（实际 %s/%s）"
+           % (m.group(1) if m else "?", m.group(2) if m else "?"))
+    p.sleep(1.1)
+    flood2 = p("cww net flood %s 10" % a)
+    print("      <%s>" % flood2[:200])
+    m2 = re.search(r"放行=(\d+) 丢弃=(\d+)", flood2)
+    expect(m2 is not None and int(m2.group(1)) == 10 and int(m2.group(2)) == 0,
+           "跨秒窗口重置后 10 包全部放行（实际 %s/%s）"
+           % (m2.group(1) if m2 else "?", m2.group(2) if m2 else "?"))
+
+    print("== 3. 旁观者伪造长按包：可达上限必须归零")
+    p("gamemode spectator %s" % a)
+    p.sleep(0.4)
+    npout = p("cww net probe %s deck 0" % a)
+    print("      <%s>" % npout[:300])
+    expect("上限=0.0格" in npout, "旁观者可达上限=0.0 格（%s）" % npout[:120])
+    expect("REJECT" in npout, "旁观者对筏上目标判 REJECT（%s）" % npout[:200])
+    p("gamemode survival %s" % a)
+    p.sleep(0.4)
+
+    print("== 4. 旁观者不能用绳索/钩竿")
     p("gamemode spectator %s" % a)
     p.sleep(0.5)
     rope = p("cww rope cast %s" % a)
@@ -96,7 +125,7 @@ def main():
     p("gamemode survival %s" % a)
     p.sleep(0.5)
 
-    print("== 3. 远程 hitscan：先正对照（无墙能命中），再负对照（有墙打不中）")
+    print("== 5. 远程 hitscan：先正对照（无墙能命中），再负对照（有墙打不中）")
     # flat_test 水面在 y=149，直接 tp 到 149 会泡水漂走（实测 1s 偏 1 格）。
     # 先铺一层 y=150 的干燥石板，人站 151，射线走 152.6，避免“瞄着 A 漂到 B”。
     p("fill 998 150 998 1002 150 1012 minecraft:stone")
@@ -138,7 +167,27 @@ def main():
                "有墙时远程打不中（血量不降：%s -> %s）" % (h2, h3))
     p("fill 998 150 998 1002 153 1012 minecraft:air")
 
-    print("== 4. 收尾")
+    print("== 6. 钩竿隔墙/连点：当前实现口径测量（设计未裁决）")
+    # 设计只给射程，没给 LOS 与冷却。这里只测量并如实记 INCONCLUSIVE，
+    # 不把“当前能隔墙拉人/能连点”写成 PASS，避免把待裁决项伪装成已收口。
+    p("item replace entity %s weapon.mainhand with nbw:grapnel 1" % a)
+    p("tp %s 1000.5 151 1000.5" % a)
+    p("tp %s 1000.5 151 1010.5" % b)
+    p("fill 999 151 1005 1001 153 1005 minecraft:stone")   # 两人之间的墙
+    p.sleep(0.5)
+    g1 = p("cww grapnel cast %s" % a)
+    g2 = p("cww grapnel cast %s" % a)
+    print("      #1 <%s>" % g1[:200])
+    print("      #2 <%s>" % g2[:200])
+    if "已把" in g1:
+        inconclusive("钩竿隔墙仍能拉人（当前无 LOS 校验，待玩法裁决）：%s" % g1[:120])
+    else:
+        print("      隔墙未生效（可能被射程/队伍条件拒绝）：%s" % g1[:160])
+    if "已把" in g2:
+        inconclusive("钩竿无冷却：同一 tick 连点两次都成功（待裁决）：%s" % g2[:120])
+    p("fill 999 151 1005 1001 153 1005 minecraft:air")
+
+    print("== 7. 收尾")
     p("fill 999 149 1004 1001 151 1006 minecraft:air")
     p("cww abort")
     p.sleep(2)

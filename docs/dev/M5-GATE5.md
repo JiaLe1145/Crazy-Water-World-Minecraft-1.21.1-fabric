@@ -66,7 +66,7 @@
 | `tools/event_probe.py` | **18 PASS / 0 FAIL** | 8s 预告、预告只出现一次、日志顺序、聚集点 3–4 人 |
 | `tools/bounty_probe.py` | **15 PASS / 0 FAIL** | 120s 到期、GLOWING、击杀领赏、奖励进背包、状态清除 |
 | `tools/stats_probe.py` | **13 PASS / 0 FAIL** | 真实命中伤害、死亡名字缓存、`state/matches/<match>.json` 字段 |
-| `tools/security_probe.py` | **10 PASS / 0 FAIL** | 攻速超频、远程装填冷却、隔墙打不中（正/负对照）、旁观者绳索/钩竿 |
+| `tools/security_probe.py` | **14 PASS / 0 FAIL / 2 INCONCLUSIVE** | 攻速超频、**包洪泛 1000→40（服务端入口级）**、**旁观者长按上限 0→REJECT**、远程装填冷却、隔墙打不中（正/负对照）、旁观者绳索/钩竿；钩竿隔墙/连点为待裁决测量 |
 | `PacketRateLimitTest` | **5 / 0** | 输入包 40/s 限速：爆发、丢弃、跨秒重置、窗口边界、关闭限流 |
 | 单测 `./gradlew test` | **304 / 0** | 含 `EventWeightTest` 8 条 + `PacketRateLimitTest` 5 条 |
 
@@ -78,8 +78,8 @@
 |---|---|---|
 | 48h 耐久无异常 | ⬜ **未跑** | 需要持续运行 48 小时；本会话无法完成，不能拿短跑冒充 |
 | 崩溃恢复演练 3 次 | ✅ **已完成** | 3 轮 before 3/0 + after 7/0 全 PASS |
-| 边界用例全过 | 🟡 **部分** | M0–M5 的探针边界已覆盖大部分；Gate G5 还没有一份“边界用例清单”逐条签字 |
-| 反作弊与泄露用例全过 | 🟡 **部分** | 清单与状态见 [`M5-ANTICHEAT.md`](M5-ANTICHEAT.md)；已实跑攻速/冷却/隔墙/旁观者绳索，真客户端伪造包、包洪泛、绳索连点仍开口 |
+| 边界用例全过 | 🟡 **部分** | 逐条清单已建：[`M5-G5-BOUNDARY.md`](M5-G5-BOUNDARY.md)（B-01～B-94）。大部分有探针/单测证据；真客户端、生产 jar、48h 仍未覆盖 |
+| 反作弊与泄露用例全过 | 🟡 **部分** | 清单与状态见 [`M5-ANTICHEAT.md`](M5-ANTICHEAT.md)；已实跑攻速/冷却/隔墙/旁观者绳索/旁观者长按/包洪泛（服务端入口级）。**仍开口**：真客户端伪造包、wire-level 包洪泛、绳索连点、钩竿隔墙、物品复制穷举 |
 | 回滚演练一次成功 | ✅ **已完成** | 备份 → 状态变化 → 还原 → 启服核对，见 §1.2 |
 
 ---
