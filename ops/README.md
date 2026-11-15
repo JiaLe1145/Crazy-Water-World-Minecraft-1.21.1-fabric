@@ -34,6 +34,21 @@ Windows 默认禁止运行 `.ps1`。每个 `.ps1` 都配了同名 `.bat` 包装�
 .\ops\backup.bat -ServerDir "C:\MinecraftServer" -Keep 48
 ```
 
+## 还原（从备份回滚）
+
+**先停服**。脚本会检查 25565 是否仍在监听；测试环境可 `-Force` 跳过。
+
+```powershell
+.\ops\restore.bat -ServerDir "C:\MinecraftServer" -Backup "C:\MinecraftServer\backups\world_20261115_081234.zip"
+```
+
+- 默认把当前 `world/`、`config/` 移到 `*.pre-restore.<时间戳>`，解压成功后再删除；
+  解压失败会自动把旧目录移回来。
+- `-KeepOld` 保留旧目录，便于对照。
+- 还原后启动服务端，核对 `cww state` 的 `phase` / `match` 是否回到备份时点。
+- 本轮已在 dev 目录做过一次完整演练：备份 → 改到 `match=118 PLAY` → 还原 → 启服回到 `match=117 LOBBY`
+  （见 `docs/dev/M5-GATE5.md` §1.2）。
+
 ## 计划任务示例（15 分钟一次）
 
 ```powershell

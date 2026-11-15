@@ -48,6 +48,15 @@
 
 **结论：回滚演练成功。** 还原后服务端能正常启动、状态与备份时点一致。
 
+**同日补充：还原已脚本化。** 新增 `ops/restore.ps1` + `restore.bat`，用同一份备份重跑：
+
+1. 状态改到 `match=118 PLAY`；
+2. `ops/restore.ps1 -ServerDir run -Backup run/backups/world_20261115_081234.zip`；
+3. 脚本把旧 `world/`、`config/` 暂存为 `*.pre-restore.<时间戳>`，解压新备份，成功后删除暂存；
+4. 磁盘回到 `match=117 LOBBY`；启服后 `cww state` 也是 `match=117 LOBBY`。
+
+脚本解压失败时会自动把暂存目录移回来；`-KeepOld` 可保留旧目录。运维用法已写进 `ops/README.md`。
+
 ### 1.3 本轮新增探针实跑
 
 用便携 Python 3.11.9（`run/py-embed`，未改系统 PATH）执行，`-I -X utf8`：
@@ -82,8 +91,8 @@
    客户端伪造 `nbw:hold`/`nbw:move` 等还需要独立用例。
 4. **生产启动脚本**：`ops/start.ps1` 的崩溃自动重启没有在本轮用生产 `server.jar` 跑过；
    本轮跑的是 dev `gradlew runServer`。
-5. **备份恢复脚本化**：本轮还原用的是 PowerShell `Expand-Archive` 手工步骤；
-   `ops/` 里还没有 `restore.ps1`，建议补一个，避免开服时记错路径。
+5. ~~**备份恢复脚本化**~~ → **已完成**：`ops/restore.ps1` + `restore.bat`，
+   已用同一份备份重跑并核对 `match=117 LOBBY`，见 §1.2 末尾。
 
 ---
 
