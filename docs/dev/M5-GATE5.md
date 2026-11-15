@@ -76,7 +76,7 @@
 
 | 判据 | 状态 | 说明 |
 |---|---|---|
-| 48h 耐久无异常 | ⬜ **未跑** | 需要持续运行 48 小时；本会话无法完成，不能拿短跑冒充 |
+| 48h 耐久无异常 | ⬜ **未跑** | 监测器与判据已就绪（[`M5-SOAK.md`](M5-SOAK.md) + `tools/soak_monitor.py`）；2 分钟冒烟 12/12、avg TPS 19.994；**48h 本身未跑**，不能拿短跑冒充 |
 | 崩溃恢复演练 3 次 | ✅ **已完成** | 3 轮 before 3/0 + after 7/0 全 PASS |
 | 边界用例全过 | 🟡 **部分** | 逐条清单已建：[`M5-G5-BOUNDARY.md`](M5-G5-BOUNDARY.md)（B-01～B-94）。大部分有探针/单测证据；真客户端、生产 jar、48h 仍未覆盖 |
 | 反作弊与泄露用例全过 | 🟡 **部分** | 清单与状态见 [`M5-ANTICHEAT.md`](M5-ANTICHEAT.md)；已实跑攻速/冷却/隔墙/旁观者绳索/旁观者长按/包洪泛（服务端入口级）。**仍开口**：真客户端伪造包、wire-level 包洪泛、绳索连点、钩竿隔墙、物品复制穷举 |
@@ -86,17 +86,20 @@
 
 ## 3. 还没做的（诚实清单）
 
-1. **48h 耐久**：需要一台长期在线的测试服；至少覆盖跨日、内存/区块票增长、日志轮转。
-2. **边界用例清单**：Gate G5 的“边界用例全过”不是一句口号，需要把 M0–M5 的边界逐条列成
-   可勾选清单（配置非法、满员、掉线、重连、跨局残留、极端人数/面积等）。
+1. **48h 耐久**：工具与判据已就绪（`M5-SOAK.md`），需要一台长期在线的测试服实际跑完；
+   至少覆盖跨日、内存/区块票增长、日志轮转。
+2. ~~**边界用例清单**~~ → **已完成清单**：[`M5-G5-BOUNDARY.md`](M5-G5-BOUNDARY.md) B-01～B-94。
+   仍缺的是其中标 ⛔/⬜ 的项：真客户端、生产 jar 崩溃重启、48h。
 3. **反作弊/泄露用例**：已建 [`M5-ANTICHEAT.md`](M5-ANTICHEAT.md) 矩阵；
-   本轮实跑攻速超频、远程装填、隔墙遮挡、旁观者绳索/钩竿，并修了旁观者战斗/控制/建造全链路
-   与远程遮挡；`nbw:hold/move` 已加 40 包/秒限速（纯单测 5 条）。
-   **仍开口**：真客户端伪造包/包洪泛端到端复验、绳索/钩竿连点冷却、钩竿隔墙判定、物品复制穷举。
+   本轮实跑攻速超频、远程装填、隔墙遮挡、旁观者绳索/钩竿、旁观者长按、包洪泛（服务端入口级），
+   并修了旁观者战斗/控制/建造全链路与远程遮挡；`nbw:hold/move` 已加 40 包/秒限速（纯单测 5 条）。
+   **仍开口**：真客户端伪造包/wire-level 包洪泛、绳索/钩竿连点冷却、钩竿隔墙判定、物品复制穷举。
 4. **生产启动脚本**：`ops/start.ps1` 的崩溃自动重启没有在本轮用生产 `server.jar` 跑过；
    本轮跑的是 dev `gradlew runServer`。
 5. ~~**备份恢复脚本化**~~ → **已完成**：`ops/restore.ps1` + `restore.bat`，
    已用同一份备份重跑并核对 `match=117 LOBBY`，见 §1.2 末尾。
+6. **真人验收**：清单已建 [`M5-HUMAN-ACCEPTANCE.md`](M5-HUMAN-ACCEPTANCE.md)
+   （Gate G2 手感 + G4 HUD + M5 观战/事件），**一次未跑**；需要真客户端与至少 2 名真人。
 
 ---
 
@@ -110,9 +113,13 @@
 RCON_PORT=25576 RCON_PASSWORD=nbwm0 ./run/py-embed/python.exe -I -X utf8 tools/event_probe.py
 RCON_PORT=25576 RCON_PASSWORD=nbwm0 ./run/py-embed/python.exe -I -X utf8 tools/bounty_probe.py
 RCON_PORT=25576 RCON_PASSWORD=nbwm0 ./run/py-embed/python.exe -I -X utf8 tools/stats_probe.py
+RCON_PORT=25576 RCON_PASSWORD=nbwm0 ./run/py-embed/python.exe -I -X utf8 tools/security_probe.py
 
 # 3) 3 次崩溃恢复（脚本会自己起停 dev 服）
 bash tools/g5_drills.sh
+
+# 4) 耐久冒烟（正式 48h 见 M5-SOAK.md）
+RCON_PORT=25576 RCON_PASSWORD=nbwm0 ./run/py-embed/python.exe -I -X utf8 tools/soak_monitor.py --minutes 2 --interval 10
 ```
 
 > `run/py-embed` 是本轮下载的便携 Python，**不入库**；有系统 Python 时把 `PY` 指过去即可：
