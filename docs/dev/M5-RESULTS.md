@@ -2,6 +2,7 @@
 
 > 对应里程碑 `docs/dev/03-里程碑.md` §M5。
 > 本文件只记「落地了什么 + 怎么验的」，设计口径看 `docs/content/01-玩法设计.md` §11。
+> **Gate G5 开服证据另见 [`M5-GATE5.md`](M5-GATE5.md)**（崩溃恢复 ×3、回滚演练、未跑项清单）。
 
 ---
 
@@ -397,9 +398,8 @@
 | 幸存者聚集点人数 | 日志 `[survivor] 海面漂出 3 个幸存者`；`[event] 幸存者聚集点：海面漂出 3 个` |
 | 单测 | `./gradlew test` **291 / 0** |
 
-> **探针文件未落库**：本轮写 `tools/event_probe.py` 时写文件权限被拒（用户拒绝 Write），
-> 因此用等价的 Node RCON 脚本执行了同一组命令与断言；命令与读数已记在上表。
-> 有写权限后应把这段固化进 `tools/event_probe.py`，再按交接 §6.1 的三态汇总补跑一次。
+> **探针已落库**：`tools/event_probe.py`（口径与本节一致）。2026-11-15 用便携 Python 3.11.9
+> 实跑 **18 PASS / 0 FAIL**；交接 §6.1 的三态汇总已包含在脚本里。
 >
 > 夹具口径：`test_3min` 的事件池是 `["storm"]`、间隔 60–90s，PLAY 硬上限 360s；
 > 假玩家给 `water_breathing + resistance 255 + regeneration 255`，避免缩圈伤害把两队打空。
@@ -442,8 +442,8 @@
 | 汇总 | **12 PASS / 0 FAIL** |
 | 单测 | `./gradlew test` **291 / 0** |
 
-> 本轮同样用等价的 Node RCON 脚本执行（`tools/event_probe.py` / 战绩探针因写文件权限未落库）；
-> 需要补的探针：`tools/event_probe.py`、`tools/stats_probe.py`（命令与断言已记在 §5.13 与本表）。
+> **探针已落库**：`tools/stats_probe.py`。2026-11-15 用便携 Python 3.11.9 实跑
+> **13 PASS / 0 FAIL**；覆盖真实命中、名字缓存、JSON 字段与路径。
 
 ### 还没做的
 
@@ -525,7 +525,8 @@
 > `/damage 100` 被完全减免，目标没死，AFTER_DEATH 自然不触发。
 > 复验时先 `effect clear <目标>` 再 `/damage`，一次通过。以后测“击杀类”断言都要先确认减伤效果已清。
 >
-> 本轮仍是等价 Node RCON 脚本实跑（探针文件待写权限）。
+> **探针已落库**：`tools/bounty_probe.py`。2026-11-15 用便携 Python 3.11.9 实跑
+> **15 PASS / 0 FAIL**（到期路径 + 击杀领赏路径）。
 
 ### 还没做的 / 当前口径
 
