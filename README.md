@@ -52,7 +52,7 @@ docs/dev/       新开发计划（全部重写）
 
 ## 持续集成
 
-推送到 `main` / `master` 或提 PR 时，GitHub Actions 会自动跑 **304 条单测**
+推送到 `main` 或提 PR 时，GitHub Actions 会自动跑 **304 条单测**
 （[`.github/workflows/test.yml`](.github/workflows/test.yml)）。
 
 > Sable 的 16 MB jar 不入库（`.gitignore` 排除 `libs/`），CI 里从 Modrinth 官方 CDN 下载

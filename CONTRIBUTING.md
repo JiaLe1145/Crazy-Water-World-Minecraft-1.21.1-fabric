@@ -33,20 +33,37 @@ Sable 升级或替换时，改动面被限制在这一个文件里。
 
 ---
 
-## 3. 分支规范
+## 3. 分支规范（主干直推）
 
-| 分支 | 用途 |
+**本仓库只有一个长期分支：`main`。所有人直接提交到 `main`，不拉长期 feature 分支。**
+
+| 项 | 规则 |
 |---|---|
-| `main` | 稳定主线（GitHub 默认分支），只接受合并 |
-| `master` | 与 `main` 同步的别名（历史遗留，可忽略） |
-| `feat/<主题>` | 新功能 |
-| `fix/<主题>` | 修复 |
-| `chore/<主题>` | 构建/文档/运维 |
+| 主干 | `main`（GitHub 默认，唯一真源） |
+| 提交 | 直接 `git push origin main` |
+| 临时分支 | 仅用于实验/大改；合并前必须 rebase 到最新 `main`，合并后立刻删除 |
 
-**规则**：
-- 不要直接往 `main` 推（在仓库设置里开分支保护）。
-- 分支名用英文小写 + 连字符，例如 `feat/survivor-ai`。
-- 一个 PR 只做一件事；不要把多个里程碑混在一个 PR 里。
+**每次开工的标准动作**：
+
+```bash
+git checkout main
+git pull --rebase origin main   # 先把别人的进度拿下来
+# ... 改代码 ...
+./gradlew test                   # 必须全绿
+git add -A
+git commit -m "M5-9：..."
+git push origin main
+```
+
+**为什么用 `--rebase`**：主线保持线性，避免一堆 merge commit；冲突在本地解，别把冲突推给别人。
+
+**避免冲突的约定**：
+- 动大文件（`RoundManager` / `NbwCommands` / `SableRafts` / `RescueService`）前先在群里说一声。
+- 一个提交只改一件事，改完立刻推。
+- 每天至少 `pull --rebase` 一次，别攒一整天。
+- 推送被拒（`non-fast-forward`）时**不要 `--force`**，先 `git pull --rebase origin main` 再推。
+
+**允许的例外**：大改可以开 `feat/<主题>`，但要求——从最新 `main` 切出、最多存在 2–3 天、合并前 rebase、合并后删除。
 
 ---
 
@@ -139,13 +156,18 @@ python tools/pvp_probe.py
 
 ---
 
-## 8. PR 流程
+## 8. 提交前自检（主干直推）
 
-1. 从 `main` 拉分支 → 开发 → `./gradlew test` 全绿。
-2. 写清 PR 描述：**改了什么 / 为什么 / 怎么验的 / 已知边界**。
-3. 至少一人 review（涉及 `domain/` 数值的改动建议两人）。
-4. 合并方式用 **Squash merge**（保持主线提交信息整洁）。
-5. 合并后删除功能分支。
+因为直接推 `main`，没有 PR 做缓冲，所以每次推送前自己过一遍：
+
+1. `git pull --rebase origin main` —— 确认基于最新代码。
+2. `./gradlew test` —— 304 条全绿。
+3. 涉及 `domain/` 数值的改动：确认单测同步更新（历史上出过「测试照错数写」）。
+4. 涉及适配层的改动：至少跑一次对应探针。
+5. `git diff --stat` —— 确认没有误提交 `run/`、`build/`、`libs/` 等。
+6. 提交信息写清「改了什么 / 为什么 / 怎么验的」。
+
+**可选**：大改或不确定的改动，开 `feat/<主题>` 分支 + PR，让 CI 先跑一遍再合。
 
 ---
 
