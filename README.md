@@ -40,8 +40,12 @@ docs/dev/       新开发计划（全部重写）
 
 ## 现在最重要的事
 
-**新会话（含换模型、换 AI）先读 [`CONTRIBUTING.md`](CONTRIBUTING.md)**：分层纪律、分支/提交规范、
-测试要求、常见的坑都在那一份里。再按下面的顺序补上下文：
+**新会话（含换模型、换 AI）先读 [`docs/dev/AI-交接-v2-当前状态.md`](docs/dev/AI-交接-v2-当前状态.md)**：
+当前进度（304 单测 / Gate G5）、代码地图、剩余项、待裁决项都在那一份里。
+
+**参与开发前再读 [`CONTRIBUTING.md`](CONTRIBUTING.md)**：分层纪律、主干直推规范、测试要求、常见的坑。
+
+其它补充上下文：
 
 1. [`docs/dev/01-技术架构.md`](docs/dev/01-技术架构.md) —— 分层与两条硬纪律
 2. [`docs/dev/03-里程碑.md`](docs/dev/03-里程碑.md) —— M0–M5 范围与 Gate
