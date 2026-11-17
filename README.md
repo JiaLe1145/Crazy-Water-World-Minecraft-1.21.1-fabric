@@ -40,10 +40,23 @@ docs/dev/       新开发计划（全部重写）
 
 ## 现在最重要的事
 
-**新会话（含换模型、换 AI）先读 `docs/dev/AI-交接与工作指引.md`**：进度、硬约束、环境与运行、
-Sable 取证结论、剩余内容的做法与验收标准、以及等你裁决的清单，都在那一份里。
-想确认"做到哪一步了"就看 `docs/dev/03-里程碑.md` + `docs/dev/M2-RESULTS.md`。
+**新会话（含换模型、换 AI）先读 [`CONTRIBUTING.md`](CONTRIBUTING.md)**：分层纪律、分支/提交规范、
+测试要求、常见的坑都在那一份里。再按下面的顺序补上下文：
 
-> 当年那句"M0 不过关就要回炉重谈版本方案"已经有了答案：**Sable 能用**（木筏在水上平滑移动、
-> 玩家能站在筏上随动、设施可交互、专用服务端稳定跑），Gate G0 通过。
-> 具体证据与限制记在 `M2-RESULTS.md` 与项目记忆里，别重新验一遍。
+1. [`docs/dev/01-技术架构.md`](docs/dev/01-技术架构.md) —— 分层与两条硬纪律
+2. [`docs/dev/03-里程碑.md`](docs/dev/03-里程碑.md) —— M0–M5 范围与 Gate
+3. `docs/dev/M2/M3/M4/M5-RESULTS.md` —— 各阶段实测记录（翻车点都在里面）
+4. [`docs/dev/M5-OPEN-DECISIONS.md`](docs/dev/M5-OPEN-DECISIONS.md) —— 待裁决项（**不要自己拍板**）
+
+> **权威顺序**：代码 > RESULTS 文档 > `docs/content/`（设计意图）> 其他。
+
+## 持续集成
+
+推送到 `main` / `master` 或提 PR 时，GitHub Actions 会自动跑 **304 条单测**
+（[`.github/workflows/test.yml`](.github/workflows/test.yml)）。
+
+> Sable 的 16 MB jar 不入库（`.gitignore` 排除 `libs/`），CI 里从 Modrinth 官方 CDN 下载
+> 并解出 `sable-companion`。本地开发需要自己把两个 jar 放进 `libs/`。
+
+> M0 的答案早已有结论：**Sable 能用**（木筏平滑移动、玩家随动、设施可交互、专用服务端稳定），
+> Gate G0 通过。证据在 `M2-RESULTS.md`，别重新验一遍。
