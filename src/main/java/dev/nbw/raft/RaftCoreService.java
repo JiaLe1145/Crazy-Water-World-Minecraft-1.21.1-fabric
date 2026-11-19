@@ -138,6 +138,25 @@ public final class RaftCoreService {
 		return dealt;
 	}
 
+	/**
+	 * 攻城型伤害（投石机）：与 {@link #breakCore} 的区别是**不吃反偷家 ×0.25**。
+	 *
+	 * <p>理由与 D-1（海怪）一致：反偷家是防"敌方玩家登筏偷袭"的；投石机是 40 格外的攻城器械，
+	 * 幸存者挡不住它。如果也按 ×0.25 算，200 HP 的筏心要打 34 发（≈2.8 分钟），投石机就没有存在意义。
+	 *
+	 * @return 本击实际扣掉的血量
+	 */
+	public static double breakCoreSiege(int teamIndex, double rawDamage) {
+		double dealt = Math.max(0.0, rawDamage);
+		double hp = Math.max(0.0, hpOf(teamIndex) - dealt);
+		coreHp.put(teamIndex, hp);
+		NBW.LOGGER.info("[raftcore] 队 {} 筏心被攻城命中 raw={} 剩 {}", teamIndex, rawDamage, hp);
+		if (hp <= 0.0) {
+			markDestroyed(teamIndex);
+		}
+		return dealt;
+	}
+
 	/** 开局发筏 / 局后清理时把筏心摆回完好状态。 */
 	public static void markIntact(int teamIndex) {
 		phases.put(teamIndex, Phase.INTACT);
@@ -229,6 +248,46 @@ public final class RaftCoreService {
 			net.minecraft.util.math.BlockPos pos) {
 		Integer team = coreByPos.get(pos.asLong());
 		return team == null ? -1 : team;
+	}
+
+	/** 由队伍反查筏心坐标（投石机要瞄准敌方筏心用）；查不到返回 null。 */
+	public static @org.jetbrains.annotations.Nullable net.minecraft.util.math.BlockPos posOfCore(int teamIndex) {
+		for (var e : coreByPos.entrySet()) {
+			if (e.getValue() == teamIndex) {
+				return net.minecraft.util.math.BlockPos.fromLong(e.getKey());
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * 队 → 筏心在<b>世界坐标</b>里的位置（投石机瞄准用）。
+	 *
+	 * <p>为什么需要两步换算：{@link #coreByPos} 存的是 Sable 的<b>方块存储坐标</b>
+	 * （BE 的 {@code getPos()}，形如 {@code (20481032, 129, 20481032)}），
+	 * 直接当世界坐标比距离会算出 2.9e7 格（2026-11-19 实测踩到）。正确链路是
+	 * {@code storageToLocal}（减 plot 中心 → 甲板局部）→ {@code localToWorld}（位姿正变换 → 世界）。
+	 */
+	public static @org.jetbrains.annotations.Nullable net.minecraft.util.math.Vec3d coreWorldPos(
+			net.minecraft.server.world.ServerWorld world, int teamIndex) {
+		var storage = posOfCore(teamIndex);
+		if (storage == null) {
+			return null;
+		}
+		var raft = RaftSpawner.raftOf(teamIndex);
+		if (raft == null) {
+			return null;
+		}
+		double[] local = dev.nbw.sable.SableRafts.storageToLocal(world, raft, storage);
+		if (Double.isNaN(local[0]) || Double.isNaN(local[1]) || Double.isNaN(local[2])) {
+			return null;
+		}
+		double[] w = dev.nbw.sable.SableRafts.localToWorld(world, raft,
+				local[0] + 0.5, local[1] + 0.5, local[2] + 0.5);
+		if (Double.isNaN(w[0]) || Double.isNaN(w[1]) || Double.isNaN(w[2])) {
+			return null;
+		}
+		return new net.minecraft.util.math.Vec3d(w[0], w[1], w[2]);
 	}
 
 	/**

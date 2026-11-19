@@ -134,6 +134,13 @@ public final class NbwCommands {
 				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
 						.executes(NbwCommands::ballistaPlace)));
 		root.then(ballista);
+		// 投石机（09 §2.2）：读数 + dev 在命令源位置放一门并登记归属
+		var catapult = admin(CommandManager.literal("catapult"));
+		catapult.then(CommandManager.literal("status").executes(NbwCommands::catapultStatus));
+		catapult.then(CommandManager.literal("place")
+				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
+						.executes(NbwCommands::catapultPlace)));
+		root.then(catapult);
 		// 生存（M4-1）：营养/水分读数 + dev 强制设值
 		var survival = admin(CommandManager.literal("survival"));
 		survival.then(CommandManager.literal("status")
@@ -1034,6 +1041,25 @@ public final class NbwCommands {
 		dev.nbw.round.BallistaService.register(pos, team);
 		ctx.getSource().sendFeedback(() -> Text.literal(
 				"[cww] 已在 " + pos.toShortString() + " 放置队 " + team + " 的弩炮"), false);
+		return 1;
+	}
+
+	/** {@code /cww catapult status}：本局已放置的投石机与归属。 */
+	private static int catapultStatus(CommandContext<ServerCommandSource> ctx) {
+		ctx.getSource().sendFeedback(() -> Text.literal(
+				dev.nbw.round.CatapultService.status()), false);
+		return 1;
+	}
+
+	/** {@code /cww catapult place <队>}：dev 在命令源位置放一门并登记归属。 */
+	private static int catapultPlace(CommandContext<ServerCommandSource> ctx) {
+		int team = IntegerArgumentType.getInteger(ctx, "team");
+		var src = ctx.getSource();
+		var pos = net.minecraft.util.math.BlockPos.ofFloored(src.getPosition());
+		src.getWorld().setBlockState(pos, dev.nbw.content.NbwContent.catapult.getDefaultState());
+		dev.nbw.round.CatapultService.register(pos, team);
+		ctx.getSource().sendFeedback(() -> Text.literal(
+				"[cww] 已在 " + pos.toShortString() + " 放置队 " + team + " 的投石机"), false);
 		return 1;
 	}
 
