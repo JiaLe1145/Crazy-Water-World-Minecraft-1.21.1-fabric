@@ -176,6 +176,9 @@ public final class NbwCommands {
 		// ---- 地图 / 赛制 / 大厅 / 模板重置（已拆到 ArenaCommands，命令树保持不变）
 		ArenaCommands.register(root);
 
+		// ---- 公告（P1，参照 RicordRailExpress）：post / short / list / del / clear
+		AnnounceCommands.register(root);
+
 		// ---- 沉筏运维（01 §4.3.1 A3-v4）。命令层只碰 RaftSinking，不碰 Sable 类型。
 		var raft = admin(CommandManager.literal("raft"));
 		raft.then(CommandManager.literal("status").executes(NbwCommands::raftStatus));

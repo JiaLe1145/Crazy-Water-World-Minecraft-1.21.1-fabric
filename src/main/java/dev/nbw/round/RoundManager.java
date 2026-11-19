@@ -98,8 +98,7 @@ public final class RoundManager {
 	// ---------------------------------------------------------------- 事件注册
 
 	public static void register() {
-		ServerLifecycleEvents.SERVER_STARTED.register(s -> {
-			server = s;
+		ServerLifecycleEvents.SERVER_STARTED.register(s -> {			server = s;
 			// 大厅/海域配置要在开服时就位，否则玩家连进服都无处安置（实测踩过：lobby==null 时 placeInLobby 直接返回）
 			String err = loadConfigs(null, null);
 			if (err != null) {
@@ -109,6 +108,7 @@ public final class RoundManager {
 			// 对不上时 restore() 会抛，那正是我们想要的（宁可起不来，也不要按错误前提跑完整局）
 			NBW.LOGGER.info("[state] 重启恢复：{}", restoreFromDisk());
 			CareerService.load(worldRoot());   // 跨局战绩与外观（01 §A11）
+			AnnouncementService.load(worldRoot());   // 公告持久化（参照 RicordRailExpress）
 		});
 		ServerLifecycleEvents.SERVER_STOPPING.register(s -> {
 			CareerService.flushIfDirty(worldRoot());   // 停机前刷盘：崩服不再丢整局战绩
@@ -507,6 +507,7 @@ public final class RoundManager {
 		pendingPlacement.add(player.getUuid());
 		player.sendMessage(Text.literal("§a[cww] 大厅｜阶段 " + machine.phase()
 				+ (machine.phase().allowsEnrollment() ? "｜/cww join 报名本局" : "｜本局进行中，可报名下一局")), false);
+		AnnouncementService.syncTo(player);   // 补发最近几条公告：刚进来的人也该看到
 	}
 
 	/**
