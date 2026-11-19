@@ -173,19 +173,26 @@ def main():
     p("item replace entity %s weapon.mainhand with nbw:grapnel 1" % a)
     p("tp %s 1000.5 151 1000.5" % a)
     p("tp %s 1000.5 151 1010.5" % b)
-    p("fill 999 151 1005 1001 153 1005 minecraft:stone")   # 两人之间的墙
+    # 墙必须盖住"眼→胸"这条射线的高度。玩家会后落到 flat_test 平台（脚 y≈149、眼 y≈150.6），
+    # 所以墙从 149 铺到 151；早先写成 151-153 时射线从墙下方穿过，会误判成"无遮挡"（2026-11-19 踩到）。
+    p("fill 999 149 1005 1001 151 1005 minecraft:stone")   # 两人之间的墙
     p.sleep(0.5)
     g1 = p("cww grapnel cast %s" % a)
-    g2 = p("cww grapnel cast %s" % a)
-    print("      #1 <%s>" % g1[:200])
-    print("      #2 <%s>" % g2[:200])
+    print("      #1 <带墙> %s" % g1[:160])
     if "已把" in g1:
         inconclusive("钩竿隔墙仍能拉人（当前无 LOS 校验，待玩法裁决）：%s" % g1[:120])
     else:
-        print("      隔墙未生效（可能被射程/队伍条件拒绝）：%s" % g1[:160])
-    if "已把" in g2:
-        inconclusive("钩竿无冷却：同一 tick 连点两次都成功（待裁决）：%s" % g2[:120])
-    p("fill 999 151 1005 1001 153 1005 minecraft:air")
+        expect("有墙" in g1 or "挡" in g1 or "方块" in g1,
+               "有墙时钩竿被拒（%s）" % g1[:120])
+    # 拆墙后测冷却：冷却只在"成功使用"后生效，被墙挡住的尝试不应烧冷却
+    p("fill 999 149 1005 1001 151 1005 minecraft:air")
+    p.sleep(0.3)
+    g2 = p("cww grapnel cast %s" % a)
+    g3 = p("cww grapnel cast %s" % a)
+    print("      #2 <无墙第一次> %s" % g2[:160])
+    print("      #3 <无墙第二次> %s" % g3[:160])
+    expect("已把" in g2, "无墙时钩竿能拉到人（%s）" % g2[:120])
+    expect("冷却" in g3 or "还要" in g3, "钩竿冷却生效（第二次返回：%s）" % g3[:120])
 
     print("== 7. 收尾")
     p("fill 999 149 1004 1001 151 1006 minecraft:air")

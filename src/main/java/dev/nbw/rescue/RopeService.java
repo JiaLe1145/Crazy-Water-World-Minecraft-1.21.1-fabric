@@ -34,6 +34,17 @@ public final class RopeService {
 	private static long ropePulls;
 	private static long grapples;
 
+	/**
+	 * 绳索/钩竿的最小间隔（D-2，20 tick = 1 秒，两者共用）。
+	 *
+	 * <p>为什么要：{@code security_probe} 实测同一 tick 连点两次都成功——宏连点能把
+	 * "救一次人"变成"瞬间把全队拉一遍"。1 秒的间隔不打扰正常救援（人不会连续两次落水）。
+	 */
+	public static final int COOLDOWN_TICKS = 20;
+
+	/** 玩家 → 上次成功使用（绳索或钩竿）的 tick；两者共用一份冷却。 */
+	private static final java.util.Map<UUID, Long> lastCast = new java.util.LinkedHashMap<>();
+
 	private RopeService() {
 	}
 
@@ -56,12 +67,21 @@ public final class RopeService {
 			return "旁观者不能用绳索/钩竿";
 		}
 
+		// D-2：最小间隔（绳索/钩竿共用）。只拦"刚刚成功过"的连点；失败尝试不烧冷却。
+		long nowTick = world.getServer().getTicks();
+		Long lastTick = lastCast.get(caster.getUuid());
+		if (lastTick != null && nowTick - lastTick < COOLDOWN_TICKS) {
+			long remain = (COOLDOWN_TICKS - (nowTick - lastTick)) / 20 + 1;
+			return "绳索/钩竿冷却中（还要 " + remain + "s）";
+		}
+
 		// 钩竿的第一用途：把海面漂流幸存者拉上筏（招募优先于拉敌人，2026-11-09）
 		if (grapnel) {
 			java.util.UUID floating = dev.nbw.round.SurvivorService.nearestFloating(
 					world, caster.getPos(), LineRule.GRAPNEL_RANGE);
 			if (floating != null) {
 				if (dev.nbw.round.SurvivorService.recruitSurvivor(casterTeam, floating)) {
+					lastCast.put(caster.getUuid(), nowTick);
 					return String.format(Locale.ROOT, "招募了 1 名漂流幸存者（队 %d）", casterTeam);
 				}
 				return "幸存者人口已满，招募失败";
@@ -98,8 +118,16 @@ public final class RopeService {
 		}
 
 		if (grapnel) {
+			// D-3：钩竿要查方块遮挡（隔墙拉人是可伪造的攻击面）。绳索不查——
+			// 救队友时船板/筏体挡住是有可能的，加遮挡会把正常救援一起挡掉。
+			if (blockedByWall(world, caster, best)) {
+				NBW.LOGGER.info("[rope] {} 钩竿被方块挡住：{}", caster.getName().getString(),
+						best.getName().getString());
+				return "有墙/方块挡着，钩竿过不去";
+			}
 			pullToward(caster, best);
 			grapples++;
+			lastCast.put(caster.getUuid(), nowTick);
 			NBW.LOGGER.info("[rope] {} 用钩竿把 {} 拉到 2 格外（距离 {:.1f} 格）",
 					caster.getName().getString(), best.getName().getString(), bestDist);
 			return String.format(Locale.ROOT, "已把 %s 拉近到 %.1f 格外（原距离 %.1f 格）",
@@ -112,6 +140,7 @@ public final class RopeService {
 		}
 		pullToRaft(caster, raft, best);
 		ropePulls++;
+		lastCast.put(caster.getUuid(), nowTick);
 		NBW.LOGGER.info("[rope] {} 把队友 {} 拉回筏上（距离 {:.1f} 格）",
 				caster.getName().getString(), best.getName().getString(), bestDist);
 		return String.format(Locale.ROOT, "已把队友 %s 拉回筏上（距离 %.1f 格）",
@@ -181,8 +210,27 @@ public final class RopeService {
 				ropePulls, grapples, LineRule.ROPE_RANGE, LineRule.GRAPNEL_RANGE);
 	}
 
-	/** 局后清理：累计计数是跨局运维量，故意不清（与 rescue 的计数同一口径）。 */
+	/** 局后清理：累计计数是跨局运维量，故意不清；冷却表是局内状态，要清。 */
 	public static void reset() {
-		// 无局内状态可清：绳索/钩竿是瞬发动作，不存进行中的状态
+		lastCast.clear();
+	}
+
+	/**
+	 * D-3：从施法者眼睛到目标胸口做一次<b>方块</b> raycast；撞到方块就算被挡住。
+	 *
+	 * <p>只判"射线是否先撞到方块"，不要求击中实体——这样和目标本身在墙后、
+	 * 还是墙本身挡住的判定口径一致。绳索不调用它（见 {@code cast} 里的说明）。
+	 */
+	private static boolean blockedByWall(ServerWorld world, ServerPlayerEntity caster, ServerPlayerEntity target) {
+		var from = caster.getEyePos();
+		var to = target.getPos().add(0.0, 1.0, 0.0);
+		var hit = world.raycast(new net.minecraft.world.RaycastContext(from, to,
+				net.minecraft.world.RaycastContext.ShapeType.COLLIDER,
+				net.minecraft.world.RaycastContext.FluidHandling.NONE, caster));
+		boolean blocked = hit.getType() == net.minecraft.util.hit.HitResult.Type.BLOCK;
+		if (blocked) {
+			NBW.LOGGER.debug("[rope] 钩竿被方块遮挡 from={} to={}", from, to);
+		}
+		return blocked;
 	}
 }
