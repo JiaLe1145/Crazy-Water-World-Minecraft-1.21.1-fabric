@@ -42,6 +42,7 @@ public final class LootRoll {
 					new Item("minecraft:coal", 2, 6),
 					new Item("minecraft:cooked_cod", 1, 1),
 					new Item("nbw:bandage", 1, 2),
+					new Item("nbw:water_pistol", 1, 2),
 					new Item("nbw:cutlass", 1, 1),
 					new Item("nbw:hand_crossbow", 1, 1),
 					new Item("nbw:javelin", 1, 1)),

@@ -34,6 +34,7 @@ public final class NbwContent {
 	public static final String GENERATOR = "generator";
 	public static final String REPAIR_TABLE = "repair_table";
 	public static final String BANDAGE = "bandage";
+	public static final String WATER_PISTOL = "water_pistol";
 	public static final String HAND_CROSSBOW = "hand_crossbow";
 	public static final String HARPOON_GUN = "harpoon_gun";
 	public static final String MUSKET = "musket";
@@ -47,6 +48,7 @@ public final class NbwContent {
 	public static Item grapnel;
 	public static Item freshWater;
 	public static Item bandage;
+	public static WaterPistolItem waterPistol;
 	public static SeawaterFilterBlock seawaterFilter;
 	public static MedicalKitBlock medicalKit;
 	public static ItemProductBlock compostFarm;
@@ -150,6 +152,10 @@ public final class NbwContent {
 		// 绷带（M3 补，02 §3）：右键止血 + 骨折 −30s；医疗箱产出。
 		bandage = Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, BANDAGE),
 				new BandageItem(new Item.Settings().maxCount(16)));
+
+		// 水弹枪（09 §2.3）：右键 4 格内灭火 + 止血，不造成伤害；从补给箱出。
+		waterPistol = Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, WATER_PISTOL),
+				new WaterPistolItem(new Item.Settings().maxCount(16)));
 
 		raftCoreEntity = Registry.register(Registries.BLOCK_ENTITY_TYPE,
 				Identifier.of(NBW.MOD_ID, RAFT_CORE),
