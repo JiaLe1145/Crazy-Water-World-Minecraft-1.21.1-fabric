@@ -42,6 +42,11 @@ public final class CombatStats {
 	 */
 	private static final Map<UUID, String> names = new LinkedHashMap<>();
 
+	/** 本局每人击杀数（只读快照；SETTLE 累加跨局战绩用，01 §A11）。 */
+	public static Map<UUID, Integer> killsByPlayer() {
+		return Map.copyOf(kills);
+	}
+
 	private CombatStats() {
 	}
 

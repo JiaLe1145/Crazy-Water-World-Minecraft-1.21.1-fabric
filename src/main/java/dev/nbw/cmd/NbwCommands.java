@@ -154,6 +154,14 @@ public final class NbwCommands {
 				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
 						.executes(NbwCommands::ramPlace)));
 		root.then(ram);
+		// 外观/称号（01 §A11）：查看/列出/选择，无数值
+		var cosmetic = admin(CommandManager.literal("cosmetic"));
+		cosmetic.then(CommandManager.literal("status").executes(NbwCommands::cosmeticStatus));
+		cosmetic.then(CommandManager.literal("list").executes(NbwCommands::cosmeticList));
+		cosmetic.then(CommandManager.literal("select")
+				.then(CommandManager.argument("id", StringArgumentType.word())
+						.executes(NbwCommands::cosmeticSelect)));
+		root.then(cosmetic);
 		// 生存（M4-1）：营养/水分读数 + dev 强制设值
 		var survival = admin(CommandManager.literal("survival"));
 		survival.then(CommandManager.literal("status")
@@ -1107,6 +1115,52 @@ public final class NbwCommands {
 		dev.nbw.round.RamService.register(pos, team);
 		ctx.getSource().sendFeedback(() -> Text.literal(
 				"[cww] 已在 " + pos.toShortString() + " 放置队 " + team + " 的撞角"), false);
+		return 1;
+	}
+
+	/** {@code /cww cosmetic status}：自己的跨局战绩与当前称号。 */
+	private static int cosmeticStatus(CommandContext<ServerCommandSource> ctx) {
+		var p = ctx.getSource().getPlayer();
+		if (p == null) {
+			return tell(ctx, "这条只能玩家自己执行（RCON 用 cosmetic list 看全部称号）");
+		}
+		ctx.getSource().sendFeedback(() -> Text.literal(
+				dev.nbw.round.CareerService.describe(p.getUuid())), false);
+		return 1;
+	}
+
+	/** {@code /cww cosmetic list}：列出全部称号与门槛。 */
+	private static int cosmeticList(CommandContext<ServerCommandSource> ctx) {
+		var sb = new StringBuilder("[cww] 称号（胜场/击杀门槛）：");
+		for (var t : dev.nbw.domain.cosmetic.CosmeticRule.TITLES) {
+			sb.append(String.format(java.util.Locale.ROOT, "%s=%s(%d胜/%d杀) ",
+					t.id(), t.display(), t.minWins(), t.minKills()));
+		}
+		ctx.getSource().sendFeedback(() -> Text.literal(sb.toString()), false);
+		return 1;
+	}
+
+	/** {@code /cww cosmetic select <id>}：选一个已解锁的称号（只改显示，不改面板）。 */
+	private static int cosmeticSelect(CommandContext<ServerCommandSource> ctx) {
+		var p = ctx.getSource().getPlayer();
+		if (p == null) {
+			return tell(ctx, "这条只能玩家自己执行");
+		}
+		String id = StringArgumentType.getString(ctx, "id");
+		var t = dev.nbw.domain.cosmetic.CosmeticRule.byId(id);
+		if (t == null) {
+			return tell(ctx, "没有这个称号：" + id + "（用 /cww cosmetic list 看全部）");
+		}
+		String applied = dev.nbw.round.CareerService.selectTitle(p.getUuid(), id);
+		if (applied == null) {
+			return tell(ctx, "还没解锁「" + t.display() + "」，需要 " + t.minWins() + " 胜 / " + t.minKills() + " 杀");
+		}
+		dev.nbw.round.CareerService.save(dev.nbw.round.RoundManager.worldRoot());
+		// 称号只改显示（01 §A11：外观解锁无数值）。1.21.1 Yarn 这版没有可直接调的
+		// "改 tab 列表显示名"的公开 API（setPlayerListName / PlayerListEntry 都不可用），
+		// 所以本轮只落到"存档 + 可查"，视觉显示留给后续的客户端渲染层。
+		ctx.getSource().sendFeedback(() -> Text.literal(
+				"[cww] 已切换称号：" + t.display() + "（存档已写入，视觉显示待客户端层接入）"), false);
 		return 1;
 	}
 

@@ -108,6 +108,7 @@ public final class RoundManager {
 			// 恢复必须在配置就位之后：快照里的队伍数要与 format 规格对得上，
 			// 对不上时 restore() 会抛，那正是我们想要的（宁可起不来，也不要按错误前提跑完整局）
 			NBW.LOGGER.info("[state] 重启恢复：{}", restoreFromDisk());
+			CareerService.load(worldRoot());   // 跨局战绩与外观（01 §A11）
 		});
 		ServerLifecycleEvents.SERVER_STOPPING.register(s -> server = null);
 		ServerTickEvents.END_SERVER_TICK.register(RoundManager::onEndTick);
@@ -216,6 +217,38 @@ public final class RoundManager {
 			NBW.LOGGER.info("[state] 延后重试认领：{}", RaftSpawner.rebindFromWorld(srv));
 		}
 		broadcastCountdown();
+	}
+
+	/**
+	 * 局结算：把本局结果累加进跨局战绩并落盘（01 §A11：局外只累计外观与战绩，无数值）。
+	 *
+	 * <p>胜者按"胜者队的全部成员"各 +1 胜；平局不记胜。击杀数取 {@link CombatStats} 的本局快照。
+	 */
+	private static void recordCareer() {
+		if (server == null) {
+			return;
+		}
+		RoundMachine.Result r = machine.lastResult();
+		if (r == null) {
+			return;
+		}
+		java.util.Set<UUID> participants = new LinkedHashSet<>(lastParticipants);
+		for (var s : machine.sessions().values()) {
+			participants.add(s.id());
+		}
+		java.util.Set<UUID> winners = new LinkedHashSet<>();
+		if (!r.isDraw() && r.winnerTeamIndex() >= 0) {
+			for (UUID id : participants) {
+				var s = machine.session(id);
+				if (s != null && s.teamIndex() == r.winnerTeamIndex()) {
+					winners.add(id);
+				}
+			}
+		}
+		CareerService.recordMatch(participants, winners, CombatStats.killsByPlayer());
+		CareerService.save(worldRoot());
+		NBW.LOGGER.info("[career] 本局结算已并入跨局战绩：胜者 {} 人、击杀 {} 条", winners.size(),
+				CombatStats.killsByPlayer().size());
 	}
 
 	/**
@@ -361,6 +394,7 @@ public final class RoundManager {
 					announce(line);
 				}
 				CombatStats.persist(server);   // 战绩落盘（M5-3）：state/matches/<match>.json
+				recordCareer();   // 跨局战绩与外观（01 §A11）：胜者 +1 胜、击杀累加
 				setParticipantsGameMode(GameMode.ADVENTURE);
 			}
 			case RETURN -> {
