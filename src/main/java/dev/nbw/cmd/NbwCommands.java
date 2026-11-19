@@ -83,35 +83,8 @@ public final class NbwCommands {
 						.then(CommandManager.argument("amount", DoubleArgumentType.doubleArg(0, 500))
 								.executes(NbwCommands::powerAdd))));
 		root.then(powerNode);
-		// 筏心 HP / 破拆（反偷家 ×0.25）：读数 + dev 强制打
-		var coreNode = admin(CommandManager.literal("core"));
-		coreNode.then(CommandManager.literal("status").executes(NbwCommands::coreHpStatus));
-		coreNode.then(CommandManager.literal("break")
-				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
-						.then(CommandManager.argument("damage", DoubleArgumentType.doubleArg(0, 1000))
-								.executes(NbwCommands::coreHpBreak))));
-		root.then(coreNode);
-		// 弩炮（09 §2.2）：读数 + dev 在命令方块位置放一门并登记归属
-		var ballista = admin(CommandManager.literal("ballista"));
-		ballista.then(CommandManager.literal("status").executes(NbwCommands::ballistaStatus));
-		ballista.then(CommandManager.literal("place")
-				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
-						.executes(NbwCommands::ballistaPlace)));
-		root.then(ballista);
-		// 投石机（09 §2.2）：读数 + dev 在命令源位置放一门并登记归属
-		var catapult = admin(CommandManager.literal("catapult"));
-		catapult.then(CommandManager.literal("status").executes(NbwCommands::catapultStatus));
-		catapult.then(CommandManager.literal("place")
-				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
-						.executes(NbwCommands::catapultPlace)));
-		root.then(catapult);
-		// 撞角（09 §2.2）：读数 + dev 在命令源位置放一个并登记归属
-		var ram = admin(CommandManager.literal("ram"));
-		ram.then(CommandManager.literal("status").executes(NbwCommands::ramStatus));
-		ram.then(CommandManager.literal("place")
-				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
-						.executes(NbwCommands::ramPlace)));
-		root.then(ram);
+		// 筏心与设施武器（core/ballista/catapult/ram/raftcore）：已拆到 FacilityCommands
+		FacilityCommands.register(root);
 		// 外观/称号（01 §A11）：查看/列出/选择，无数值
 		var cosmetic = admin(CommandManager.literal("cosmetic"));
 		cosmetic.then(CommandManager.literal("status").executes(NbwCommands::cosmeticStatus));
@@ -152,18 +125,7 @@ public final class NbwCommands {
 		// ---- 筏与航行（已拆到 RaftCommands：raft / sail / wind / remote）
 		RaftCommands.register(root);
 
-		// ---- 筏心与残骸修复（01 §4.3.2 A2 / A2-v2）
-		var core = admin(CommandManager.literal("raftcore"));
-		core.then(CommandManager.literal("status").executes(NbwCommands::coreStatus));
-		core.then(CommandManager.literal("destroy")
-				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
-						.executes(NbwCommands::coreDestroy)));
-		core.then(CommandManager.literal("hold")
-				.then(CommandManager.argument("player", StringArgumentType.word())
-						.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
-								.then(CommandManager.argument("ticks", IntegerArgumentType.integer(1, 600))
-										.executes(NbwCommands::coreHold)))));
-		root.then(core);
+		// ---- 筏心与残骸修复（01 §4.3.2 A2 / A2-v2）：已并入 FacilityCommands
 
 		// ---- 风 / 遥控器 / 帆：已并入 RaftCommands，此处不再重复注册
 
@@ -184,37 +146,6 @@ public final class NbwCommands {
 	private static com.mojang.brigadier.builder.LiteralArgumentBuilder<ServerCommandSource> admin(
 			com.mojang.brigadier.builder.LiteralArgumentBuilder<ServerCommandSource> node) {
 		return node.requires(source -> source.hasPermissionLevel(2));
-	}
-
-	// ---------------------------------------------------------------- 筏心与残骸修复
-
-	private static int coreStatus(CommandContext<ServerCommandSource> ctx) {
-		ctx.getSource().sendFeedback(() -> Text.literal(RaftCoreService.status()), false);
-		return 1;
-	}
-
-	private static int coreDestroy(CommandContext<ServerCommandSource> ctx) {
-		int team = IntegerArgumentType.getInteger(ctx, "team");
-		RaftCoreService.markDestroyed(team);
-		return tell(ctx, "队 " + team + " 筏心已置为残骸（30s 沉筏倒计时开始）");
-	}
-
-	/**
-	 * /cww raftcore hold &lt;玩家&gt; &lt;队&gt; &lt;tick&gt;
-	 *
-	 * <p>模拟"持续按住右键 N tick"。这不是玩法入口，是自动化测试夹具：
-	 * 真实客户端长按要走自定义包（还没做），但服务端那条路径与这里完全相同，
-	 * 所以 8 秒持续与受伤打断可以不等真人就验完。
-	 */
-	private static int coreHold(CommandContext<ServerCommandSource> ctx) {
-		String name = StringArgumentType.getString(ctx, "player");
-		UUID player = RaftCoreService.playerByName(ctx.getSource().getServer(), name);
-		if (player == null) {
-			return tell(ctx, "找不到在线玩家 " + name + "（假玩家也要先 /player <名> spawn）");
-		}
-		int team = IntegerArgumentType.getInteger(ctx, "team");
-		int ticks = IntegerArgumentType.getInteger(ctx, "ticks");
-		return tell(ctx, RaftCoreService.hold(ctx.getSource().getServer(), player, team, ticks));
 	}
 
 	/** 沉筏命令一律"成功也回话、失败也回话"，不抛异常——运维需要的是可读结果不是堆栈。 */
@@ -334,80 +265,6 @@ public final class NbwCommands {
 		return 1;
 	}
 
-	/** {@code /cww core status}：各队筏心 HP（有幸存者时破拆 ×0.25）+ 世界坐标（探针定位用）。 */
-	private static int coreHpStatus(CommandContext<ServerCommandSource> ctx) {
-		var sb = new StringBuilder("[core] ");
-		var world = ctx.getSource().getServer().getOverworld();
-		for (var team : RoundManager.machine().teams()) {
-			int i = team.index();
-			var pos = dev.nbw.raft.RaftCoreService.coreWorldPos(world, i);
-			sb.append(String.format(java.util.Locale.ROOT, "队%d HP=%.1f 幸存者=%s 坐标=%s｜",
-					i, dev.nbw.raft.RaftCoreService.hpOf(i),
-					dev.nbw.round.SurvivorService.hasSurvivors(i) ? "有" : "无",
-					pos == null ? "取不到" : String.format(java.util.Locale.ROOT, "(%.1f,%.1f,%.1f)",
-							pos.x, pos.y, pos.z)));
-		}
-		ctx.getSource().sendFeedback(() -> Text.literal(sb.toString()), false);
-		return 1;
-	}
-
-	/** {@code /cww ballista status}：本局已放置的炮位与归属。 */
-	private static int ballistaStatus(CommandContext<ServerCommandSource> ctx) {
-		ctx.getSource().sendFeedback(() -> Text.literal(
-				dev.nbw.round.BallistaService.status()), false);
-		return 1;
-	}
-
-	/** {@code /cww ballista place <队>}：dev 在命令源位置放一门并登记归属（setblock 不触发 onPlaced）。 */
-	private static int ballistaPlace(CommandContext<ServerCommandSource> ctx) {
-		int team = IntegerArgumentType.getInteger(ctx, "team");
-		var src = ctx.getSource();
-		var pos = net.minecraft.util.math.BlockPos.ofFloored(src.getPosition());
-		src.getWorld().setBlockState(pos, dev.nbw.content.NbwContent.ballista.getDefaultState());
-		dev.nbw.round.BallistaService.register(pos, team);
-		ctx.getSource().sendFeedback(() -> Text.literal(
-				"[cww] 已在 " + pos.toShortString() + " 放置队 " + team + " 的弩炮"), false);
-		return 1;
-	}
-
-	/** {@code /cww catapult status}：本局已放置的投石机与归属。 */
-	private static int catapultStatus(CommandContext<ServerCommandSource> ctx) {
-		ctx.getSource().sendFeedback(() -> Text.literal(
-				dev.nbw.round.CatapultService.status()), false);
-		return 1;
-	}
-
-	/** {@code /cww catapult place <队>}：dev 在命令源位置放一门并登记归属。 */
-	private static int catapultPlace(CommandContext<ServerCommandSource> ctx) {
-		int team = IntegerArgumentType.getInteger(ctx, "team");
-		var src = ctx.getSource();
-		var pos = net.minecraft.util.math.BlockPos.ofFloored(src.getPosition());
-		src.getWorld().setBlockState(pos, dev.nbw.content.NbwContent.catapult.getDefaultState());
-		dev.nbw.round.CatapultService.register(pos, team);
-		ctx.getSource().sendFeedback(() -> Text.literal(
-				"[cww] 已在 " + pos.toShortString() + " 放置队 " + team + " 的投石机"), false);
-		return 1;
-	}
-
-	/** {@code /cww ram status}：本局已放置的撞角与归属。 */
-	private static int ramStatus(CommandContext<ServerCommandSource> ctx) {
-		ctx.getSource().sendFeedback(() -> Text.literal(
-				dev.nbw.round.RamService.status()), false);
-		return 1;
-	}
-
-	/** {@code /cww ram place <队>}：dev 在命令源位置放一个并登记归属。 */
-	private static int ramPlace(CommandContext<ServerCommandSource> ctx) {
-		int team = IntegerArgumentType.getInteger(ctx, "team");
-		var src = ctx.getSource();
-		var pos = net.minecraft.util.math.BlockPos.ofFloored(src.getPosition());
-		src.getWorld().setBlockState(pos, dev.nbw.content.NbwContent.ram.getDefaultState());
-		dev.nbw.round.RamService.register(pos, team);
-		ctx.getSource().sendFeedback(() -> Text.literal(
-				"[cww] 已在 " + pos.toShortString() + " 放置队 " + team + " 的撞角"), false);
-		return 1;
-	}
-
 	/** {@code /cww cosmetic status}：自己的跨局战绩与当前称号。 */
 	private static int cosmeticStatus(CommandContext<ServerCommandSource> ctx) {
 		var p = ctx.getSource().getPlayer();
@@ -451,17 +308,6 @@ public final class NbwCommands {
 		// 所以本轮只落到"存档 + 可查"，视觉显示留给后续的客户端渲染层。
 		ctx.getSource().sendFeedback(() -> Text.literal(
 				"[cww] 已切换称号：" + t.display() + "（存档已写入，视觉显示待客户端层接入）"), false);
-		return 1;
-	}
-
-	/** {@code /cww core break <队> <伤害>}：dev 强制破拆（验证 ×0.25）。 */
-	private static int coreHpBreak(CommandContext<ServerCommandSource> ctx) {
-		int team = IntegerArgumentType.getInteger(ctx, "team");
-		double dmg = DoubleArgumentType.getDouble(ctx, "damage");
-		double dealt = dev.nbw.raft.RaftCoreService.breakCore(team, dmg);
-		ctx.getSource().sendFeedback(() -> Text.literal(String.format(java.util.Locale.ROOT,
-				"[cww] 队%d 筏心受击 实际=%.2f 剩=%.1f", team, dealt,
-				dev.nbw.raft.RaftCoreService.hpOf(team))), false);
 		return 1;
 	}
 
