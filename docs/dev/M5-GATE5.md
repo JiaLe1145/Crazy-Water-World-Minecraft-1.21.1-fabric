@@ -124,3 +124,31 @@ RCON_PORT=25576 RCON_PASSWORD=nbwm0 ./run/py-embed/python.exe -I -X utf8 tools/s
 
 > `run/py-embed` 是本轮下载的便携 Python，**不入库**；有系统 Python 时把 `PY` 指过去即可：
 > `PY=python bash tools/g5_drills.sh`。
+
+---
+
+## 5. 2026-11-19 复跑（Windows，无 bash）
+
+本机没有 bash，`g5_drills.sh` 无法直接跑；新增 PowerShell 等价脚本
+[`tools/g5_drills.ps1`](../tools/g5_drills.ps1)（UTF-8 with BOM，PS 5.1 按 ANSI 读中文会炸语法）。
+
+### 5.1 结果
+
+| 项 | 结果 |
+|---|---|
+| 单测 | **304 / 0** |
+| 崩溃恢复 ×3 | **BEFORE 3/0 ×3、AFTER 7/0 ×3 → PASS** |
+| `event_probe` | **18 / 0** |
+| `bounty_probe` | **15 / 0** |
+| `stats_probe` | **13 / 0** |
+| `security_probe` | **14 PASS / 2 INCONCLUSIVE**（钩竿隔墙、无冷却 = D-2/D-3 待裁决） |
+| 48h 耐久冒烟（2 分钟） | **PASS**：12 采样、TPS 20.004、0 错误、p95 RCON 51ms |
+
+### 5.2 本轮修的一个探针缺陷
+
+`restart_probe.py` 的 `after` 段用固定 `sleep(1.5)` 等 abort 生效；实测在带 4 个假玩家的恢复局里偶发不够，
+读到过渡前的 PLAY → 误报「abort 收不干净」。已改成**轮询最多 10s**（`tools/restart_probe.py`）。
+
+### 5.3 仍缺（不变）
+
+48h 耐久（需长期测试服）、真人验收（需真客户端 + 2 人）、生产 jar 崩溃重启、回滚演练本轮未复跑。

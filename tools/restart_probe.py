@@ -141,8 +141,15 @@ def after():
     print("== after: 恢复出来的机器还得能继续跑完")
     cmd(sock, "cww audit 6", quiet=False)
     cmd(sock, "cww abort")
-    time.sleep(1.5)
-    expect("LOBBY" in cmd(sock, "cww phase"), "abort 仍能把恢复出来的局收干净")
+    # 不要用固定 sleep：abort 是"下一 tick 生效"，1.5s 在带 4 个假玩家的恢复局里偶发不够，
+    # 会读到过渡前的 PLAY（2026-11-19 实测踩到）。改成轮询，最多 10s。
+    lobby = False
+    for _ in range(20):
+        time.sleep(0.5)
+        if "LOBBY" in cmd(sock, "cww phase"):
+            lobby = True
+            break
+    expect(lobby, "abort 仍能把恢复出来的局收干净")
 
     print("\n=== AFTER SUMMARY === satisfied=%d FAILED=%d" % (len(ok), len(bad)))
     for f in bad:
