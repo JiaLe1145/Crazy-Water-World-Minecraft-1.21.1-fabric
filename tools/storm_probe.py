@@ -109,7 +109,7 @@ def main():
     print("== 4. 日志")
     log = p.log()
     expect("风暴来袭" in log, "日志出现风暴开始公告")
-    expect("storm 结束" in log, "日志出现风暴结束公告")
+    expect("风暴结束" in log or "风暴 结束" in log, "日志出现风暴结束公告")
 
     print("== 5. 收尾")
     p("cww abort")

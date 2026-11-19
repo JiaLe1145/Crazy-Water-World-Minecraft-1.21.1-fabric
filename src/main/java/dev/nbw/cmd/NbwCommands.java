@@ -34,6 +34,10 @@ public final class NbwCommands {
 		// 读数与元系统（zone/metrics/event/stats/survivor/supply/guard/power/cosmetic/survival/loot/audit）
 		MetaCommands.register(root);
 
+		// 筏心与设施武器（core/ballista/catapult/ram/raftcore）
+		// 注意：拆 MetaCommands 时这行曾被误删，导致整组命令消失（2026-11-20 craftsman_probe 抓到）
+		FacilityCommands.register(root);
+
 		// ---- 地图 / 赛制 / 大厅 / 模板重置（已拆到 ArenaCommands，命令树保持不变）
 		ArenaCommands.register(root);
 

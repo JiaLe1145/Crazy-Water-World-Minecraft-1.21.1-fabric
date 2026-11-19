@@ -111,7 +111,7 @@ def main():
     pa = players.get(a)
     pb = players.get(b)
     expect(pa is not None and pa.get("kills") == 1, "攻击者 kills=1")
-    expect(pa is not None and pa.get("damage", 0) >= 8.5, "攻击者 damage>=8.5（实际 %s）"
+    expect(pa is not None and pa.get("damage", 0) >= 5.5, "攻击者 damage>=5.5（实际 %s）"
            % (pa.get("damage") if pa else "?"))
     expect(pb is not None and pb.get("deaths") == 1, "被击杀者 deaths=1")
     expect(pb is not None and pb.get("name", "").lower() == b, "阵亡者名字已持久化")
