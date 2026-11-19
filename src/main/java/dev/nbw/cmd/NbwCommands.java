@@ -1,35 +1,15 @@
 package dev.nbw.cmd;
 
 import com.mojang.brigadier.CommandDispatcher;
-import com.mojang.brigadier.arguments.DoubleArgumentType;
-import com.mojang.brigadier.arguments.IntegerArgumentType;
-import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import dev.nbw.NBW;
-import dev.nbw.raft.RaftCoreService;
-import dev.nbw.raft.RaftSpawner;
-import dev.nbw.rescue.RescueService;
-import dev.nbw.rescue.RopeService;
-import dev.nbw.round.RoundManager;
-import dev.nbw.round.ZoneService;
-import dev.nbw.round.MetricsService;
-import dev.nbw.loot.LootService;
-import dev.nbw.survival.SurvivalService;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 
-import java.io.IOException;
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Locale;
-import java.util.UUID;
 import java.util.List;
-import java.util.stream.Stream;
 
 /**
  * /cww 命令与权限（04 §10）。三条约束：
