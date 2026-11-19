@@ -110,7 +110,10 @@ public final class RoundManager {
 			NBW.LOGGER.info("[state] 重启恢复：{}", restoreFromDisk());
 			CareerService.load(worldRoot());   // 跨局战绩与外观（01 §A11）
 		});
-		ServerLifecycleEvents.SERVER_STOPPING.register(s -> server = null);
+		ServerLifecycleEvents.SERVER_STOPPING.register(s -> {
+			CareerService.flushIfDirty(worldRoot());   // 停机前刷盘：崩服不再丢整局战绩
+			server = null;
+		});
 		ServerTickEvents.END_SERVER_TICK.register(RoundManager::onEndTick);
 		ServerPlayConnectionEvents.JOIN.register((handler, sender, srv) -> onJoin(handler.getPlayer()));
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, srv) -> {
@@ -119,6 +122,7 @@ public final class RoundManager {
 					player.getNameForScoreboard(), player.getUuid(), machine.phase(),
 					machine.session(player.getUuid()) != null);
 			machine.onDisconnect(player.getUuid());
+			CareerService.flushIfDirty(worldRoot());   // 掉线也刷一次：崩溃丢掉的是"这一局"，不是"这个人的历史"
 		});
 		ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, newPlayer, alive) -> onRespawn(newPlayer));
 		ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {

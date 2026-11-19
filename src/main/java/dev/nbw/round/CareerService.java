@@ -44,6 +44,12 @@ public final class CareerService {
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 	private static final Map<UUID, Career> careers = new LinkedHashMap<>();
 
+	/**
+	 * 有未落盘的改动。只在 SETTLE 落盘的写法一旦崩服就丢整局战绩，
+	 * 所以补了脏标记 + 停机/掉线刷盘（参考 RicordRailExpress 的 PlayerStatsManager 做法）。
+	 */
+	private static boolean dirty;
+
 	private CareerService() {
 	}
 
@@ -106,6 +112,7 @@ public final class CareerService {
 				}
 			});
 		}
+		dirty = true;
 	}
 
 	/** 读某人的累计战绩（没有就返回零值，不落库）。 */
@@ -122,6 +129,7 @@ public final class CareerService {
 			return null;
 		}
 		c.title = picked.id();
+		dirty = true;
 		return picked.id();
 	}
 
@@ -135,7 +143,7 @@ public final class CareerService {
 		return t;
 	}
 
-	/** 落盘（局结算与选手动改动后调用）。 */
+	/** 落盘（局结算与选手动改动后调用）。成功才清脏标记。 */
 	public static void save(Path worldRoot) {
 		try {
 			JsonObject root = new JsonObject();
@@ -149,9 +157,26 @@ public final class CareerService {
 			Path file = path(worldRoot);
 			Files.createDirectories(file.getParent());
 			Files.writeString(file, GSON.toJson(root), StandardCharsets.UTF_8);
+			dirty = false;
 		} catch (Exception e) {
-			NBW.LOGGER.warn("[career] 落盘失败：{}", e.toString());
+			NBW.LOGGER.warn("[career] 落盘失败（保留脏标记，下次再试）：{}", e.toString());
 		}
+	}
+
+	/**
+	 * 只在有改动时落盘。停机、玩家掉线、局结算都走这条——
+	 * 无改动时不重写文件，避免每次掉线都刷一遍整份战绩。
+	 */
+	public static void flushIfDirty(Path worldRoot) {
+		if (!dirty) {
+			return;
+		}
+		save(worldRoot);
+	}
+
+	/** 有无未落盘改动（探针/自检用）。 */
+	public static boolean isDirty() {
+		return dirty;
 	}
 
 	/** 一行读数：给 {@code /cww cosmetic status <玩家>}。 */
