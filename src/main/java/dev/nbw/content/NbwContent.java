@@ -32,6 +32,7 @@ public final class NbwContent {
 	public static final String COMPOST_FARM = "compost_farm";
 	public static final String KITCHEN = "kitchen";
 	public static final String GENERATOR = "generator";
+	public static final String REPAIR_TABLE = "repair_table";
 	public static final String BANDAGE = "bandage";
 	public static final String HAND_CROSSBOW = "hand_crossbow";
 	public static final String HARPOON_GUN = "harpoon_gun";
@@ -51,6 +52,7 @@ public final class NbwContent {
 	public static ItemProductBlock compostFarm;
 	public static ItemProductBlock kitchen;
 	public static GeneratorBlock generator;
+	public static RepairTableBlock repairTable;
 	public static RangedWeaponItem handCrossbow;
 	public static RangedWeaponItem harpoonGun;
 	public static RangedWeaponItem musket;
@@ -110,6 +112,12 @@ public final class NbwContent {
 				new GeneratorBlock(AbstractBlock.Settings.create().strength(2.0f).requiresTool()));
 		Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, GENERATOR),
 				new BlockItem(generator, new Item.Settings()));
+
+		// 修理台（M4 补，02 §7）：1 电，修筏心 / 重置沉筏倒计时。
+		repairTable = Registry.register(Registries.BLOCK, Identifier.of(NBW.MOD_ID, REPAIR_TABLE),
+				new RepairTableBlock(AbstractBlock.Settings.create().strength(2.0f).requiresTool()));
+		Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, REPAIR_TABLE),
+				new BlockItem(repairTable, new Item.Settings()));
 
 		// 远程武器（M4-7，09 §2.2）：右键 hitscan。伤害 HP / 装填 tick / 射程 格 / 拉近 格。
 		handCrossbow = Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, HAND_CROSSBOW),

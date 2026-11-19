@@ -767,6 +767,7 @@ public final class RoundManager {
 		GuardService.reset();   // 卫兵冷却与命中计数是局内的
 		PowerService.reset();   // 电量池是局内的
 		dev.nbw.content.GeneratorBlock.reset();   // 发电机冷却表是局内的
+		dev.nbw.content.RepairTableBlock.reset();   // 修理台冷却表是局内的
 	}
 
 	// ---------------------------------------------------------------- 配置与命令入口

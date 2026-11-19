@@ -68,6 +68,22 @@ public final class PowerService {
 		return LOW_POWER_MULTIPLIER;
 	}
 
+	/**
+	 * 硬性耗电（修理台这类"没电就别干"的设施）：够就扣、不够就不扣并返回 false。
+	 * 与 {@link #multiplierFor} 的区别是它没有"减半"这个档。
+	 */
+	public static boolean tryConsume(int team, double amount) {
+		if (team < 0) {
+			return false;
+		}
+		double have = power.getOrDefault(team, 0.0);
+		if (have < amount) {
+			return false;
+		}
+		power.put(team, have - amount);
+		return true;
+	}
+
 	/** 一行读数：给 {@code /cww power}。 */
 	public static String status() {
 		if (power.isEmpty()) {
