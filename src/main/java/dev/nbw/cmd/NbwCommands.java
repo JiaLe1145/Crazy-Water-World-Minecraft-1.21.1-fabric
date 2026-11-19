@@ -117,8 +117,14 @@ public final class NbwCommands {
 		root.then(admin(CommandManager.literal("guard").executes(NbwCommands::guardStatus)));
 		// 队伍物资箱读数（01 §4.1）
 		root.then(admin(CommandManager.literal("supply").executes(NbwCommands::supplyStatus)));
-		// 功率池（M4 补）：读数
-		root.then(admin(CommandManager.literal("power").executes(NbwCommands::powerStatus)));
+		// 功率池（M4 补）：读数 + dev 充能
+		var powerNode = admin(CommandManager.literal("power"));
+		powerNode.then(CommandManager.literal("status").executes(NbwCommands::powerStatus));
+		powerNode.then(CommandManager.literal("add")
+				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
+						.then(CommandManager.argument("amount", DoubleArgumentType.doubleArg(0, 500))
+								.executes(NbwCommands::powerAdd))));
+		root.then(powerNode);
 		// 筏心 HP / 破拆（反偷家 ×0.25）：读数 + dev 强制打
 		var coreNode = admin(CommandManager.literal("core"));
 		coreNode.then(CommandManager.literal("status").executes(NbwCommands::coreHpStatus));
@@ -141,6 +147,13 @@ public final class NbwCommands {
 				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
 						.executes(NbwCommands::catapultPlace)));
 		root.then(catapult);
+		// 撞角（09 §2.2）：读数 + dev 在命令源位置放一个并登记归属
+		var ram = admin(CommandManager.literal("ram"));
+		ram.then(CommandManager.literal("status").executes(NbwCommands::ramStatus));
+		ram.then(CommandManager.literal("place")
+				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
+						.executes(NbwCommands::ramPlace)));
+		root.then(ram);
 		// 生存（M4-1）：营养/水分读数 + dev 强制设值
 		var survival = admin(CommandManager.literal("survival"));
 		survival.then(CommandManager.literal("status")
@@ -1012,14 +1025,29 @@ public final class NbwCommands {
 		return 1;
 	}
 
-	/** {@code /cww core status}：各队筏心 HP（有幸存者时破拆 ×0.25）。 */
+	/** {@code /cww power add <队> <电量>}：dev 充能（探针用，免去摆发电机）。 */
+	private static int powerAdd(CommandContext<ServerCommandSource> ctx) {
+		int team = IntegerArgumentType.getInteger(ctx, "team");
+		double amount = DoubleArgumentType.getDouble(ctx, "amount");
+		dev.nbw.round.PowerService.add(team, amount);
+		ctx.getSource().sendFeedback(() -> Text.literal(String.format(java.util.Locale.ROOT,
+				"[cww] 队%d 电量 +%.1f → %.1f", team, amount,
+				dev.nbw.round.PowerService.get(team))), false);
+		return 1;
+	}
+
+	/** {@code /cww core status}：各队筏心 HP（有幸存者时破拆 ×0.25）+ 世界坐标（探针定位用）。 */
 	private static int coreHpStatus(CommandContext<ServerCommandSource> ctx) {
 		var sb = new StringBuilder("[core] ");
+		var world = ctx.getSource().getServer().getOverworld();
 		for (var team : RoundManager.machine().teams()) {
 			int i = team.index();
-			sb.append(String.format(java.util.Locale.ROOT, "队%d HP=%.1f 幸存者=%s｜",
+			var pos = dev.nbw.raft.RaftCoreService.coreWorldPos(world, i);
+			sb.append(String.format(java.util.Locale.ROOT, "队%d HP=%.1f 幸存者=%s 坐标=%s｜",
 					i, dev.nbw.raft.RaftCoreService.hpOf(i),
-					dev.nbw.round.SurvivorService.hasSurvivors(i) ? "有" : "无"));
+					dev.nbw.round.SurvivorService.hasSurvivors(i) ? "有" : "无",
+					pos == null ? "取不到" : String.format(java.util.Locale.ROOT, "(%.1f,%.1f,%.1f)",
+							pos.x, pos.y, pos.z)));
 		}
 		ctx.getSource().sendFeedback(() -> Text.literal(sb.toString()), false);
 		return 1;
@@ -1060,6 +1088,25 @@ public final class NbwCommands {
 		dev.nbw.round.CatapultService.register(pos, team);
 		ctx.getSource().sendFeedback(() -> Text.literal(
 				"[cww] 已在 " + pos.toShortString() + " 放置队 " + team + " 的投石机"), false);
+		return 1;
+	}
+
+	/** {@code /cww ram status}：本局已放置的撞角与归属。 */
+	private static int ramStatus(CommandContext<ServerCommandSource> ctx) {
+		ctx.getSource().sendFeedback(() -> Text.literal(
+				dev.nbw.round.RamService.status()), false);
+		return 1;
+	}
+
+	/** {@code /cww ram place <队>}：dev 在命令源位置放一个并登记归属。 */
+	private static int ramPlace(CommandContext<ServerCommandSource> ctx) {
+		int team = IntegerArgumentType.getInteger(ctx, "team");
+		var src = ctx.getSource();
+		var pos = net.minecraft.util.math.BlockPos.ofFloored(src.getPosition());
+		src.getWorld().setBlockState(pos, dev.nbw.content.NbwContent.ram.getDefaultState());
+		dev.nbw.round.RamService.register(pos, team);
+		ctx.getSource().sendFeedback(() -> Text.literal(
+				"[cww] 已在 " + pos.toShortString() + " 放置队 " + team + " 的撞角"), false);
 		return 1;
 	}
 

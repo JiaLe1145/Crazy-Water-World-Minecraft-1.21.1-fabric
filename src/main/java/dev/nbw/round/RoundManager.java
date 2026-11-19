@@ -200,6 +200,7 @@ public final class RoundManager {
 			GuardService.onEndTick(srv);   // 卫兵：守筏自动射击（幸存者贴回甲板之后）
 			BallistaService.onEndTick(srv);   // 弩炮：已放置炮位自动打最近敌方（09 §2.2）
 			CatapultService.onEndTick(srv);   // 投石机：40 格拆家，只打敌方筏心（09 §2.2）
+			RamService.onEndTick(srv);   // 撞角：筏移动时撞击贴身敌人（09 §2.2）
 			RaftSinking.onEndTick(srv);
 			RaftCoreService.onEndTick(srv);
 			WindService.apply(srv);   // 帆：登记风力目标（被动等风，方向跟随前进）
@@ -769,6 +770,7 @@ public final class RoundManager {
 		GuardService.reset();   // 卫兵冷却与命中计数是局内的
 		BallistaService.reset();   // 弩炮炮位与冷却表是局内的
 		CatapultService.reset();   // 投石机炮位与冷却表是局内的
+		RamService.reset();   // 撞角位置与冷却表是局内的
 		PowerService.reset();   // 电量池是局内的
 		dev.nbw.content.GeneratorBlock.reset();   // 发电机冷却表是局内的
 		dev.nbw.content.RepairTableBlock.reset();   // 修理台冷却表是局内的
