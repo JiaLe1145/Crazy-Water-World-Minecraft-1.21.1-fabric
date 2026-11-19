@@ -10,11 +10,7 @@ import dev.nbw.NBW;
 import dev.nbw.construct.BuildService;
 import dev.nbw.net.NbwNetworking;
 import dev.nbw.raft.RaftCoreService;
-import dev.nbw.raft.RaftSinking;
 import dev.nbw.raft.RaftSpawner;
-import dev.nbw.raft.RemoteService;
-import dev.nbw.raft.Sailing;
-import dev.nbw.raft.WindService;
 import dev.nbw.rescue.RescueService;
 import dev.nbw.rescue.RopeService;
 import dev.nbw.round.RoundManager;
@@ -23,13 +19,11 @@ import dev.nbw.round.MetricsService;
 import dev.nbw.loot.LootService;
 import dev.nbw.survival.SurvivalService;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
-import net.minecraft.item.ItemStack;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
-import net.minecraft.util.math.Direction;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -179,25 +173,8 @@ public final class NbwCommands {
 		// ---- 公告（P1，参照 RicordRailExpress）：post / short / list / del / clear
 		AnnounceCommands.register(root);
 
-		// ---- 沉筏运维（01 §4.3.1 A3-v4）。命令层只碰 RaftSinking，不碰 Sable 类型。
-		var raft = admin(CommandManager.literal("raft"));
-		raft.then(CommandManager.literal("status").executes(NbwCommands::raftStatus));
-		raft.then(CommandManager.literal("all").executes(NbwCommands::raftAll));
-		raft.then(CommandManager.literal("gen")
-				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
-						.executes(NbwCommands::raftGen)));
-		raft.then(CommandManager.literal("bind")
-				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
-						.executes(NbwCommands::raftBindNearest)
-						.then(CommandManager.argument("name", StringArgumentType.word())
-								.executes(NbwCommands::raftBindByName))));
-		raft.then(CommandManager.literal("sink")
-				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
-						.executes(NbwCommands::raftSink)));
-		raft.then(CommandManager.literal("weight")
-				.then(CommandManager.argument("multiplier", DoubleArgumentType.doubleArg(1.0, 4.0))
-						.executes(NbwCommands::raftWeight)));
-		root.then(raft);
+		// ---- 筏与航行（已拆到 RaftCommands：raft / sail / wind / remote）
+		RaftCommands.register(root);
 
 		// ---- 筏心与残骸修复（01 §4.3.2 A2 / A2-v2）
 		var core = admin(CommandManager.literal("raftcore"));
@@ -212,46 +189,7 @@ public final class NbwCommands {
 										.executes(NbwCommands::coreHold)))));
 		root.then(core);
 
-		// ---- 航行（M2）：挂帆 / 拆帆 / 读数
-		var sail = admin(CommandManager.literal("sail"));
-		sail.then(CommandManager.literal("read")
-				.executes(NbwCommands::sailRead));
-		sail.then(CommandManager.literal("rig")
-				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
-						.then(CommandManager.argument("count", IntegerArgumentType.integer(0, 7))
-								.then(CommandManager.argument("facing", StringArgumentType.word())
-										.executes(NbwCommands::sailRig)))));
-		sail.then(CommandManager.literal("strip")
-				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
-						.executes(NbwCommands::sailStrip)));
-		root.then(sail);
-
-		// ---- 风（M2-5）：全局单值，所有队同一时刻受同一阵风
-		var wind = admin(CommandManager.literal("wind"));
-		wind.then(CommandManager.literal("read")
-				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
-						.executes(NbwCommands::windRead)));
-		wind.then(CommandManager.literal("set")
-				.then(CommandManager.argument("dir", StringArgumentType.word())
-						.then(CommandManager.argument("strength", DoubleArgumentType.doubleArg(0.0, 4.0))
-								.executes(NbwCommands::windSet))));
-		root.then(wind);
-
-		// ---- 遥控器（问题③）：每筏一个，WASD 开船。give / status 给运维与探针取证
-		var remote = admin(CommandManager.literal("remote"));
-		remote.then(CommandManager.literal("status")
-				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
-						.executes(NbwCommands::remoteStatus)));
-		remote.then(CommandManager.literal("give")
-				.then(CommandManager.argument("player", StringArgumentType.word())
-						.executes(NbwCommands::remoteGive)));
-		// dev/自动化夹具：/cww remote move <队> <keys> <tick>，keys 是 w/s/a/d 的组合（如 wa = 前进+左转）
-		remote.then(CommandManager.literal("move")
-				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
-						.then(CommandManager.argument("keys", StringArgumentType.word())
-								.then(CommandManager.argument("ticks", IntegerArgumentType.integer(1, 600))
-										.executes(NbwCommands::remoteMove)))));
-		root.then(remote);
+		// ---- 风 / 遥控器 / 帆：已并入 RaftCommands，此处不再重复注册
 
 		// ---- 落水与救援（M2-8 / 01 §8）：自救与伸手救援的时序、配对与拒绝原因的观测面
 		var rescue = admin(CommandManager.literal("rescue"));
@@ -368,104 +306,6 @@ public final class NbwCommands {
 	private static int start(CommandContext<ServerCommandSource> ctx, String format, String arena) throws CommandSyntaxException {
 		String err = RoundManager.start(format, arena);
 		return reply(ctx, err, "第 " + RoundManager.phase() + " 阶段已启动（format=" + nz(format) + " arena=" + nz(arena) + "）");
-	}
-
-	// ---------------------------------------------------------------- 沉筏命令
-
-	private static int raftAll(CommandContext<ServerCommandSource> ctx) {
-		String msg = RaftSpawner.status(ctx.getSource().getServer());
-		ctx.getSource().sendFeedback(() -> Text.literal(msg), false);
-		return 1;
-	}
-
-	private static int raftGen(CommandContext<ServerCommandSource> ctx) {
-		int team = IntegerArgumentType.getInteger(ctx, "team");
-		return tell(ctx, RaftSpawner.generateOne(ctx.getSource().getServer(), team));
-	}
-
-	// ---------------------------------------------------------------- 航行
-
-	private static int windRead(CommandContext<ServerCommandSource> ctx) {
-		int team = IntegerArgumentType.getInteger(ctx, "team");
-		ctx.getSource().sendFeedback(() -> Text.literal(WindService.readout(ctx.getSource().getServer(), team)), false);
-		return 1;
-	}
-
-	private static int windSet(CommandContext<ServerCommandSource> ctx) {
-		String dir = StringArgumentType.getString(ctx, "dir");
-		double strength = DoubleArgumentType.getDouble(ctx, "strength");
-		return tell(ctx, WindService.set(dir, strength) + " | "
-				+ WindService.readout(ctx.getSource().getServer(), 0));
-	}
-
-	private static int sailRead(CommandContext<ServerCommandSource> ctx) {
-		ctx.getSource().sendFeedback(() -> Text.literal(
-				Sailing.readout(ctx.getSource().getServer(), RaftSpawner.raftOf(0))), false);
-		return 1;
-	}
-
-	private static int sailRig(CommandContext<ServerCommandSource> ctx) {
-		int team = IntegerArgumentType.getInteger(ctx, "team");
-		int count = IntegerArgumentType.getInteger(ctx, "count");
-		String raw = StringArgumentType.getString(ctx, "facing");
-		Direction facing;
-		try {
-			facing = Direction.byName(raw.toLowerCase(Locale.ROOT));
-		} catch (RuntimeException e) {
-			facing = null;
-		}
-		if (facing == null || facing.getAxis() == Direction.Axis.Y) {
-			return tell(ctx, "朝向只能是 north/south/east/west，给了 " + raw);
-		}
-		UUID raft = RaftSpawner.raftOf(team);
-		if (raft == null) {
-			return tell(ctx, "队 " + team + " 没有筏；先 /cww start");
-		}
-		return tell(ctx, Sailing.rig(ctx.getSource().getServer().getOverworld(), raft, count, facing)
-				+ " | " + Sailing.readout(ctx.getSource().getServer(), raft));
-	}
-
-	private static int sailStrip(CommandContext<ServerCommandSource> ctx) {
-		int team = IntegerArgumentType.getInteger(ctx, "team");
-		UUID raft = RaftSpawner.raftOf(team);
-		if (raft == null) {
-			return tell(ctx, "队 " + team + " 没有筏");
-		}
-		int n = Sailing.deRig(ctx.getSource().getServer().getOverworld(), raft);
-		return tell(ctx, "拆掉 " + n + " 块帆 | " + Sailing.readout(ctx.getSource().getServer(), raft));
-	}
-
-	// ---------------------------------------------------------------- 遥控器（问题③）
-
-	private static int remoteStatus(CommandContext<ServerCommandSource> ctx) {
-		int team = IntegerArgumentType.getInteger(ctx, "team");
-		ctx.getSource().sendFeedback(() -> Text.literal(
-				RemoteService.readout(ctx.getSource().getServer(), team)), false);
-		return 1;
-	}
-
-	private static int remoteGive(CommandContext<ServerCommandSource> ctx) {
-		String name = StringArgumentType.getString(ctx, "player");
-		ServerPlayerEntity target = ctx.getSource().getServer().getPlayerManager().getPlayer(name);
-		if (target == null) {
-			return tell(ctx, "找不到在线玩家 " + name + "（假玩家也要先 /player <名> spawn）");
-		}
-		if (dev.nbw.content.NbwContent.remote == null) {
-			return tell(ctx, "遥控器还没注册");
-		}
-		if (!target.getInventory().insertStack(new ItemStack(dev.nbw.content.NbwContent.remote))) {
-			return tell(ctx, "背包已满，给不进去");
-		}
-		return tell(ctx, "已给 " + name + " 遥控器（主手拿着右键进入移动模式，WASD 开船）");
-	}
-
-	/** {@code /cww remote move <队> <keys> <tick>}：dev 夹具，模拟"某队按着 w/s/a/d 组合 N tick"。 */
-	private static int remoteMove(CommandContext<ServerCommandSource> ctx) {
-		int team = IntegerArgumentType.getInteger(ctx, "team");
-		String keys = StringArgumentType.getString(ctx, "keys").toLowerCase(Locale.ROOT);
-		int ticks = IntegerArgumentType.getInteger(ctx, "ticks");
-		return tell(ctx, RemoteService.hold(team, keys.contains("w"), keys.contains("s"),
-				keys.contains("a"), keys.contains("d"), ticks));
 	}
 
 	// ---------------------------------------------------------------- 筏心与残骸修复
@@ -674,34 +514,6 @@ public final class NbwCommands {
 		return 1;
 	}
 
-	private static int raftStatus(CommandContext<ServerCommandSource> ctx) {
-		ctx.getSource().sendFeedback(() -> Text.literal(RaftSinking.status()), false);
-		return 1;
-	}
-
-	private static int raftBindNearest(CommandContext<ServerCommandSource> ctx) {
-		var src = ctx.getSource();
-		int team = IntegerArgumentType.getInteger(ctx, "team");
-		var pos = src.getPosition();
-		return tell(ctx, RaftSinking.bindNearest(src.getWorld(), team, pos.x, pos.y, pos.z));
-	}
-
-	private static int raftBindByName(CommandContext<ServerCommandSource> ctx) {
-		int team = IntegerArgumentType.getInteger(ctx, "team");
-		return tell(ctx, RaftSinking.bindByName(ctx.getSource().getWorld(), team,
-				StringArgumentType.getString(ctx, "name")));
-	}
-
-	private static int raftSink(CommandContext<ServerCommandSource> ctx) {
-		int team = IntegerArgumentType.getInteger(ctx, "team");
-		return tell(ctx, RaftSinking.forceSink(ctx.getSource().getWorld(), team));
-	}
-
-	private static int raftWeight(CommandContext<ServerCommandSource> ctx) {
-		double multiplier = DoubleArgumentType.getDouble(ctx, "multiplier");
-		RaftSinking.sinkWeightMultiplier = multiplier;
-		return tell(ctx, "沉筏有效重量倍数 = " + multiplier + "（上限 4.0：实测 6.0 会把筏压穿池底石头）");
-	}
 
 	/** 沉筏命令一律"成功也回话、失败也回话"，不抛异常——运维需要的是可读结果不是堆栈。 */
 	private static int tell(CommandContext<ServerCommandSource> ctx, String message) {
