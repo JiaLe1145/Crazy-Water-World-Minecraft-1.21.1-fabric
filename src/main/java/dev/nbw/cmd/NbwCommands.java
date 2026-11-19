@@ -189,33 +189,8 @@ public final class NbwCommands {
 
 		// ---- 风 / 遥控器 / 帆：已并入 RaftCommands，此处不再重复注册
 
-		// ---- 落水与救援（M2-8 / 01 §8）：自救与伸手救援的时序、配对与拒绝原因的观测面
-		var rescue = admin(CommandManager.literal("rescue"));
-		rescue.then(CommandManager.literal("status").executes(NbwCommands::rescueStatus));
-		rescue.then(CommandManager.literal("last").executes(NbwCommands::rescueLast));
-		rescue.then(CommandManager.literal("hold")
-				.then(CommandManager.argument("player", StringArgumentType.word())
-						.then(CommandManager.argument("ticks", IntegerArgumentType.integer(1, 600))
-								.executes(NbwCommands::rescueHold))));
-		// reach 登记在<b>救援方</b>身上：被救者不需要任何输入（2026-11-06 用户裁决）
-		rescue.then(CommandManager.literal("reach")
-				.then(CommandManager.argument("player", StringArgumentType.word())
-						.then(CommandManager.argument("ticks", IntegerArgumentType.integer(1, 600))
-								.executes(NbwCommands::rescueReach))));
-		root.then(rescue);
-
-		// ---- 抛绳索 / 钩竿（M2 尾巴 / 09 §2.3）：远程道具，一次使用即生效
-		var rope = admin(CommandManager.literal("rope"));
-		rope.then(CommandManager.literal("status").executes(NbwCommands::ropeStatus));
-		rope.then(CommandManager.literal("cast")
-				.then(CommandManager.argument("player", StringArgumentType.word())
-						.executes(NbwCommands::ropeCast)));
-		var grapnel = admin(CommandManager.literal("grapnel"));
-		grapnel.then(CommandManager.literal("cast")
-				.then(CommandManager.argument("player", StringArgumentType.word())
-						.executes(NbwCommands::grapnelCast)));
-		root.then(rope);
-		root.then(grapnel);
+		// ---- 落水与救援（M2-8 / 01 §8）：已拆到 RescueCommands，命令树保持不变
+		RescueCommands.register(root);
 
 		// ---- 探针（net/build）：已拆到 ProbeCommands，命令树保持不变
 		ProbeCommands.register(root);
@@ -288,59 +263,6 @@ public final class NbwCommands {
 		ctx.getSource().sendFeedback(() -> Text.literal("[cww] " + msg), false);
 		return 1;
 	}
-
-	private static int rescueStatus(CommandContext<ServerCommandSource> ctx) {
-		ctx.getSource().sendFeedback(() -> Text.literal(RescueService.status(ctx.getSource().getServer())), false);
-		return 1;
-	}
-
-	private static int ropeStatus(CommandContext<ServerCommandSource> ctx) {
-		ctx.getSource().sendFeedback(() -> Text.literal(RopeService.status()), false);
-		return 1;
-	}
-
-	/** {@code /cww rope cast <玩家>}：模拟"该玩家用绳索抛向最近合格目标"。dev/探针夹具。 */
-	private static int ropeCast(CommandContext<ServerCommandSource> ctx) {
-		return tell(ctx, RopeService.cast(ctx.getSource().getServer(),
-				StringArgumentType.getString(ctx, "player"), false));
-	}
-
-	/** {@code /cww grapnel cast <玩家>}：模拟"该玩家用钩竿拉最近敌方"。dev/探针夹具。 */
-	private static int grapnelCast(CommandContext<ServerCommandSource> ctx) {
-		return tell(ctx, RopeService.cast(ctx.getSource().getServer(),
-				StringArgumentType.getString(ctx, "player"), true));
-	}
-
-	private static int rescueLast(CommandContext<ServerCommandSource> ctx) {
-		List<String> recent = RescueService.recent();
-		if (recent.isEmpty()) {
-			ctx.getSource().sendFeedback(() -> Text.literal("[cww] 还没有救援事件（没人扒过边）"), false);
-			return 0;
-		}
-		for (String line : recent) {
-			ctx.getSource().sendFeedback(() -> Text.literal("[cww] " + line), false);
-		}
-		return recent.size();
-	}
-
-	private static int rescueHold(CommandContext<ServerCommandSource> ctx) {
-		String player = StringArgumentType.getString(ctx, "player");
-		int ticks = IntegerArgumentType.getInteger(ctx, "ticks");
-		String line = RescueService.hold(ctx.getSource().getServer(), player, ticks);
-		ctx.getSource().sendFeedback(() -> Text.literal("[cww] " + line), true);
-		return 1;
-	}
-
-	/** 伸手救援的模拟入口：登记在<b>救援方</b>身上，返回行里带着配对了谁、距离几格。 */
-	private static int rescueReach(CommandContext<ServerCommandSource> ctx) {
-		String player = StringArgumentType.getString(ctx, "player");
-		int ticks = IntegerArgumentType.getInteger(ctx, "ticks");
-		String line = RescueService.reach(ctx.getSource().getServer(), player, ticks);
-		ctx.getSource().sendFeedback(() -> Text.literal("[cww] " + line), true);
-		return 1;
-	}
-
-
 	/** 沉筏命令一律"成功也回话、失败也回话"，不抛异常——运维需要的是可读结果不是堆栈。 */
 	private static int tell(CommandContext<ServerCommandSource> ctx, String message) {
 		ctx.getSource().sendFeedback(() -> Text.literal("[cww] " + message), true);
