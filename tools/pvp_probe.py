@@ -2,7 +2,7 @@
 """PVP 近战武器切片端到端探针（09 §2.1，已批准 A17 近战 5 件）。
 
 要回答四件事，都是"能不能失败"的：
-  1. 砍刀一击伤害 == 9 HP（4.5♥）：`cww weapon give` 拿武器 → 打到假玩家 → `data get entity Health` 差 9。
+  1. 砍刀一击伤害 == 6 HP（3.0♥）：`cww weapon give` 拿武器 → 打到假玩家 → `data get entity Health` 差 6。
   2. 攻速超频被服务端拒绝并写审计：冷却内连打，第二次必须被拒，`cww weapon status` 的超频拒绝计数要涨。
   3. 持有上限：给同一玩家第二件近战必须被 `/cww weapon give` 拒绝（每人限 1 件近战，09 §5.1）。
   4. 非 PLAY 不生效：LOBBY 里挥击不该触发攻速闸门/审计（PVP 本身由 RoundManager 闸掉）。
@@ -25,7 +25,7 @@ from sea_probe import P, keep_alive, sweep_stale_bots, write_long_format, DRY_AR
 ok, bad, inc = [], [], []
 
 FORMAT = "sail_long"
-CUTLASS_DAMAGE = 9.0      # 09 §2.1：砍刀 4.5♥ = 9 HP
+CUTLASS_DAMAGE = 6.0      # 09 §2.1：砍刀 3.0♥ = 6 HP（2026-11-19 平衡下调，旧值 9.0）
 CUTLASS_COOLDOWN = 12     # 0.6s
 
 
@@ -121,8 +121,8 @@ def main():
     out = p("cww weapon probe2 %s %s cutlass" % (attacker, victim))
     print("      probe2 回包：%s" % out[:320])
     expect("允许" in out, "第一发通过攻速闸门：%s" % out[:160])
-    expect("表伤害=9.0" in out and "攻击属性=9.0" in out,
-           "砍刀表值与主手实际攻击属性都是 9.0HP：%s" % out[:220])
+    expect("表伤害=6.0" in out and "攻击属性=6.0" in out,
+           "砍刀表值与主手实际攻击属性都是 6.0HP：%s" % out[:220])
     expect("拒绝" in out and "攻速超频" in out,
            "同一 tick 第二发被超频拒绝：%s" % out[:220])
 
