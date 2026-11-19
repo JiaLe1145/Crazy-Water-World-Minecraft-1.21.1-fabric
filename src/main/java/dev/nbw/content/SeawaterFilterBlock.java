@@ -17,15 +17,17 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 海水过滤器（M4-4，01 §10）：放在筏上，右键运转一次，产出 1 份淡水（{@code nbw:fresh_water}）。
+ * 海水过滤器（M4-4，02 §7）：放在筏上，右键运转一次，产出 2 份淡水（{@code nbw:fresh_water}）。
  *
  * <p>这是"水分 3.5/min"的唯一本地解——补给箱的淡水有限，过滤器让队伍能持续生产。
- * 冷却按<b>方块位置</b>记（{@code lastUse}），同一台过滤器 30s 出一份，逼玩家安排人手看管。
- * （01 §10 的"功率池/耗电"本轮不做，先落地"过滤器 → 淡水"这条最小闭环。）
+ * 冷却按<b>方块位置</b>记（{@code lastUse}），同一台过滤器 30s 出一轮，逼玩家安排人手看管。
+ *
+ * <p><b>2026-11-19 修正</b>：产出按 02 §7 的"30s → 2 淡水"（此前是 1 份）；
+ * 功率池已落地，所以这里走 {@code PowerService.multiplierFor}——没电只产一半（1 份）。
  */
 public final class SeawaterFilterBlock extends Block {
 
-	/** 一台过滤器两次产出的间隔（秒）。01 §10：一次运转 30–45s 出 2–3 份，这里取 30s 一份的简化档。 */
+	/** 一台过滤器两次产出的间隔（秒）。02 §7：30s → 2 淡水。 */
 	public static final int COOLDOWN_SECONDS = 30;
 
 	private static final Map<BlockPos, Integer> lastUse = new HashMap<>();

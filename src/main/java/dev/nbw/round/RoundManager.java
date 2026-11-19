@@ -778,6 +778,7 @@ public final class RoundManager {
 		RaftMotionService.reset();   // 位移采样的位姿基线必须重取，否则跨局第一 tick 会算出一个假速度
 		BuildService.reset();   // 建造提示的节流表按玩家 UUID 涨；判定计数是跨局运维量，故意不清
 		RescueService.reset();   // 扒边状态与续包窗口都是局内的：残留=下一局开局就有人在半空爬
+		dev.nbw.rescue.RopeService.reset();   // 绳索/钩竿冷却表是局内的（D-2）
 		WeaponService.reset();   // 攻速闸门的"上次有效攻击"是局内的：残留=下一局开局被超频卡住
 		MapResetService.cancel();   // 未完成的模板复制不许跨局写到新图上
 		ZoneService.reset();   // 圈层模型与预告状态都是局内的：残留=下一局开局就按上一局的圈算

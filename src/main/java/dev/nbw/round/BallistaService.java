@@ -86,7 +86,7 @@ public final class BallistaService {
 					pos, target.getNameForScoreboard(), dmg, PowerService.get(team));
 		}
 		if (fired > 0) {
-			NBW.LOGGER.info("[ballista] 本 tick {} 门炮开火", fired);
+			NBW.LOGGER.debug("[ballista] 本 tick {} 门炮开火", fired);
 		}
 	}
 

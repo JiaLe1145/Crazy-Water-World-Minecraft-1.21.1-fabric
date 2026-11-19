@@ -74,7 +74,7 @@ public final class CatapultService {
 						Math.pow(mine.x - (pos.getX() + 0.5), 2)
 						+ Math.pow(mine.y - (pos.getY() + 0.5), 2)
 						+ Math.pow(mine.z - (pos.getZ() + 0.5), 2));
-				NBW.LOGGER.info("[catapult] {} 无目标：敌方筏心={} 距离={}（射程 {}）",
+				NBW.LOGGER.debug("[catapult] {} 无目标：敌方筏心={} 距离={}（射程 {}）",
 						pos, mine == null ? "取不到" : mine.toString(), String.format(Locale.ROOT, "%.1f", d), RANGE);
 				continue;
 			}

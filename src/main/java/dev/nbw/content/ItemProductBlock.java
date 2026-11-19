@@ -18,10 +18,13 @@ import java.util.Map;
 import java.util.function.Supplier;
 
 /**
- * 产出型设施方块（M4-4，01 §10）：右键运转一次，给玩家一个固定物品，按方块位置冷却。
+ * 产出型设施方块（M4-4，02 §7 生产链）：右键运转一次，给玩家固定物品，按方块位置冷却。
  *
- * <p>堆肥农场（产面包/营养原料）与厨台（产熟食）共用这条；海水过滤器因为要写进背包的是自己的
- * {@code nbw:fresh_water}，仍用它自己的类（同一个冷却模式）。
+ * <p>堆肥农场（45s → 2 面包）与厨台（20s → 1 熟食）共用这条；海水过滤器因为写进背包的是自己的
+ * {@code nbw:fresh_water}，仍用它自己的类（同一个冷却模式，但产出量要 ×功率倍率）。
+ *
+ * <p>产出量与功率池联动：有电满效、没电减半（`PowerService.multiplierFor`）；
+ * 有对应职业的幸存者时冷却 −30%（`SurvivorService.productionSpeedFor`）。
  */
 public final class ItemProductBlock extends Block {
 

@@ -79,33 +79,33 @@ public final class RamService {
 			lastHit.put(pos, now);   // 先记节拍，避免"没命中"时每 tick 刷日志
 			var raft = RaftSpawner.raftOf(team);
 			if (raft == null) {
-				NBW.LOGGER.info("[ram] 队 {} 没有筏，跳过", team);
+				NBW.LOGGER.debug("[ram] 队 {} 没有筏，跳过", team);
 				continue;
 			}
 			double[] v = SableRafts.linearVelocity(world, raft);
 			if (v == null) {
-				NBW.LOGGER.info("[ram] 队 {} 取不到位速", team);
+				NBW.LOGGER.debug("[ram] 队 {} 取不到位速", team);
 				continue;
 			}
 			double speed = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
 			if (speed < MIN_SPEED) {
-				NBW.LOGGER.info("[ram] 队 {} 筏速 {} < {}，停船不撞", team,
+				NBW.LOGGER.debug("[ram] 队 {} 筏速 {} < {}，停船不撞", team,
 						String.format(Locale.ROOT, "%.4f", speed), MIN_SPEED);
 				continue;   // 停船不撞
 			}
 			var core = RaftCoreService.coreWorldPos(world, team);
 			if (core == null) {
-				NBW.LOGGER.info("[ram] 队 {} 取不到筏心世界坐标", team);
+				NBW.LOGGER.debug("[ram] 队 {} 取不到筏心世界坐标", team);
 				continue;
 			}
 			ServerPlayerEntity victim = nearestEnemy(world, core, team);
 			if (victim == null) {
-				NBW.LOGGER.info("[ram] 队 {} 筏速 {}，但 {} 格内无敌人（筏心 {}）", team,
+				NBW.LOGGER.debug("[ram] 队 {} 筏速 {}，但 {} 格内无敌人（筏心 {}）", team,
 						String.format(Locale.ROOT, "%.4f", speed), RANGE, core);
 				continue;
 			}
 			if (!PowerService.tryConsume(team, POWER_COST)) {
-				NBW.LOGGER.info("[ram] 队 {} 电量不足 {}", team, POWER_COST);
+				NBW.LOGGER.debug("[ram] 队 {} 电量不足 {}", team, POWER_COST);
 				continue;   // 没电撞不动
 			}
 			victim.damage(world.getDamageSources().magic(), (float) DAMAGE);
