@@ -335,6 +335,7 @@ public final class SurvivorService {
 			return;
 		}
 		tick++;
+		syncCounts();   // 被击杀的幸存者先从计数表里去掉，再算口粮压力
 		followRafts(srv);   // 每 tick 贴回筏面；放在口粮结算之前，位置与生存逻辑互不依赖
 		if (tick % 20 == 0) {
 			for (Map.Entry<Integer, Integer> e : survivors.entrySet()) {
@@ -455,9 +456,53 @@ public final class SurvivorService {
 		return counts;
 	}
 
-	/** 本队还有幸存者吗（反偷家 ×0.25 的判定用，01 §A3-v2）。 */
+	/**
+	 * 本队还有幸存者吗（反偷家 ×0.25 的判定用，01 §A3-v2）。
+	 *
+	 * <p><b>必须查"活着的实体"，不能只看计数表</b>：幸存者被击杀后计数表不会自动减，
+	 * 只看计数会让反偷家永远解除不了（2026-11-19 放开击杀后踩到）。
+	 * 计数表只用于口粮压力，与"还有没有人守筏"是两件事。
+	 */
 	public static boolean hasSurvivors(int team) {
-		return survivors.getOrDefault(team, 0) > 0;
+		var list = villagerIds.get(team);
+		if (list == null || list.isEmpty() || server == null) {
+			return false;
+		}
+		var world = server.getOverworld();
+		for (UUID id : list) {
+			var e = world.getEntity(id);
+			if (e != null && e.isAlive()) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * 把口粮计数表同步成"活着的实体数"：被击杀的幸存者不该继续吃口粮。
+	 * 只降不升（{@code min}），避免实体数与计数表短暂不一致时把人数算多。
+	 */
+	private static void syncCounts() {
+		if (server == null) {
+			return;
+		}
+		var world = server.getOverworld();
+		for (Map.Entry<Integer, Integer> e : survivors.entrySet()) {
+			int alive = 0;
+			var list = villagerIds.get(e.getKey());
+			if (list != null) {
+				for (UUID id : list) {
+					var ent = world.getEntity(id);
+					if (ent != null && ent.isAlive()) {
+						alive++;
+					}
+				}
+			}
+			if (alive < e.getValue()) {
+				NBW.LOGGER.info("[survivor] 队 {} 存活数下降：{} -> {}（被击杀）", e.getKey(), e.getValue(), alive);
+				e.setValue(alive);
+			}
+		}
 	}
 
 	/** 某队的幸存者/口粮读数。 */
