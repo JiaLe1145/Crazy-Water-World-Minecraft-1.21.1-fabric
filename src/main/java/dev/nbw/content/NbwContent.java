@@ -146,19 +146,20 @@ public final class NbwContent {
 				new BlockItem(ram, new Item.Settings()));
 
 		// 远程武器（M4-7，09 §2.2）：右键 hitscan。伤害 HP / 装填 tick / 射程 格 / 拉近 格。
-		// 09 §2.2 表里的伤害单位是 ♥，这里必须 ×2 换成 HP（与近战表口径一致：
-		// weapons.json 里 cutlass 9.0 就是 4.5♥）。之前直接抄了 ♥ 值，远程实际只有一半伤害（2026-11-19 修）。
+		// 09 §2.2 表里的伤害单位是 ♥，这里 ×2 换成 HP（与近战表口径一致：
+		// weapons.json 里 cutlass 6.0 就是 3.0♥）。之前直接抄了 ♥ 值，远程实际只有一半伤害（2026-11-19 修）。
+		// 2026-11-19 平衡下调：火铳 20 -> 7（3.5♥，用户指定），其余同步降到同一量级。
 		handCrossbow = Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, HAND_CROSSBOW),
-				new RangedWeaponItem(new RangedWeaponItem.Spec("hand_crossbow", 10.0, 32, 26.0, 0.0),
+				new RangedWeaponItem(new RangedWeaponItem.Spec("hand_crossbow", 7.0, 32, 26.0, 0.0),
 						new Item.Settings().maxCount(1)));
 		harpoonGun = Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, HARPOON_GUN),
-				new RangedWeaponItem(new RangedWeaponItem.Spec("harpoon_gun", 8.0, 60, 18.0, 3.0),
+				new RangedWeaponItem(new RangedWeaponItem.Spec("harpoon_gun", 6.0, 60, 18.0, 3.0),
 						new Item.Settings().maxCount(1)));
 		musket = Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, MUSKET),
-				new RangedWeaponItem(new RangedWeaponItem.Spec("musket", 20.0, 90, 34.0, 0.0),
+				new RangedWeaponItem(new RangedWeaponItem.Spec("musket", 7.0, 90, 34.0, 0.0),
 						new Item.Settings().maxCount(1)));
 		javelin = Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, JAVELIN),
-				new RangedWeaponItem(new RangedWeaponItem.Spec("javelin", 12.0, 40, 20.0, 0.0),
+				new RangedWeaponItem(new RangedWeaponItem.Spec("javelin", 8.0, 40, 20.0, 0.0),
 						new Item.Settings().maxCount(1)));
 
 		// 遥控器（问题③）：每筏一个，拿在手上右键进入/退出移动模式。不是武器、不是方块，纯物品。

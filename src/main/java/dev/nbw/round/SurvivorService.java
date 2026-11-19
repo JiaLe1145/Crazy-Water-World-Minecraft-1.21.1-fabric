@@ -116,7 +116,8 @@ public final class SurvivorService {
 		}
 		v.refreshPositionAndAngles(pos[0], pos[1], pos[2], 0.0f, 0.0f);
 		v.setAiDisabled(true);   // 站桩：不 wander、不打人
-		v.setInvulnerable(true);   // 不被黑海/流弹误杀（它是"口粮压力"的视觉，不是战斗单位）
+		// 不再 setInvulnerable：01 §A3-v2 要求"必须先打光守筏的幸存者"才能解除反偷家 ×0.25，
+		// 无敌会让这条战术永远不成立（2026-11-19 用户裁决：允许被击杀）。
 		v.setNoGravity(true);      // 位置由 followRafts 每 tick 贴回甲板，不交给重力/地形
 		v.setCustomName(Text.literal("§a幸存者·队" + team + "·" + job.displayName()));
 		v.setCustomNameVisible(true);
@@ -199,7 +200,7 @@ public final class SurvivorService {
 			v.refreshPositionAndAngles(arena.sea.centerX + Math.cos(ang) * r,
 					arena.sea.waterLevel + 0.5, arena.sea.centerZ + Math.sin(ang) * r, 0.0f, 0.0f);
 			v.setAiDisabled(true);
-			v.setInvulnerable(true);
+			// 漂流幸存者同样不无敌：可以被抢/被误杀，这是"海面资源有风险"的一部分
 			v.setCustomName(Text.literal("§e漂流幸存者"));
 			v.setCustomNameVisible(true);
 			v.setPersistent();
