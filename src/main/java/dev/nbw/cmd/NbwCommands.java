@@ -49,30 +49,8 @@ public final class NbwCommands {
 	private static void register0(CommandDispatcher<ServerCommandSource> dispatcher) {
 		var root = CommandManager.literal("cww");
 
-		// ---- 所有玩家：自主分队
-		root.then(CommandManager.literal("join")
-				.executes(ctx -> join(ctx, null))
-				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
-						.executes(ctx -> join(ctx, IntegerArgumentType.getInteger(ctx, "team")))));
-		root.then(CommandManager.literal("quit").executes(NbwCommands::quit));
-		root.then(CommandManager.literal("phase").executes(NbwCommands::phase));
-
-		// ---- 管理员（权限 2）
-		root.then(admin(CommandManager.literal("start")
-				.executes(ctx -> start(ctx, null, null))
-				.then(CommandManager.argument("format", StringArgumentType.word())
-						.executes(ctx -> start(ctx, StringArgumentType.getString(ctx, "format"), null))
-						.then(CommandManager.argument("arena", StringArgumentType.word())
-								.executes(ctx -> start(ctx,
-										StringArgumentType.getString(ctx, "format"),
-										StringArgumentType.getString(ctx, "arena")))))));
-		root.then(admin(CommandManager.literal("stop").executes(ctx -> reply(ctx, RoundManager.stop(), "已终止本局（走结算）"))));
-		root.then(admin(CommandManager.literal("abort").executes(ctx -> reply(ctx, RoundManager.abort(), "已紧急中止本局（不判胜负）"))));
-		root.then(admin(CommandManager.literal("force")
-				.then(CommandManager.argument("player", StringArgumentType.word())
-						.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
-								.executes(NbwCommands::force)))));
-		root.then(admin(CommandManager.literal("state").executes(NbwCommands::state)));
+		// ---- 对局生命周期（join/quit/phase/start/stop/abort/force/state/save）：已拆到 RoundCommands
+		RoundCommands.register(root);
 		// 黑海圈层（M3-1）：只读读数，给真人核对"现在半径多少、圈外掉多少血"
 		root.then(admin(CommandManager.literal("zone").executes(NbwCommands::zoneStatus)));
 		// 埋点与配平回路（M3-3）：局时长/首战/生产参与率
@@ -198,9 +176,7 @@ public final class NbwCommands {
 		// ---- 武器（09 §2.1）：已拆到 WeaponCommands，命令树保持不变
 		WeaponCommands.register(root);
 
-		// ---- 落盘与重启恢复（Gate G1）
-		root.then(admin(CommandManager.literal("save").executes(NbwCommands::saveNow)));
-		root.then(admin(CommandManager.literal("statefile").executes(NbwCommands::stateFile)));
+		// ---- 落盘与重启恢复（Gate G1）：已并入 RoundCommands
 
 		dispatcher.register(root);
 	}
@@ -208,13 +184,6 @@ public final class NbwCommands {
 	private static com.mojang.brigadier.builder.LiteralArgumentBuilder<ServerCommandSource> admin(
 			com.mojang.brigadier.builder.LiteralArgumentBuilder<ServerCommandSource> node) {
 		return node.requires(source -> source.hasPermissionLevel(2));
-	}
-
-	// ---------------------------------------------------------------- 对局命令
-
-	private static int start(CommandContext<ServerCommandSource> ctx, String format, String arena) throws CommandSyntaxException {
-		String err = RoundManager.start(format, arena);
-		return reply(ctx, err, "第 " + RoundManager.phase() + " 阶段已启动（format=" + nz(format) + " arena=" + nz(arena) + "）");
 	}
 
 	// ---------------------------------------------------------------- 筏心与残骸修复
@@ -248,21 +217,6 @@ public final class NbwCommands {
 		return tell(ctx, RaftCoreService.hold(ctx.getSource().getServer(), player, team, ticks));
 	}
 
-	// ---------------------------------------------------------------- 落盘
-
-	private static int saveNow(CommandContext<ServerCommandSource> ctx) {
-		String msg = RoundManager.saveNow();
-		ctx.getSource().sendFeedback(() -> Text.literal("[cww] " + msg), true);
-		NBW.LOGGER.info("[cmd] {} (source={})", msg, ctx.getSource().getName());
-		return 1;
-	}
-
-	/** 读一遍盘上的快照并原样报告——排查"重启到底会不会恢复"时，这比看代码有用。 */
-	private static int stateFile(CommandContext<ServerCommandSource> ctx) {
-		String msg = RoundManager.describeStateFile();
-		ctx.getSource().sendFeedback(() -> Text.literal("[cww] " + msg), false);
-		return 1;
-	}
 	/** 沉筏命令一律"成功也回话、失败也回话"，不抛异常——运维需要的是可读结果不是堆栈。 */
 	private static int tell(CommandContext<ServerCommandSource> ctx, String message) {
 		ctx.getSource().sendFeedback(() -> Text.literal("[cww] " + message), true);
@@ -279,56 +233,6 @@ public final class NbwCommands {
 		ctx.getSource().sendError(Text.literal("[cww] " + error));
 		NBW.LOGGER.warn("[cmd] rejected: {} (source={})", error, ctx.getSource().getName());
 		return 0;
-	}
-
-	private static String nz(String s) {
-		return s == null ? "默认" : s;
-	}
-
-	private static int join(CommandContext<ServerCommandSource> ctx, Integer team) throws CommandSyntaxException {
-		ServerPlayerEntity player = ctx.getSource().getPlayerOrThrow();
-		String err = RoundManager.join(player, team);
-		if (err != null) {
-			ctx.getSource().sendError(Text.literal("[cww] " + err));
-			return 0;
-		}
-		var session = dev.nbw.round.RoundManager.phase();
-		ctx.getSource().sendFeedback(() -> Text.literal("[cww] 已报名（阶段 " + session + "）"
-				+ (team == null ? "，进队顺序按报名先后" : "，队伍 " + team)), false);
-		return 1;
-	}
-
-	private static int quit(CommandContext<ServerCommandSource> ctx) throws CommandSyntaxException {
-		ServerPlayerEntity player = ctx.getSource().getPlayerOrThrow();
-		String err = RoundManager.quit(player);
-		if (err != null) {
-			ctx.getSource().sendError(Text.literal("[cww] " + err));
-			return 0;
-		}
-		ctx.getSource().sendFeedback(() -> Text.literal("[cww] 已取消报名"), false);
-		return 1;
-	}
-
-	private static int phase(CommandContext<ServerCommandSource> ctx) {
-		ctx.getSource().sendFeedback(() -> Text.literal("[cww] 阶段=" + RoundManager.phase()
-				+ " 规格=" + RoundManager.config().teamCount() + "x" + RoundManager.config().teamSize()
-				+ " 下限=" + RoundManager.config().minPlayers()), false);
-		return 1;
-	}
-
-	private static int force(CommandContext<ServerCommandSource> ctx) throws CommandSyntaxException {
-		String target = StringArgumentType.getString(ctx, "player");
-		int team = IntegerArgumentType.getInteger(ctx, "team");
-		String err = RoundManager.force(target, team);
-		return reply(ctx, err, "已将 " + target + " 分入队伍 " + team);
-	}
-
-	private static int state(CommandContext<ServerCommandSource> ctx) {
-		String dump = RoundManager.state();
-		for (String line : dump.split("\n")) {
-			ctx.getSource().sendFeedback(() -> Text.literal("[cww] " + line), false);
-		}
-		return 1;
 	}
 
 	/** {@code /cww zone}：黑海圈层的只读读数（半径 / 每秒伤害 / 圈心）。 */
