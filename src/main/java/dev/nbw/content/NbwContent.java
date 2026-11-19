@@ -33,6 +33,7 @@ public final class NbwContent {
 	public static final String KITCHEN = "kitchen";
 	public static final String GENERATOR = "generator";
 	public static final String REPAIR_TABLE = "repair_table";
+	public static final String BALLISTA = "ballista";
 	public static final String BANDAGE = "bandage";
 	public static final String WATER_PISTOL = "water_pistol";
 	public static final String HAND_CROSSBOW = "hand_crossbow";
@@ -55,6 +56,7 @@ public final class NbwContent {
 	public static ItemProductBlock kitchen;
 	public static GeneratorBlock generator;
 	public static RepairTableBlock repairTable;
+	public static BallistaBlock ballista;
 	public static RangedWeaponItem handCrossbow;
 	public static RangedWeaponItem harpoonGun;
 	public static RangedWeaponItem musket;
@@ -120,6 +122,12 @@ public final class NbwContent {
 				new RepairTableBlock(AbstractBlock.Settings.create().strength(2.0f).requiresTool()));
 		Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, REPAIR_TABLE),
 				new BlockItem(repairTable, new Item.Settings()));
+
+		// 弩炮（09 §2.2 设施武器）：放上筏自动打敌方；7♥/发、32 格、1 电、风暴 −50%。
+		ballista = Registry.register(Registries.BLOCK, Identifier.of(NBW.MOD_ID, BALLISTA),
+				new BallistaBlock(AbstractBlock.Settings.create().strength(3.0f).requiresTool()));
+		Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, BALLISTA),
+				new BlockItem(ballista, new Item.Settings()));
 
 		// 远程武器（M4-7，09 §2.2）：右键 hitscan。伤害 HP / 装填 tick / 射程 格 / 拉近 格。
 		handCrossbow = Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, HAND_CROSSBOW),

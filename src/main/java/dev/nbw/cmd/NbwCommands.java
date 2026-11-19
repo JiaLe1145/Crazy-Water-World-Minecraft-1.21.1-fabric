@@ -127,6 +127,13 @@ public final class NbwCommands {
 						.then(CommandManager.argument("damage", DoubleArgumentType.doubleArg(0, 1000))
 								.executes(NbwCommands::coreHpBreak))));
 		root.then(coreNode);
+		// 弩炮（09 §2.2）：读数 + dev 在命令方块位置放一门并登记归属
+		var ballista = admin(CommandManager.literal("ballista"));
+		ballista.then(CommandManager.literal("status").executes(NbwCommands::ballistaStatus));
+		ballista.then(CommandManager.literal("place")
+				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
+						.executes(NbwCommands::ballistaPlace)));
+		root.then(ballista);
 		// 生存（M4-1）：营养/水分读数 + dev 强制设值
 		var survival = admin(CommandManager.literal("survival"));
 		survival.then(CommandManager.literal("status")
@@ -1008,6 +1015,25 @@ public final class NbwCommands {
 					dev.nbw.round.SurvivorService.hasSurvivors(i) ? "有" : "无"));
 		}
 		ctx.getSource().sendFeedback(() -> Text.literal(sb.toString()), false);
+		return 1;
+	}
+
+	/** {@code /cww ballista status}：本局已放置的炮位与归属。 */
+	private static int ballistaStatus(CommandContext<ServerCommandSource> ctx) {
+		ctx.getSource().sendFeedback(() -> Text.literal(
+				dev.nbw.round.BallistaService.status()), false);
+		return 1;
+	}
+
+	/** {@code /cww ballista place <队>}：dev 在命令源位置放一门并登记归属（setblock 不触发 onPlaced）。 */
+	private static int ballistaPlace(CommandContext<ServerCommandSource> ctx) {
+		int team = IntegerArgumentType.getInteger(ctx, "team");
+		var src = ctx.getSource();
+		var pos = net.minecraft.util.math.BlockPos.ofFloored(src.getPosition());
+		src.getWorld().setBlockState(pos, dev.nbw.content.NbwContent.ballista.getDefaultState());
+		dev.nbw.round.BallistaService.register(pos, team);
+		ctx.getSource().sendFeedback(() -> Text.literal(
+				"[cww] 已在 " + pos.toShortString() + " 放置队 " + team + " 的弩炮"), false);
 		return 1;
 	}
 
