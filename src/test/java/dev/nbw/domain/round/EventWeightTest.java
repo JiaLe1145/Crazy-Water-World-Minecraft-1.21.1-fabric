@@ -12,10 +12,9 @@ class EventWeightTest {
 
 	@Test
 	void weightsMatchTheDocumentedHighMediumLowTable() {
-		// 02 §10：物资雨=高、风暴/海怪/倒流=中、聚集点/悬赏=低。
+		// 02 §10：物资雨=高、风暴/倒流=中、聚集点/悬赏=低。
 		assertEquals(EventWeight.HIGH, EventWeight.weightOf("supply_rain"));
 		assertEquals(EventWeight.MEDIUM, EventWeight.weightOf("storm"));
-		assertEquals(EventWeight.MEDIUM, EventWeight.weightOf("kraken"));
 		assertEquals(EventWeight.MEDIUM, EventWeight.weightOf("black_sea_surge"));
 		assertEquals(EventWeight.LOW, EventWeight.weightOf("survivor_drift"));
 		assertEquals(EventWeight.LOW, EventWeight.weightOf("bounty"));
@@ -74,7 +73,7 @@ class EventWeightTest {
 
 	@Test
 	void randomPickNeverLeavesThePool() {
-		List<String> pool = List.of("supply_rain", "storm", "kraken", "black_sea_surge",
+		List<String> pool = List.of("supply_rain", "storm", "black_sea_surge",
 				"survivor_drift", "bounty");
 		Random rnd = new Random(20261114L);
 		for (int i = 0; i < 500; i++) {

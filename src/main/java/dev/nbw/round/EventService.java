@@ -31,7 +31,10 @@ import java.util.UUID;
  *
  * <p>已接实际效果：supply_rain（补箱）、storm（禁航 + 远程失准 + 压暗）、
  * black_sea_surge（边界外扩 + 圈外伤害 ×1.5）、survivor_drift（海面漂出 3–4 名幸存者）、
- * bounty（标记玩家，击杀者获得 Epic 武备）。kraken 仍只广播，等海怪实体落地。
+ * bounty（标记玩家，击杀者获得 Epic 武备）。
+ *
+ * <p><b>2026-11-19 用户裁决：删除海怪（kraken）</b>——spike 证明原版实体不跟 sub-level，
+ * 要做需要自建锚定/攻筏层；用户决定不做，事件池从 6 个减为 5 个。
  */
 public final class EventService {
 
@@ -149,7 +152,7 @@ public final class EventService {
 				return;
 			}
 			// 到点只“选中并预告”，真正生效在 WARN_TICKS 之后。
-			// 权重表见 02 §10（高=物资雨 / 中=风暴·海怪·倒流 / 低=聚集点·悬赏），纯函数在 domain。
+			// 权重表见 02 §10（高=物资雨 / 中=风暴·倒流 / 低=聚集点·悬赏），纯函数在 domain。
 			String picked = EventWeight.pick(pool, rnd);
 			if (picked == null) {
 				return;   // 空池/全零权重：本 tick 不触发，下一 tick 再来
@@ -252,7 +255,6 @@ public final class EventService {
 		return switch (event) {
 			case "supply_rain" -> "物资雨";
 			case "storm" -> "风暴";
-			case "kraken" -> "海怪袭击";
 			case "black_sea_surge" -> "黑海倒流";
 			case "survivor_drift" -> "幸存者聚集点";
 			case "bounty" -> "悬赏令";
@@ -265,7 +267,6 @@ public final class EventService {
 		return switch (event) {
 			case "supply_rain" -> "（圈内刷补给箱）";
 			case "storm" -> "（45s 航行失效 / 远程失准 / 视野压暗）";
-			case "kraken" -> "（海怪出没）";
 			case "black_sea_surge" -> "（边界外扩 10% / 圈外伤害 ×1.5）";
 			case "survivor_drift" -> "（海面漂出 3–4 名幸存者）";
 			case "bounty" -> "（标记一名玩家，击杀者得 Epic 武备）";
@@ -304,7 +305,6 @@ public final class EventService {
 				activeUntilTick = now + 20 * 20;
 				announce(srv, "§6[事件] 黑海倒流：20s 内边界外扩 10%、圈外伤害 ×1.5");
 			}
-			case "kraken" -> announce(srv, "§6[事件] 海怪出没（待 M5-2）");
 			case "survivor_drift" -> {
 				// 02 §10：幸存者聚集点 3–4 名；无人小筏还没做（需要额外的 sub-level），先只落人数。
 				int want = SURVIVOR_MIN + rnd.nextInt(SURVIVOR_MAX - SURVIVOR_MIN + 1);

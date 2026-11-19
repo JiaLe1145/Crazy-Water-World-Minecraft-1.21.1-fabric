@@ -15,7 +15,7 @@ public final class EventWeight {
 
 	/** 高：物资雨。 */
 	public static final int HIGH = 3;
-	/** 中：风暴 / 海怪袭击 / 黑海倒流。 */
+	/** 中：风暴 / 黑海倒流。 */
 	public static final int MEDIUM = 2;
 	/** 低：幸存者聚集点 / 悬赏令。 */
 	public static final int LOW = 1;
@@ -32,7 +32,7 @@ public final class EventWeight {
 		}
 		return switch (event.trim().toLowerCase(java.util.Locale.ROOT)) {
 			case "supply_rain" -> HIGH;
-			case "storm", "kraken", "black_sea_surge" -> MEDIUM;
+			case "storm", "black_sea_surge" -> MEDIUM;
 			case "survivor_drift", "bounty" -> LOW;
 			default -> DEFAULT;
 		};

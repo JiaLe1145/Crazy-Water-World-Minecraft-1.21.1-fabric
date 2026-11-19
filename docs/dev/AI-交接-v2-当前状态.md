@@ -27,7 +27,7 @@
 | M2 木筏闭环 | ✅ 代码完成 | `M2-RESULTS.md`（98KB 最厚）+ `rope_probe` 8/8 |
 | M3 黑海+物资+竞技核心 | ✅ ~95% | `M3-RESULTS.md` + `M3-AUDIT.md`（6 错已修） |
 | M4 生存+生产+重武器 | 🟡 ~82% | `M4-RESULTS.md`；缺修理台、弩炮/投石机/撞角、平衡护栏 |
-| M5 幸存者+事件+运营 | 🟡 ~88% | `M5-RESULTS.md`（§5.1–§5.18）；缺海怪、外观解锁 |
+| M5 幸存者+事件+运营 | 🟡 ~90% | `M5-RESULTS.md`（§5.1–§5.18）；海怪已删除（2026-11-19），缺外观解锁 |
 
 **单测：304 条，0 失败**（`./gradlew test`）。
 
@@ -156,7 +156,8 @@ src/main/java/dev/nbw/
 - 物资：预铺 24 / 每轮 4 / 同屏 24 / 存活 120s / 稀有度抽卡 / Legendary 仅 P3 后 tier3
 - 防蹲点（同坐标 2 轮废弃）+ 补给箱净空/局后还原
 - 埋点：局时长/首战/末段交战/生产参与率 → `world/cww/metrics.jsonl` + `state/matches/<id>.json`
-- 事件池 6 个：supply_rain / storm / black_sea_surge（有实际效果）、survivor_drift / bounty（已落地）、kraken（**未落地**）
+- 事件池 **5 个**：supply_rain / storm / black_sea_surge / survivor_drift / bounty（全部有实际效果）。
+  **海怪（kraken）已于 2026-11-19 用户裁决删除**（原因见 `M5-RESULTS §5.18` 与 `M5-OPEN-DECISIONS D-1`）。
 
 ### 4.2 生存 + 生产
 - 营养/水分 HUD + 扣减；吃食物回营养；淡水（+40）
@@ -192,7 +193,6 @@ src/main/java/dev/nbw/
 |---|---|---|
 | 高 | **48h 耐久** | 工具就绪（`M5-SOAK.md` + `soak_monitor.py`），**未跑** |
 | 高 | **真人验收** | 清单就绪（`M5-HUMAN-ACCEPTANCE.md` H-01~H-30），**一次未跑** |
-| 中 | **海怪（kraken）** | 未落地；spike 已证原版实体不跟 sub-level；等 D-1 裁决 |
 | 中 | 修理台（第 6 设施） | 未做 |
 | 中 | 弩炮/投石机/撞角（3 件设施武器） | 未做 |
 | 低 | 外观解锁 | 未做 |
@@ -207,7 +207,7 @@ src/main/java/dev/nbw/
 
 | 编号 | 事项 | 推荐 |
 |---|---|---|
-| D-1 | 海怪（A 每队一只 / B 全场一只 / C 暂不做） | **A** |
+| ~~D-1~~ | ~~海怪~~ | **已删除（2026-11-19 裁决）** |
 | D-2 | 绳索/钩竿最小间隔 | **20 tick** |
 | D-3 | 钩竿是否查方块遮挡 | **只给钩竿加 raycast** |
 | D-4 | 黑海倒流"随后 ×1.5"的措辞 | **保持现状（事件期间）** |
