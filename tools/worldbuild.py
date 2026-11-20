@@ -85,6 +85,46 @@ def build_lobby(run, log=print):
     log("  大厅完成")
 
 
+def fill_box(run, x0, y0, z0, x1, y1, z1, block, log=None):
+    """按 /fill 的 32768 方块上限自动分块填充。
+
+    不分块的话大范围 fill 会被静默截断（2026-11-21 实测：121x121x4 只写了顶层）。
+    按 Z 轴切片，每片控制在 32000 以内。
+    """
+    dx = abs(x1 - x0) + 1
+    dy = abs(y1 - y0) + 1
+    per_slice = dx * dy
+    if per_slice <= 0:
+        return
+    step = max(1, 32000 // per_slice)
+    z = max(z0, z1)
+    zmin = min(z0, z1)
+    count = 0
+    while z >= zmin:
+        zs = z
+        ze = max(zmin, z - step + 1)
+        run(f"fill {x0} {y0} {ze} {x1} {y1} {zs} {block}")
+        count += 1
+        z = ze - 1
+    if log:
+        log(f"    fill {dx}x{dy}x{abs(z1-z0)+1} → {count} 段")
+
+
+def build_flat_test(run, log=print):
+    """flat_test：中心 (1000,1000) 半径 60 的 10 格深水池。
+
+    配置是 waterLevel=149 / 海床顶 139，所以：池底 130..139 实体、140..149 水体。
+    p3_probe 的失温用例需要这片水；raftgen_probe 需要水面正好 149。
+    """
+    log("== 建 flat_test 水池 ==")
+    cx, cz, r = 1000, 1000, 60
+    run(f"forceload add {cx-r-8} {cz-r-8} {cx+r+8} {cz+r+8}")
+    time.sleep(0.5)
+    fill_box(run, cx-r, 130, cz-r, cx+r, 139, cz+r, "minecraft:stone", log)
+    fill_box(run, cx-r, 140, cz-r, cx+r, 149, cz+r, "minecraft:water", log)
+    log("  完成（水面 y=149，海床 y=139）")
+
+
 def build_template(run, log=print):
     log("== 建中心残骸模板 ==")
     log("  " + run("cww reset buildtemplate")[:120])
@@ -123,6 +163,8 @@ def main():
         build_lobby(run)
     if what in ("template", "all"):
         build_template(run)
+    if what in ("flattest", "all"):
+        build_flat_test(run)
     if what in ("arena", "all"):
         build_arenas(run)
     print("\n完成。复查：cww lobby test / cww arena terrain default_sea / cww arena terrain test_sea")
