@@ -110,6 +110,7 @@ public final class RoundManager {
 			NBW.LOGGER.info("[state] 重启恢复：{}", restoreFromDisk());
 			CareerService.load(worldRoot());   // 跨局战绩与外观（01 §A11）
 			AnnouncementService.load(worldRoot());   // 公告持久化（参照 RicordRailExpress）
+			WorldRules.apply(s);   // 锁正午/关刷怪/锁天气：竞技图不能天黑也不能刷怪
 		});
 		ServerLifecycleEvents.SERVER_STOPPING.register(s -> {
 			CareerService.flushIfDirty(worldRoot());   // 停机前刷盘：崩服不再丢整局战绩
@@ -387,6 +388,7 @@ public final class RoundManager {
 			}
 			case PLAY -> {
 				setParticipantsGameMode(GameMode.SURVIVAL);
+				WorldRules.apply(server);   // 每局再刷一遍，防管理员中途改规则
 				MetricsService.begin(server);   // 埋点：局时长/首战/生产参与率的起点
 				ZoneService.begin(server);   // 黑海圈层：抓半径/伤害表与圈心
 				LootService.begin(server);   // 海面物资：按 loot.prefill 撒补给箱 + 定补箱间隔
