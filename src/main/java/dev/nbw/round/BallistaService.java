@@ -1,7 +1,6 @@
 package dev.nbw.round;
 
 import dev.nbw.NBW;
-import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;

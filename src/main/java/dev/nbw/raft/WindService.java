@@ -10,8 +10,6 @@ import dev.nbw.round.EventService;
 import dev.nbw.round.SurvivorService;
 import dev.nbw.sable.SableRafts;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.util.math.Direction;
 
 import java.util.Locale;
 import java.util.UUID;

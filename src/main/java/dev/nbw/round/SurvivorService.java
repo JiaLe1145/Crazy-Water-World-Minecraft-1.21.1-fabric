@@ -400,14 +400,19 @@ public final class SurvivorService {
 		return out;
 	}
 
-	/** 本队是否有该职业的幸存者。 */
+	/** 本队是否有该职业的幸存者（只算活着的：被杀掉的职业不能再提供加成）。 */
 	public static boolean hasJob(int team, SurvivorJob job) {
 		List<UUID> list = villagerIds.get(team);
-		if (list == null) {
+		if (list == null || server == null) {
 			return false;
 		}
+		var world = server.getOverworld();
 		for (UUID id : list) {
-			if (jobs.get(id) == job) {
+			if (jobs.get(id) != job) {
+				continue;
+			}
+			var ent = world.getEntity(id);
+			if (ent != null && ent.isAlive()) {
 				return true;
 			}
 		}
@@ -479,28 +484,40 @@ public final class SurvivorService {
 	}
 
 	/**
-	 * 把口粮计数表同步成"活着的实体数"：被击杀的幸存者不该继续吃口粮。
-	 * 只降不升（{@code min}），避免实体数与计数表短暂不一致时把人数算多。
+	 * 把"人数 / 阵位 / 职业"三张表同步成实际活着的实体。
+	 *
+	 * <p>被击杀的幸存者必须从 {@link #villagerIds} 和 {@link #jobs} 里一起摘掉，否则：
+	 * <ul>
+	 *   <li>{@link #hasJob} 还会认为工匠/卫兵/舵手在场，击杀后再造/守卫仍然享受加成；</li>
+	 *   <li>{@link #jobCounts} 会把死人的职业算进读数，运维看到的人数对不上。</li>
+	 * </ul>
+	 * 只降不升，避免实体数与计数表短暂不一致时把人数算多。
+	 * （2026-11-20 复查时由"击杀幸存者"场景发现：计数归零但职业列表还挂着水手。）
 	 */
 	private static void syncCounts() {
 		if (server == null) {
 			return;
 		}
 		var world = server.getOverworld();
-		for (Map.Entry<Integer, Integer> e : survivors.entrySet()) {
+		for (Map.Entry<Integer, List<UUID>> entry : villagerIds.entrySet()) {
+			List<UUID> list = entry.getValue();
 			int alive = 0;
-			var list = villagerIds.get(e.getKey());
-			if (list != null) {
-				for (UUID id : list) {
-					var ent = world.getEntity(id);
-					if (ent != null && ent.isAlive()) {
-						alive++;
-					}
+			java.util.Iterator<UUID> it = list.iterator();
+			while (it.hasNext()) {
+				UUID id = it.next();
+				var ent = world.getEntity(id);
+				if (ent != null && ent.isAlive()) {
+					alive++;
+				} else {
+					it.remove();      // 死掉的从阵位表摘掉
+					jobs.remove(id);  // 职业也一并摘掉，否则加成还在
 				}
 			}
-			if (alive < e.getValue()) {
-				NBW.LOGGER.info("[survivor] 队 {} 存活数下降：{} -> {}（被击杀）", e.getKey(), e.getValue(), alive);
-				e.setValue(alive);
+			Integer cur = survivors.get(entry.getKey());
+			if (cur != null && alive < cur) {
+				NBW.LOGGER.info("[survivor] 队 {} 存活数下降：{} -> {}（被击杀）",
+						entry.getKey(), cur, alive);
+				survivors.put(entry.getKey(), alive);
 			}
 		}
 	}
