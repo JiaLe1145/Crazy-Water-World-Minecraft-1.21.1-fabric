@@ -7,11 +7,14 @@ import net.minecraft.block.BlockState;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
+import net.minecraft.block.ShapeContext;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.shape.VoxelShape;
+import net.minecraft.world.BlockView;
 import net.minecraft.world.World;
 
 /**
@@ -23,8 +26,26 @@ import net.minecraft.world.World;
  */
 public final class BallistaBlock extends Block {
 
+	/**
+	 * 2×2 碰撞箱（09 §2.2 弩炮按现实器械建模，视觉占 2×2 格）。
+	 *
+	 * <p>模型 X/Z 以方块原点为中心铺开（-16..16），碰撞与描边用同一范围，
+	 * 玩家不能再从那 3 格空隙穿过炮身。Y 取 0..32 覆盖模型的 21.4 高度。
+	 */
+	private static final VoxelShape SHAPE = Block.createCuboidShape(-16.0, 0.0, -16.0, 16.0, 32.0, 16.0);
+
 	public BallistaBlock(Settings settings) {
 		super(settings);
+	}
+
+	@Override
+	protected VoxelShape getCollisionShape(BlockState state, BlockView world, BlockPos pos, ShapeContext context) {
+		return SHAPE;
+	}
+
+	@Override
+	protected VoxelShape getOutlineShape(BlockState state, BlockView world, BlockPos pos, ShapeContext context) {
+		return SHAPE;
 	}
 
 	@Override
