@@ -1,5 +1,6 @@
 {
   "variants": {
-    "": { "model": "nbw:block/ballista" }
+    "part=main": { "model": "nbw:block/ballista" },
+    "part=ext": { "model": "nbw:block/multiblock_ext" }
   }
 }

@@ -5,6 +5,8 @@ import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
+import dev.nbw.content.BallistaBlock;
+import dev.nbw.content.CatapultBlock;
 import dev.nbw.content.NbwContent;
 import dev.nbw.raft.RaftCoreService;
 import dev.nbw.round.BallistaService;
@@ -159,7 +161,7 @@ public final class FacilityCommands {
 		int team = IntegerArgumentType.getInteger(ctx, "team");
 		var src = ctx.getSource();
 		var pos = BlockPos.ofFloored(src.getPosition());
-		src.getWorld().setBlockState(pos, NbwContent.ballista.getDefaultState());
+		BallistaBlock.placeAt(src.getWorld(), pos);   // 真 2×2：主方块 + 3 从方块
 		BallistaService.register(pos, team);
 		ctx.getSource().sendFeedback(() -> Text.literal(
 				"[cww] 已在 " + pos.toShortString() + " 放置队 " + team + " 的弩炮"), false);
@@ -186,7 +188,7 @@ public final class FacilityCommands {
 		int team = IntegerArgumentType.getInteger(ctx, "team");
 		var src = ctx.getSource();
 		var pos = BlockPos.ofFloored(src.getPosition());
-		src.getWorld().setBlockState(pos, NbwContent.catapult.getDefaultState());
+		CatapultBlock.placeAt(src.getWorld(), pos);   // 真 2×2：主方块 + 3 从方块
 		CatapultService.register(pos, team);
 		ctx.getSource().sendFeedback(() -> Text.literal(
 				"[cww] 已在 " + pos.toShortString() + " 放置队 " + team + " 的投石机"), false);

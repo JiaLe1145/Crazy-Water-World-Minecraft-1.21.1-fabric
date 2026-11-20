@@ -1,5 +1,6 @@
 {
   "variants": {
-    "": { "model": "nbw:block/catapult" }
+    "part=main": { "model": "nbw:block/catapult" },
+    "part=ext": { "model": "nbw:block/multiblock_ext" }
   }
 }
