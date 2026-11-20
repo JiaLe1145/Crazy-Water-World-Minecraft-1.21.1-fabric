@@ -121,7 +121,16 @@ public final class RoundManager {
 			NBW.LOGGER.info("[round] DISCONNECT {} (uuid={}, phase={}, seat={})",
 					player.getNameForScoreboard(), player.getUuid(), machine.phase(),
 					machine.session(player.getUuid()) != null);
-			machine.onDisconnect(player.getUuid());
+			// 死亡导致的断线（典型是 /kill 后的 "lost connection: Killed"）必须按淘汰处理：
+			// 按"掉线"开保席会让这条命一直算存活，aliveTeamCount 减不下去，
+			// 最后可能把胜负判给已经死了的那一队（2026-11-20 生命周期排查实测踩到）。
+			if (!player.isAlive()) {
+				NBW.LOGGER.info("[round] DISCONNECT-AS-DEATH {}（掉线时已死亡，按淘汰处理）",
+						player.getNameForScoreboard());
+				machine.onDeath(player.getUuid());
+			} else {
+				machine.onDisconnect(player.getUuid());
+			}
 			CareerService.flushIfDirty(worldRoot());   // 掉线也刷一次：崩溃丢掉的是"这一局"，不是"这个人的历史"
 		});
 		ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, newPlayer, alive) -> onRespawn(newPlayer));
@@ -518,6 +527,15 @@ public final class RoundManager {
 	private static void onRespawn(ServerPlayerEntity newPlayer) {
 		NBW.LOGGER.info("[C21] respawn: old={} uuid={} phase={}",
 				newPlayer.getNameForScoreboard(), newPlayer.getUuid(), machine.phase());
+		// 复活兜底淘汰：有些死法（管理员 /kill、以及任何绕过 damage 链的移除）不触发
+		// AFTER_DEATH，会话会一直停在"存活"，于是 aliveTeamCount 永远减不下去、判胜被堵死。
+		// 这里认"对局中还能复活 = 说明这一条命已经没了"，补记一次淘汰（幂等，正常死亡时是空操作）。
+		PlayerSession rs = machine.session(newPlayer.getUuid());
+		if (machine.phase() == Phase.PLAY && rs != null && rs.teamIndex() >= 0 && !rs.isEliminated()) {
+			machine.onDeath(newPlayer.getUuid());
+			NBW.LOGGER.info("[round] respawn 兜底淘汰：{}（未走 AFTER_DEATH 的死亡）",
+					newPlayer.getNameForScoreboard());
+		}
 		pendingPlacement.add(newPlayer.getUuid());
 	}
 
