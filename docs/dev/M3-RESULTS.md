@@ -50,11 +50,17 @@
 - 新增 `loot/LootService`：
   - `spawnPrefill(server)`：读 `arena.loot.prefill`（enabled/count/radiusBand），
     在水面那一格（`sea.waterLevel`）撒「补给箱」——原版 `minecraft:barrel`（箱形像补给箱，且自带 loot 容器）。
-  - 每个箱子 `setLootTable(RegistryKey<LootTable> nbw:sea_crate, seed)`，右键开箱按 loot table 生成物品。
+  - ~~每个箱子 `setLootTable(RegistryKey<LootTable> nbw:sea_crate, seed)`，右键开箱按 loot table 生成物品。~~
+    **已被 `809b70a` 取代（2026-11-21 复审确认）**：补给箱内容改由 `domain/loot/LootRoll`
+    按稀有度池直接生成，`setLootTable` 已移除；那 4 张 `data/nbw/loot_table/*.json`
+    成了没人读的死资源，且之后 M4 的设施只加进了死表、没进 `LootRoll`，
+    造成"设计有来源、实际拿不到"的缺口。**2026-11-21 已删除这 4 张表**（避免再次误加），
+    缺口由 `LootRoll` 的设施池补齐，详见 `docs/dev/M6-Q-RESOURCES.md` §6.1。
   - `placeCrate` 做两道保护：**区块没加载不落**（不写进未加载区块）、**位置被占不覆盖**（岛/结构）。
   - `spawn(server, count, minR, maxR)`：dev 命令入口，整片海随机撒。
   - `status()`：已撒数量 + 最近 3 个位置（探针核对用）。
-- `data/nbw/loot_table/sea_crate_t{1,2,3}.json`：三档物资表（t1 外圈基础 / t2 中圈含铁与刀 / t3 内圈含钻与重武器）。
+- ~~`data/nbw/loot_table/sea_crate_t{1,2,3}.json`：三档物资表（t1 外圈基础 / t2 中圈含铁与刀 / t3 内圈含钻与重武器）。~~
+  **2026-11-21 删除**：这些表从未被代码引用（见上一行），保留只会让后来的人继续往里面加东西。
 - **环带品质**：`LootService.tierAt` 用 `ZoneModel.ringOf(距离)` 查该点属于哪一圈，按圈的 `tier` 选表。
 - **防蹲点**（2026-11-08 补充，01 §A4）：按 8×8 网格记「点位上一次被用的局号」，
   最近 2 轮同一点位不再刷（`cellLastRound`）；日志带「防蹲点跳过 N 次」。

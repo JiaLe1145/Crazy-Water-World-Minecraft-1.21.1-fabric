@@ -18,6 +18,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import rcon  # noqa: E402
+from sea_probe import reset_flat_test_anchors  # noqa: E402
 
 BOTS = (("n0", 0), ("n1", 0), ("n2", 1), ("n3", 1))
 TEAM = 0
@@ -91,19 +92,11 @@ def main():
         (ok if cond else bad).append(msg)
         print("    %s %s" % ("OK  " if cond else "FAIL", msg))
 
-    print("== 0a. 造海：flat_test 只是旱地基岩平台，筏子搁在上面不是船")
-    # 实测教训：不加这一步，速度读数恒为 0.000，看起来像"帆和冲量都没生效"，
-    # 其实是筏子坐在旱地上被摩擦力按住。航行类测试必须先有水。
-    # 这也说明 M2 之后需要一个真带水的 arena（对应 M3 的黑海），不能一直靠 drill 的旱地平台。
-    for cx, cz in ((1000, 952), (1000, 1048)):
-        p("fill %d 149 %d %d 153 %d minecraft:air" % (cx - 10, cz - 10, cx + 10, cz + 10))
-        p("fill %d 149 %d %d 152 %d minecraft:water" % (cx - 10, cz - 10, cx + 10, cz + 10))
-        for wall in (("fill %d 146 %d %d 156 %d minecraft:stone" % (cx - 11, cz - 11, cx + 11, cz - 11),),
-                     ("fill %d 146 %d %d 156 %d minecraft:stone" % (cx - 11, cz + 11, cx + 11, cz + 11),),
-                     ("fill %d 146 %d %d 156 %d minecraft:stone" % (cx - 11, cz - 11, cx - 11, cz + 11),),
-                     ("fill %d 146 %d %d 156 %d minecraft:stone" % (cx + 11, cz - 11, cx + 11, cz + 11),)):
-            p(wall[0])
-    p("forceload add 985 935 1015 1065")
+    print("== 0a. 复位锚点地形：flat_test 已按配置建好水池，不再自己填水")
+    # 2026-11-21 修：旧夹具（锚点填水到 y=152 + 石墙）已废止 —— flat_test 现在是按 arena
+    # 配置建好的水池（水面 149 / 海床 139），旧夹具抬高水位会让玩家被传送到水下，
+    # 后续探针（raftgen 等）跟着误报。这里只把锚点补丁复位成配置地形。
+    reset_flat_test_anchors(p)
 
     print("== 0. 起一局到 PLAY（READY 会自动发筏）")
     # 先收掉上一局：串跑时上一条探针可能停在 SETTLE/RETURN，此时 spawn/start 都会被拒，
@@ -200,6 +193,8 @@ def main():
     p("cww abort")
     for bot, _ in BOTS:
         p("player %s kill" % bot)
+    # 走人前把锚点补丁复位成配置地形，别给下一支探针留世界残留（2026-11-21）
+    reset_flat_test_anchors(p)
 
     print("\n=== SAIL PROBE SUMMARY ===")
     print("satisfied : %d" % len(ok))

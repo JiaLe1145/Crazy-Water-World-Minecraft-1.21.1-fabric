@@ -1,6 +1,9 @@
 {
   "schemaVersion": 1,
   "id": "flat_test",
+  "_note": "夹具图：只给探针/开服用（平底水池，非正式赛图），不进随机池。",
+  "canSelect": false,
+  "weight": 0,
   "dimension": "minecraft:overworld",
   "bounds": {
     "minX": 920,

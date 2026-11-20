@@ -36,7 +36,10 @@ public final class LootRoll {
 					new Item("minecraft:string", 1, 6),
 					new Item("minecraft:bread", 1, 1),
 					new Item("minecraft:apple", 1, 1),
-					new Item("nbw:fresh_water", 1, 2)),
+					new Item("nbw:fresh_water", 1, 2),
+					// 02 §4 / 09 §2.3：绳索与钩竿是 Common 控制工具，救援线全靠它们
+					new Item("nbw:rope", 1, 2),
+					new Item("nbw:grapnel", 1, 1)),
 			Rarity.RARE, List.of(
 					new Item("minecraft:iron_ingot", 1, 2),
 					new Item("minecraft:coal", 2, 6),
@@ -45,7 +48,9 @@ public final class LootRoll {
 					new Item("nbw:water_pistol", 1, 2),
 					new Item("nbw:cutlass", 1, 1),
 					new Item("nbw:hand_crossbow", 1, 1),
-					new Item("nbw:javelin", 1, 1)),
+					new Item("nbw:javelin", 1, 1),
+					// 09 §2.1：长矛是首发 5 件近战里唯一的 Rare，此前整条链漏了它
+					new Item("nbw:pike", 1, 1)),
 			Rarity.EPIC, List.of(
 					new Item("minecraft:diamond", 1, 2),
 					new Item("minecraft:golden_apple", 1, 1),
@@ -62,6 +67,64 @@ public final class LootRoll {
 					new Item("nbw:twin_blade", 1, 1)));
 
 	private LootRoll() {
+	}
+
+	/**
+	 * 设施/工具池（2026-11-21 补，修复 M6 全量测试查出的 Q4 获取链缺口）。
+	 *
+	 * <p><b>为什么单开一个池而不是塞进稀有度池：</b>稀有度池的每一档里只有 4–5 件武器，
+	 * 往里加十几件设施会把武器掉率摊薄到原来的 1/3（TTK 与"赤手空拳打不到人"都会跟着变），
+	 * 那是一次没人批准的配平改动。设施改为<b>按件</b>独立掷骰，武器池一件不动。
+	 *
+	 * <p><b>历史证据</b>：{@code 809b70a} 把补给箱从原版 loot table 换成稀有度池时移除了
+	 * {@code setLootTable}，之后 M4 的设施只加进了那张已经没人读的表里，
+	 * 于是 pike / 绳 / 钩竿 / 发电机 / 修理台 / 堆肥 / 厨台 / 帆 / 三件设施武器
+	 * 在真实对局里一件都拿不到（详见 {@code docs/dev/M6-Q-RESOURCES.md} §6.1）。
+	 *
+	 * <p>分两档是为了不让"投石机"跟"一根绳"同概率：tier1 只出基础件，
+	 * tier2 起才出进阶件（帆/发电机/三件设施武器）。
+	 */
+	private static final List<Item> FACILITY_BASIC = List.of(
+			new Item("nbw:rope", 1, 2),
+			new Item("nbw:grapnel", 1, 1),
+			new Item("nbw:repair_table", 1, 1),
+			new Item("nbw:compost_farm", 1, 1),
+			new Item("nbw:kitchen", 1, 1));
+
+	private static final List<Item> FACILITY_ADVANCED = List.of(
+			new Item("nbw:sail", 1, 2),
+			new Item("nbw:generator", 1, 1),
+			new Item("nbw:ram", 1, 1),
+			new Item("nbw:ballista", 1, 1),
+			new Item("nbw:catapult", 1, 1));
+
+	/** 单件补给改从设施池抽的概率。0.22 让"翻到一件设施"是可期的，但不会淹没武器与食物。 */
+	public static final double FACILITY_CHANCE = 0.22;
+
+	/**
+	 * 从设施池取一件（{@code roll01} 决定取哪件）。
+	 *
+	 * @param tier 圈层 tier：&lt;2 只出基础件，&gt;=2 出进阶件
+	 */
+	public static Item rollFacility(int tier, double roll01) {
+		List<Item> pool = tier >= 2 ? FACILITY_ADVANCED : FACILITY_BASIC;
+		int idx = (int) Math.floor(Math.max(0.0, Math.min(0.999999, roll01)) * pool.size());
+		return pool.get(Math.max(0, Math.min(pool.size() - 1, idx)));
+	}
+
+	/** 设施池大小（给探针/文档核对）。 */
+	public static int facilityPoolSize(int tier) {
+		return (tier >= 2 ? FACILITY_ADVANCED : FACILITY_BASIC).size();
+	}
+
+	/**
+	 * 这件要不要改从设施池抽。
+	 *
+	 * <p>单独抽成公开方法是为了让探针能算出"多少次补给里应该出现几件设施"，
+	 * 并且手算的期望值必须与这里一致（改常数就会红）。
+	 */
+	public static boolean facilityRoll(double roll01) {
+		return roll01 < FACILITY_CHANCE;
 	}
 
 	/**

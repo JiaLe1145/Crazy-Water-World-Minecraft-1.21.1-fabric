@@ -202,6 +202,29 @@ def keep_alive(p, bots):
         p("effect give %s minecraft:water_breathing infinite 1 true" % name)
 
 
+FLAT_TEST_ANCHORS = ((1000, 952), (1000, 1048))
+
+
+def reset_flat_test_anchors(p, radius=12):
+    """把 flat_test 两个出生锚点附近的"旧探针地形补丁"复位成 arena 配置地形（2026-11-21）。
+
+    <p>为什么要有这个：`wind_probe` / `sail_probe` 写于 flat_test 还是旱地基岩平台的年代，
+    它们会在两个锚点处 `fill 149..153 air` 再 `fill 149..152 water` 并砌一圈石墙，给筏子
+    造个能浮的小水池。2026-11-21 worldbuild 按配置把 flat_test 建成了正经水池
+    （水面 149 / 海床 139）之后，旧夹具反而把锚点水位抬高 3 格：
+    玩家被传送到配置的 y=149 会掉到水面以下，`raftgen_probe` 跟着误报
+    "g0..g3 没站在筏面高度（Y=143.71）"，`cww arena terrain flat_test` 也会报 2 列水位不符。
+    本函数把补丁区域复位成配置地形（空气 130..160 → 石底 130..139 → 水 140..149），
+    探针跑完不再往共享测试世界里留地形残留。
+    """
+    for cx, cz in FLAT_TEST_ANCHORS:
+        x0, x1 = cx - radius, cx + radius
+        z0, z1 = cz - radius, cz + radius
+        p("fill %d 130 %d %d 160 %d minecraft:air" % (x0, z0, x1, z1), quiet=True)
+        p("fill %d 130 %d %d 139 %d minecraft:stone" % (x0, z0, x1, z1), quiet=True)
+        p("fill %d 140 %d %d 149 %d minecraft:water" % (x0, z0, x1, z1), quiet=True)
+
+
 BOT_PREFIXES = ("s", "x", "z", "a", "d", "v", "h", "w", "g", "t", "q",
                 "o", "r", "m", "u", "e", "b")   # o/r/m 桨、u 建造规则、e/b 取证脚本 是桨的探针（oar_/restart_/motion_）用过的前缀
 
@@ -262,6 +285,26 @@ def raft_pos(p, team):
     return (float(m.group(1)), float(m.group(3))) if m else (0.0, 0.0)
 
 
+TEAM_ROSTER = re.compile(r"T\d+\s+[^\[]*\[([^\]]*)\]")
+
+
+def no_seated_sessions(st):
+    """LOBBY 的"干净"口径：没有对局在跑（phase=LOBBY + queue=0），且没有任何会话占着队席。
+
+    不能要求 `teams=0`：队伍骨架是 RoundMachine 按内存里的赛制建的（新起服/换赛制后
+    `cww state` 里就会出现 `T0 赤队 []` 这种空壳），空壳不占名额、不挡 `cww force`。
+    2026-11-21 批量跑踩到：`seat_probe` 在 LOBBY 里 force 过假玩家，留下两个空壳，
+    下一支探针按 `teams=0` 等 40 秒后误报"LOBBY 不干净"；真正脏的只有
+    "有成员还挂在队席上"（kill 掉的 Carpet 假玩家不触发 DISCONNECT，要等 releaseAbsent 兜底）。
+    """
+    if "phase=LOBBY" not in st or "queue=0" not in st:
+        return False
+    for m in TEAM_ROSTER.finditer(st):
+        if m.group(1).strip():
+            return False
+    return True
+
+
 def wait_clean_lobby(p, fmt=None, tries=40):
     """等一台真正干净的 LOBBY：既没有对局在跑，也没有会话还挂在队席上。
 
@@ -274,7 +317,7 @@ def wait_clean_lobby(p, fmt=None, tries=40):
     st = ""
     for _ in range(tries):
         st = p("cww state")
-        if "phase=LOBBY" in st and "queue=0" in st and "teams=0" in st:
+        if no_seated_sessions(st):
             if fmt:
                 # 报名上限跟着"内存里的赛制"走，而不是跟着下一局要用的赛制走：
                 # 上一局 2x2 时 2x4 的第 3 个玩家起就会被"队伍 已满"拒掉。

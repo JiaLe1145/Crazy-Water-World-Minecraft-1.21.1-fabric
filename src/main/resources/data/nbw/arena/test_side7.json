@@ -2,6 +2,8 @@
   "schemaVersion": 1,
   "id": "test_side7",
   "_note": "开发/测试夹具用的小片海域。0.8R 等角环带只有 48 格，四队相邻间距 67 格，满足不了 01 文档要求的 >=180 格出生间距，所以不能当正式赛用图；正式形状用 default_sea。",
+  "canSelect": false,
+  "weight": 0,
   "dimension": "minecraft:overworld",
   "bounds": {
     "minX": -1080,

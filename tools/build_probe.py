@@ -204,7 +204,7 @@ def main():
     print("== 1. 开局并确认读数口径（几何全部从服务端推）")
     print("  清残留：" + repr(sweep_stale_bots(p)))
     clean, st0 = wait_clean_lobby(p)
-    expect(clean, "开局前必须是真正干净的 LOBBY（queue=0 teams=0），实际：%s" % st0[:150])
+    expect(clean, "开局前必须是真正干净的 LOBBY（queue=0 且无占席会话；空队伍骨架不算脏），实际：%s" % st0[:150])
     if not clean:
         return 1
     write_long_format()

@@ -299,9 +299,18 @@ public final class LootService {
 		}
 		Random rnd = new Random(seed);
 		int count = 1 + rnd.nextInt(3);   // 02 §4：单点 1–3 件
+		int facilityItems = 0;
 		for (int i = 0; i < count; i++) {
-			var rarity = dev.nbw.domain.loot.LootRoll.rollRarity(tier, legendaryUnlocked, rnd.nextDouble());
-			var item = dev.nbw.domain.loot.LootRoll.rollItem(rarity, rnd.nextDouble());
+			// 设施/工具独立掷骰：不能塞进稀有度池，否则武器掉率会被摊薄（见 LootRoll.FACILITY_*）
+			boolean facility = dev.nbw.domain.loot.LootRoll.facilityRoll(rnd.nextDouble());
+			dev.nbw.domain.loot.LootRoll.Item item;
+			if (facility) {
+				item = dev.nbw.domain.loot.LootRoll.rollFacility(tier, rnd.nextDouble());
+				facilityItems++;
+			} else {
+				var rarity = dev.nbw.domain.loot.LootRoll.rollRarity(tier, legendaryUnlocked, rnd.nextDouble());
+				item = dev.nbw.domain.loot.LootRoll.rollItem(rarity, rnd.nextDouble());
+			}
 			int amount = item.min() + rnd.nextInt(Math.max(1, item.max() - item.min() + 1));
 			var id = Identifier.tryParse(item.id());
 			if (id == null) {
@@ -309,6 +318,9 @@ public final class LootService {
 			}
 			var mcItem = net.minecraft.registry.Registries.ITEM.get(id);
 			inv.setStack(rnd.nextInt(Math.max(1, inv.size())), new ItemStack(mcItem, amount));
+		}
+		if (facilityItems > 0) {
+			NBW.LOGGER.debug("[loot] 补给箱 {} 含 {} 件设施/工具", pos, facilityItems);
 		}
 		return true;
 	}

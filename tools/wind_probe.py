@@ -19,9 +19,9 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import rcon  # noqa: E402
+from sea_probe import reset_flat_test_anchors  # noqa: E402
 
 BOTS = (("w0", 0), ("w1", 0), ("w2", 1), ("w3", 1))
-ANCHORS = ((1000, 952), (1000, 1048))
 
 
 class P:
@@ -107,17 +107,11 @@ def main():
         (ok if cond else bad).append(msg)
         print("    %s %s" % ("OK  " if cond else "FAIL", msg))
 
-    print("== 0. 造海 + 起一局")
-    for cx, cz in ANCHORS:
-        p("fill %d 149 %d %d 153 %d minecraft:air" % (cx - 10, cz - 10, cx + 10, cz + 10))
-        p("fill %d 149 %d %d 152 %d minecraft:water" % (cx - 10, cz - 10, cx + 10, cz + 10))
-        for wall in ("fill %d 146 %d %d 156 %d minecraft:stone" % (cx - 11, cz - 11, cx + 11, cz - 11),
-                     "fill %d 146 %d %d 156 %d minecraft:stone" % (cx - 11, cz + 11, cx + 11, cz + 11),
-                     "fill %d 146 %d %d 156 %d minecraft:stone" % (cx - 11, cz - 11, cx - 11, cz + 11),
-                     "fill %d 146 %d %d 156 %d minecraft:stone" % (cx + 11, cz - 11, cx + 11, cz + 11)):
-            p(wall)
-    p("forceload add 985 935 1015 1065")
-    p("forceload add 985 1031 1015 1061")
+    print("== 0. 复位锚点地形 + 起一局")
+    # 2026-11-21 修：旧夹具（锚点自己填水到 y=152 + 砌石墙）已废止 —— flat_test 现在是按
+    # arena 配置建好的水池（水面 149 / 海床 139），再抬水位会把玩家传送到水下，
+    # 后续探针（raftgen 等）跟着误报。这里只把锚点补丁复位成配置地形。
+    reset_flat_test_anchors(p)
 
     for bot, _ in BOTS:
         p("player %s kill" % bot)
@@ -223,6 +217,8 @@ def main():
     p("cww abort")
     for bot, _ in BOTS:
         p("player %s kill" % bot)
+    # 走人前把锚点补丁复位成配置地形，别给下一支探针留世界残留（2026-11-21）
+    reset_flat_test_anchors(p)
 
     print("\n=== WIND PROBE SUMMARY ===")
     print("satisfied : %d" % len(ok))

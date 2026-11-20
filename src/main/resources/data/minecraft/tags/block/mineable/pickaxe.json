@@ -1,0 +1,10 @@
+{
+  "replace": false,
+  "values": [
+    "nbw:ballista",
+    "nbw:catapult",
+    "nbw:ram",
+    "nbw:generator",
+    "nbw:seawater_filter"
+  ]
+}

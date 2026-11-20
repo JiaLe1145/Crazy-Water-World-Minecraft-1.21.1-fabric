@@ -1,0 +1,12 @@
+{
+  "replace": false,
+  "values": [
+    "nbw:sail",
+    "nbw:oar",
+    "nbw:compost_farm",
+    "nbw:kitchen",
+    "nbw:repair_table",
+    "nbw:medical_kit",
+    "nbw:raft_core"
+  ]
+}

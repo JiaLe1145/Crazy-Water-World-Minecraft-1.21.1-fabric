@@ -72,7 +72,7 @@ def main():
     print("== 0. 清场")
     print("  残留假玩家：" + repr(sweep_stale_bots(p)))
     clean, st = wait_clean_lobby(p, fmt="test_3min")
-    expect(clean, "干净 LOBBY（phase=LOBBY queue=0 teams=0）：%s" % st.replace("\n", " ")[:140])
+    expect(clean, "干净 LOBBY（phase=LOBBY queue=0 且无占席会话）：%s" % st.replace("\n", " ")[:140])
     if not clean:
         return 1
 

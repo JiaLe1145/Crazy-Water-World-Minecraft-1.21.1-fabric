@@ -133,7 +133,66 @@ public final class Sailing {
 		sailsByTeam.remove(teamIndex);
 	}
 
-	/** 拆掉所有帆：写回空气，Sable 会从 lift provider 表里移除。 */
+	/**
+	 * 玩家<b>手动</b>放下一块帆（{@code SailBlock.onPlaced} 调这里）。
+	 *
+	 * <p>2026-11-21 补：此前帆只能由 {@code /cww sail rig}（权限 2）挂上去，
+	 * 于是真实对局里<b>玩家永远挂不了帆</b>——而帆是这套玩法唯一的推进手段
+	 * （桨台只剩装饰），等于整局都动不了。现在背包里有 {@code nbw:sail} 直接往甲板上一放就算数。
+	 *
+	 * <p>同一格重复登记只留一条（先拆后放的顺序可能先把记录摘掉，不需要额外去重，
+	 * 但 {@code setBlockState} 与 {@code onPlaced} 之间没有强顺序保证，去重更保险）。
+	 *
+	 * @param teamIndex 筏所属队（由调用方从 raftId 反查，-1 表示不是任何队的筏，直接不登记）
+	 * @return 是否登记成功
+	 */
+	public static boolean registerPlaced(int teamIndex, int lx, int ly, int lz, Direction facing) {
+		if (teamIndex < 0) {
+			return false;
+		}
+		List<SailCell> cells = sailsByTeam.computeIfAbsent(teamIndex, k -> new ArrayList<>());
+		for (SailCell c : cells) {
+			if (c.x() == lx && c.y() == ly && c.z() == lz) {
+				return false;   // 这一格已经记着了
+			}
+		}
+		cells.add(new SailCell(lx, ly, lz, facing));
+		NBW.LOGGER.info("[sail] 手放登记 队={} 局部=({},{},{}) facing={} 当前 {} 面",
+				teamIndex, lx, ly, lz, facing, cells.size());
+		return true;
+	}
+
+	/**
+	 * 手动拆掉一块帆（{@code SailBlock.onStateReplaced} 调这里）。
+	 *
+	 * <p>不摘记录的话，拆了帆风速还按旧帆数算——玩家会发现"帆拆了船还受力"。
+	 *
+	 * @return 是否真的摘掉了一条记录
+	 */
+	public static boolean unregisterPlaced(int teamIndex, int lx, int ly, int lz) {
+		if (teamIndex < 0) {
+			return false;
+		}
+		List<SailCell> cells = sailsByTeam.get(teamIndex);
+		if (cells == null) {
+			return false;
+		}
+		boolean removed = cells.removeIf(c -> c.x() == lx && c.y() == ly && c.z() == lz);
+		if (removed) {
+			NBW.LOGGER.info("[sail] 手拆注销 队={} 局部=({},{},{}) 剩 {} 面",
+					teamIndex, lx, ly, lz, cells.size());
+		}
+		return removed;
+	}
+
+	/**
+	 * 拆掉所有帆：写回空气，Sable 会从 lift provider 表里移除。
+	 *
+	 * <p><b>2026-11-21 修</b>：这里原来直接 {@code for (SailCell c : cells)} 里调
+	 * {@code clearPlotBlock}。清方块会触发 {@code SailBlock.onStateReplaced} →
+	 * {@link #unregisterPlaced} 从同一张表里摘记录，等于边遍历边改集合，
+	 * 下一条就 {@code ConcurrentModificationException}。改成先拷贝再遍历，最后统一清表。
+	 */
 	public static int deRig(ServerWorld world, @Nullable UUID raftId) {
 		if (raftId == null) {
 			return 0;
@@ -141,7 +200,7 @@ public final class Sailing {
 		List<SailCell> cells = sailsByTeam.get(RaftSpawner.teamOf(raftId));
 		int removed = 0;
 		if (cells != null) {
-			for (SailCell c : cells) {
+			for (SailCell c : new ArrayList<>(cells)) {
 				if (SableRafts.clearPlotBlock(world, raftId, c.x(), c.y(), c.z())) {
 					removed++;
 				}

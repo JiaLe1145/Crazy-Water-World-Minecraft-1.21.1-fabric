@@ -1,15 +1,23 @@
 package dev.nbw.content;
 
 import dev.nbw.NBW;
+import dev.nbw.raft.RaftSpawner;
+import dev.nbw.raft.Sailing;
+import dev.nbw.sable.SableRafts;
 import dev.ryanhcode.sable.api.block.BlockSubLevelLiftProvider;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
+import net.minecraft.entity.LivingEntity;
+import net.minecraft.item.ItemStack;
+import net.minecraft.server.world.ServerWorld;
 import net.minecraft.state.StateManager;
 import net.minecraft.state.property.DirectionProperty;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.world.World;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.UUID;
 
 /**
  * 帆（M2 航行入口）。
@@ -88,13 +96,59 @@ public class SailBlock extends Block implements BlockSubLevelLiftProvider {
 		return DIRECTIONLESS_DRAG;
 	}
 
-	/** 放置时留一条证据，方便在日志里数"到底登记了几块帆"。 */
+	/**
+	 * 玩家手动放帆：登记进 {@link Sailing} 的队表，风才算得到这一面。
+	 *
+	 * <p>2026-11-21 补。此前帆只能由 {@code /cww sail rig}（权限 2）挂上，
+	 * 真实对局里玩家拿不到帆、也挂不上帆 —— 而帆是唯一推力来源，等于整局动不了。
+	 *
+	 * <p>局部坐标的算法与 {@code BuildService.resolve} 一致：{@code 世界坐标 - accessor 原点}。
+	 * 帆不在任何筏上（例如搭在大厅平台上）就只放方块、不登记。
+	 */
+	@Override
+	public void onPlaced(World world, BlockPos pos, BlockState state, LivingEntity placer, ItemStack itemStack) {
+		super.onPlaced(world, pos, state, placer, itemStack);
+		if (world.isClient() || !(world instanceof ServerWorld sw)) {
+			return;
+		}
+		UUID raftId = SableRafts.raftAt(sw, pos);
+		if (raftId == null) {
+			return;
+		}
+		BlockPos origin = SableRafts.accessorOrigin(sw, raftId);
+		if (origin == null) {
+			return;
+		}
+		Sailing.registerPlaced(RaftSpawner.teamOf(raftId),
+				pos.getX() - origin.getX(), pos.getY() - origin.getY(), pos.getZ() - origin.getZ(),
+				state.get(FACING));
+	}
+
+	/**
+	 * 拆帆 / 换块：把这条记录摘掉，否则拆了帆风速还按旧帆数算。
+	 *
+	 * <p>日志原来写的是"放置"，实际是"被替换/移除"，一并改掉。
+	 */
 	@Override
 	public void onStateReplaced(BlockState state, World world, BlockPos pos,
-			BlockState oldState, boolean moved) {
-		super.onStateReplaced(state, world, pos, oldState, moved);
-		if (!world.isClient() && state.getBlock() != oldState.getBlock()) {
-			NBW.LOGGER.info("[sail] 放置 pos={} facing={}", pos, state.get(FACING));
+			BlockState newState, boolean moved) {
+		super.onStateReplaced(state, world, pos, newState, moved);
+		if (world.isClient() || state.getBlock() == newState.getBlock() || !(world instanceof ServerWorld sw)) {
+			return;
 		}
+		UUID raftId = SableRafts.raftAt(sw, pos);
+		if (raftId == null) {
+			return;
+		}
+		BlockPos origin = SableRafts.accessorOrigin(sw, raftId);
+		if (origin == null) {
+			return;
+		}
+		int team = RaftSpawner.teamOf(raftId);
+		if (Sailing.unregisterPlaced(team,
+				pos.getX() - origin.getX(), pos.getY() - origin.getY(), pos.getZ() - origin.getZ())) {
+			return;   // 已经打过注销日志，不必再打一条
+		}
+		NBW.LOGGER.debug("[sail] 移除 pos={} facing={}（这条不在手放登记表里）", pos, state.get(FACING));
 	}
 }
