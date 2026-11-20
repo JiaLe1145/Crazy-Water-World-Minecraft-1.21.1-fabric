@@ -7,6 +7,7 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import dev.nbw.NBW;
 import dev.nbw.arena.ArenaPool;
 import dev.nbw.arena.BuiltinArenaJson;
+import dev.nbw.arena.BuiltinConfigJson;
 import dev.nbw.arena.MapResetService;
 import dev.nbw.arena.SeaTerrain;
 import dev.nbw.cfg.ConfigModels;
@@ -216,7 +217,7 @@ public final class ArenaCommands {
 	private static int testFormat(CommandContext<ServerCommandSource> ctx) throws CommandSyntaxException {
 		String id = StringArgumentType.getString(ctx, "id");
 		try {
-			ConfigModels.Format format = ConfigService.loadFormat(worldRoot(), id);
+			ConfigModels.Format format = ConfigService.loadFormat(worldRoot(), id, BuiltinConfigJson.SOURCE);
 			ConfigModels.Arena arena = ConfigService.loadArena(worldRoot(), "default_sea", false,
 					BuiltinArenaJson.SOURCE).arena();
 			ZoneModel zone = ConfigService.toZone(arena, format);
@@ -265,7 +266,7 @@ public final class ArenaCommands {
 
 	/** /cww lobby test|reload：只校验 world/cww/lobby.json（03 §5）；reload 失败才归档。 */
 	private static int testLobby(CommandContext<ServerCommandSource> ctx, boolean reload) {
-		ConfigService.LobbyLoaded loaded = ConfigService.loadLobby(worldRoot(), reload);
+		ConfigService.LobbyLoaded loaded = ConfigService.loadLobby(worldRoot(), reload, BuiltinConfigJson.SOURCE);
 		if (loaded.ok()) {
 			ConfigModels.Lobby l = loaded.lobby();
 			ctx.getSource().sendFeedback(() -> Text.literal("[cww] lobby 校验通过；出生点 ("

@@ -272,19 +272,42 @@ public final class ConfigService {
 	 * 但目录仍然要 startsWith 复查，防止以后有人把它改成带参数的命令。
 	 */
 	public static LobbyLoaded loadLobby(Path worldRoot, boolean quarantineOnFailure) {
+		return loadLobby(worldRoot, quarantineOnFailure, ConfigJsonSource.NONE);
+	}
+
+	/**
+	 * 带内置兜底的版本：{@code world/cww/lobby.json} 不存在时回退 jar 内 {@code data/nbw/lobby.json}。
+	 * <b>没有这条兜底，全新安装的服第一次启动就没有大厅配置</b>（2026-11-21 实测）。
+	 */
+	public static LobbyLoaded loadLobby(Path worldRoot, boolean quarantineOnFailure, ConfigJsonSource builtin) {
 		Path dir = worldRoot.resolve("cww");
 		Path file = dir.resolve("lobby.json");
 		if (!file.startsWith(dir)) {
 			return new LobbyLoaded(null, List.of("路径越界，拒绝读取：" + file));
 		}
-		if (!Files.isRegularFile(file)) {
-			return new LobbyLoaded(null, List.of("找不到大厅配置：" + file + "（03 §5 要求 world/cww/lobby.json）"));
+		String text;
+		if (Files.isRegularFile(file)) {
+			try {
+				text = Files.readString(file);
+			} catch (IOException e) {
+				if (quarantineOnFailure) {
+					quarantine(file);
+				}
+				return new LobbyLoaded(null, List.of("读取失败：" + e.getMessage()));
+			}
+		} else {
+			Optional<String> embedded = builtin.readBuiltin("lobby.json");
+			if (embedded.isEmpty()) {
+				return new LobbyLoaded(null, List.of(
+						"找不到大厅配置：" + file + "（03 §5 要求 world/cww/lobby.json；内置默认也没有 'lobby.json'）"));
+			}
+			text = embedded.get();
 		}
 		ConfigModels.Lobby lobby;
 		try {
-			lobby = GSON.fromJson(Files.readString(file), ConfigModels.Lobby.class);
-		} catch (JsonParseException | IOException e) {
-			if (quarantineOnFailure) {
+			lobby = GSON.fromJson(text, ConfigModels.Lobby.class);
+		} catch (JsonParseException e) {
+			if (quarantineOnFailure && Files.isRegularFile(file)) {
 				quarantine(file);
 			}
 			return new LobbyLoaded(null, List.of("JSON 解析失败：" + e.getMessage()));
@@ -293,7 +316,7 @@ public final class ConfigService {
 			return new LobbyLoaded(null, List.of("lobby.json 内容为空"));
 		}
 		List<String> errors = validateLobby(lobby);
-		if (!errors.isEmpty() && quarantineOnFailure) {
+		if (!errors.isEmpty() && quarantineOnFailure && Files.isRegularFile(file)) {
 			quarantine(file);
 		}
 		return new LobbyLoaded(lobby, errors);
@@ -349,6 +372,14 @@ public final class ConfigService {
 
 	/** 读 format 文件（不做 quarantine，格式错误由调用方决定怎么处理）。 */
 	public static ConfigModels.Format loadFormat(Path worldRoot, String id) throws IOException {
+		return loadFormat(worldRoot, id, ConfigJsonSource.NONE);
+	}
+
+	/**
+	 * 带内置兜底的版本：{@code world/cww/formats/<id>.json} 不存在时回退
+	 * jar 内 {@code data/nbw/format/<id>.json}。<b>没有这条兜底，全新安装的服第一次启动就没法开局</b>。
+	 */
+	public static ConfigModels.Format loadFormat(Path worldRoot, String id, ConfigJsonSource builtin) throws IOException {
 		if (!isSafeName(id)) {
 			throw new IOException("format id 不合法：" + id);
 		}
@@ -357,7 +388,20 @@ public final class ConfigService {
 		if (!file.startsWith(dir)) {
 			throw new IOException("路径越界：" + file);
 		}
-		return GSON.fromJson(Files.readString(file), ConfigModels.Format.class);
+		String text;
+		if (Files.isRegularFile(file)) {
+			text = Files.readString(file);
+		} else {
+			Optional<String> embedded = builtin.readBuiltin("format/" + id + ".json");
+			if (embedded.isEmpty()) {
+				throw new IOException("找不到 format 文件：" + file + "（内置默认也没有 '" + id + "'）");
+			}
+			text = embedded.get();
+			if (text.isBlank()) {
+				throw new IOException("内置 format '" + id + "' 内容为空");
+			}
+		}
+		return GSON.fromJson(text, ConfigModels.Format.class);
 	}
 
 	/** 原子写：先 .tmp 再 rename（03 §6.3）。 */

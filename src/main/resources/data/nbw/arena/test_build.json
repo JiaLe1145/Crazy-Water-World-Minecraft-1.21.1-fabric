@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "id": "test_build",
+  "displayName": "测试小海域 · 半径 60",
+  "description": "开发测试夹具，不进随机池",
+  "canSelect": false,
+  "weight": 0,
+  "_note": "开发/测试夹具用的小片海域。0.8R 等角环带只有 48 格，四队相邻间距 67 格，满足不了 01 文档要求的 >=180 格出生间距，所以不能当正式赛用图；正式形状用 default_sea。",
+  "dimension": "minecraft:overworld",
+  "bounds": {
+    "minX": -1080,
+    "minY": 40,
+    "minZ": 920,
+    "maxX": -920,
+    "maxY": 72,
+    "maxZ": 1080
+  },
+  "sea": {
+    "centerX": -1000,
+    "centerZ": 1000,
+    "radius": 60,
+    "waterLevel": 62,
+    "generateY": 63
+  },
+  "rings": [
+    {
+      "fromRadius": 0,
+      "toRadius": 12,
+      "lootMultiplier": 2.5,
+      "tier": 3
+    },
+    {
+      "fromRadius": 12,
+      "toRadius": 24,
+      "lootMultiplier": 2.0,
+      "tier": 2
+    },
+    {
+      "fromRadius": 24,
+      "toRadius": 39,
+      "lootMultiplier": 1.5,
+      "tier": 2
+    },
+    {
+      "fromRadius": 39,
+      "toRadius": 60,
+      "lootMultiplier": 1.0,
+      "tier": 1
+    }
+  ],
+  "spawns": {
+    "teams": [
+      {
+        "teamIndex": 0,
+        "x": -1000,
+        "y": 63,
+        "z": 952,
+        "facing": "south"
+      },
+      {
+        "teamIndex": 1,
+        "x": -952,
+        "y": 63,
+        "z": 1000,
+        "facing": "west"
+      },
+      {
+        "teamIndex": 2,
+        "x": -1000,
+        "y": 63,
+        "z": 1048,
+        "facing": "north"
+      },
+      {
+        "teamIndex": 3,
+        "x": -1048,
+        "y": 63,
+        "z": 1000,
+        "facing": "east"
+      }
+    ],
+    "auto": {
+      "strategy": "equidistant",
+      "minSeparation": 60
+    }
+  },
+  "loot": {
+    "exclude": [
+      {
+        "minX": -1012,
+        "minZ": 988,
+        "maxX": -988,
+        "maxZ": 1012,
+        "reason": "center_ruins"
+      }
+    ],
+    "candidates": "auto",
+    "prefill": {
+      "enabled": true,
+      "count": 16,
+      "radiusBand": [
+        30,
+        60
+      ]
+    }
+  },
+  "limits": {
+    "maxRaftArea": 96,
+    "maxBlocksPerRaft": 109,
+    "maxFacilities": 8,
+    "buildYRange": [
+      62,
+      80
+    ],
+    "initialRaftSide": 10,
+    "initialRaftBlock": "oak_planks"
+  }
+}

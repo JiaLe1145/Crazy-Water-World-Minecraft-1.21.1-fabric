@@ -4,6 +4,7 @@ import dev.nbw.NBW;
 import dev.nbw.arena.ArenaChunkLoader;
 import dev.nbw.arena.ArenaPool;
 import dev.nbw.arena.BuiltinArenaJson;
+import dev.nbw.arena.BuiltinConfigJson;
 import dev.nbw.arena.MapResetService;
 import dev.nbw.arena.SeaTerrain;
 import dev.nbw.loot.LootService;
@@ -995,7 +996,7 @@ public final class RoundManager {
 		}
 		ConfigModels.Format f;
 		try {
-			f = ConfigService.loadFormat(root, fid);
+			f = ConfigService.loadFormat(root, fid, BuiltinConfigJson.SOURCE);
 		} catch (Exception e) {
 			return "format '" + fid + "' 读取失败：" + e.getMessage();
 		}
@@ -1006,7 +1007,7 @@ public final class RoundManager {
 		if (!arenaLoaded.ok()) {
 			return "arena '" + aid + "' 被拒绝（不自动纠正）：" + String.join(" | ", arenaLoaded.errors());
 		}
-		ConfigService.LobbyLoaded lobbyLoaded = ConfigService.loadLobby(root, true);
+		ConfigService.LobbyLoaded lobbyLoaded = ConfigService.loadLobby(root, true, BuiltinConfigJson.SOURCE);
 		if (!lobbyLoaded.ok()) {
 			return "lobby 被拒绝（不自动纠正）：" + String.join(" | ", lobbyLoaded.errors());
 		}

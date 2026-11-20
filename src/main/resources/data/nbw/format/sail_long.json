@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "sail_long",
+  "teams": 2,
+  "teamSize": 2,
+  "minPlayers": 2,
+  "duration": {
+    "phases": [
+      5,
+      5,
+      900,
+      60
+    ],
+    "targetTotal": 1000
+  },
+  "border": {
+    "stages": [
+      {
+        "at": 60,
+        "radiusScale": 1.0,
+        "damage": 0.0,
+        "warn": 15
+      },
+      {
+        "at": 900,
+        "radiusScale": 0.05,
+        "damage": 1.0,
+        "warn": 10
+      }
+    ]
+  },
+  "loot": {
+    "tierBias": "standard",
+    "respawnIntervalSec": 22
+  }
+}

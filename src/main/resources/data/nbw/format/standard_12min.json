@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "standard_12min",
+  "teams": 4,
+  "teamSize": 3,
+  "minPlayers": 4,
+  "duration": { "phases": [60, 45, 45, 90], "targetTotal": 720 },
+  "border": {
+    "stages": [
+      { "at": 150, "radiusScale": 0.65, "damage": 0.5, "warn": 15 },
+      { "at": 390, "radiusScale": 0.40, "damage": 1.0, "warn": 15 },
+      { "at": 570, "radiusScale": 0.20, "damage": 2.0, "warn": 15 },
+      { "at": 690, "radiusScale": 0.05, "damage": 4.0, "warn": 10 }
+    ]
+  },
+  "loot": { "tierBias": "standard", "respawnIntervalSec": 22, "respawnBatch": 4, "maxFloating": 24 },
+  "events": {
+    "pool": ["supply_rain", "storm", "kraken", "black_sea_surge", "survivor_drift", "bounty"],
+    "intervalSec": [150, 240]
+  }
+}

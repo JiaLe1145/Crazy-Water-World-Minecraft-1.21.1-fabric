@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "test_3min",
+  "teams": 2,
+  "teamSize": 2,
+  "minPlayers": 2,
+  "duration": { "phases": [30, 30, 60, 60], "targetTotal": 180 },
+  "border": {
+    "stages": [
+      { "at": 30, "radiusScale": 0.60, "damage": 0.5, "warn": 10 },
+      { "at": 60, "radiusScale": 0.30, "damage": 1.0, "warn": 10 },
+      { "at": 120, "radiusScale": 0.10, "damage": 2.0, "warn": 5 }
+    ]
+  },
+  "loot": { "tierBias": "standard", "respawnIntervalSec": 20, "respawnBatch": 3, "maxFloating": 16 },
+  "events": { "pool": ["storm"], "intervalSec": [60, 90] }
+}

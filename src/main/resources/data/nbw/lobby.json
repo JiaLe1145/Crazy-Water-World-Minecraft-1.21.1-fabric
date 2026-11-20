@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "dimension": "minecraft:overworld",
+  "spawn": { "x": 0, "y": 201, "z": 0, "yaw": 0, "pitch": 0 },
+  "bounds": { "minX": -24, "minY": 195, "minZ": -24, "maxX": 24, "maxY": 225, "maxZ": 24 },
+  "enrollNpc": { "x": 0, "y": 201, "z": 3 },
+  "teamFlags": [
+    { "teamIndex": 0, "x": -6, "y": 201, "z": 6 },
+    { "teamIndex": 1, "x": 6, "y": 201, "z": 6 }
+  ],
+  "spectateAnchor": { "x": 0, "y": 210, "z": -40 },
+  "rules": { "pvp": false, "greifing": false, "hunger": false, "flyAllowed": false }
+}

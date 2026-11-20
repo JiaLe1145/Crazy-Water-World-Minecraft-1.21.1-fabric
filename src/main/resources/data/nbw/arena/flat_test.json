@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "id": "flat_test",
+  "dimension": "minecraft:overworld",
+  "bounds": {
+    "minX": 920,
+    "minY": 140,
+    "minZ": 920,
+    "maxX": 1081,
+    "maxY": 160,
+    "maxZ": 1081
+  },
+  "sea": {
+    "centerX": 1000,
+    "centerZ": 1000,
+    "radius": 60,
+    "waterLevel": 149,
+    "generateY": 149
+  },
+  "rings": [
+    {
+      "fromRadius": 0,
+      "toRadius": 20,
+      "lootMultiplier": 2.5,
+      "tier": 3
+    },
+    {
+      "fromRadius": 20,
+      "toRadius": 40,
+      "lootMultiplier": 1.5,
+      "tier": 2
+    },
+    {
+      "fromRadius": 40,
+      "toRadius": 60,
+      "lootMultiplier": 1.0,
+      "tier": 1
+    }
+  ],
+  "spawns": {
+    "teams": [
+      {
+        "teamIndex": 0,
+        "x": 1000,
+        "y": 149,
+        "z": 952,
+        "facing": "south"
+      },
+      {
+        "teamIndex": 1,
+        "x": 1000,
+        "y": 149,
+        "z": 1048,
+        "facing": "north"
+      }
+    ],
+    "auto": {
+      "strategy": "equidistant",
+      "minSeparation": 60
+    }
+  },
+  "loot": {
+    "exclude": [],
+    "candidates": "auto",
+    "prefill": {
+      "enabled": false,
+      "count": 0,
+      "radiusBand": [
+        40,
+        60
+      ]
+    }
+  },
+  "hazards": [],
+  "limits": {
+    "maxRaftArea": 96,
+    "maxBlocksPerRaft": 3200,
+    "maxFacilities": 8,
+    "buildYRange": [
+      149,
+      160
+    ],
+    "initialRaftRadius": 3,
+    "initialRaftBlock": "oak_planks"
+  }
+}
