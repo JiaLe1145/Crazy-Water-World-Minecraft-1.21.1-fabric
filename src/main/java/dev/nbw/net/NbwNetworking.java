@@ -9,6 +9,7 @@ import dev.nbw.raft.RemoteService;
 import dev.nbw.rescue.RescueService;
 import dev.nbw.sable.SableRafts;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -86,6 +87,15 @@ public final class NbwNetworking {
 		// S2C：生存状态（营养/水分）推给客户端 HUD（M4-1）。只注册 codec，接收器在客户端那一半。
 		PayloadTypeRegistry.playS2C().register(StatusPayload.ID, StatusPayload.CODEC);
 		NBW.LOGGER.info("[net] 已注册 nbw:hold（长按：筏心修复/救援）+ nbw:move（遥控器 WASD）+ nbw:status（S2C 生存状态）");
+		// 掉线时清掉这个人的限速状态：两张表都按 UUID 存，不摘就是随在线人数缓慢增长的泄漏。
+		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) ->
+				clearPlayer(handler.getPlayer().getUuid()));
+	}
+
+	/** 清掉某玩家的限速状态（掉线时调用）。 */
+	private static void clearPlayer(UUID uuid) {
+		packetRate.remove(uuid);
+		lastRateWarn.remove(uuid);
 	}
 
 	/**

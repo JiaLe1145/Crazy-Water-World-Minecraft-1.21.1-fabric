@@ -781,6 +781,7 @@ public final class RoundManager {
 		WindService.set("calm", 0.0);   // 风是局内状态，不许跨局残留成"永久顺风"
 		RemoteService.reset();   // 遥控器意图是局内的：残留=下一局开局就有一艘筏自己在开
 		RaftMotionService.reset();   // 位移采样的位姿基线必须重取，否则跨局第一 tick 会算出一个假速度
+		dev.nbw.raft.Sailing.reset();   // 帆表（队→帆格）是局内的：残留=下一局 sail read 报旧帆数、rig 容量算错
 		BuildService.reset();   // 建造提示的节流表按玩家 UUID 涨；判定计数是跨局运维量，故意不清
 		RescueService.reset();   // 扒边状态与续包窗口都是局内的：残留=下一局开局就有人在半空爬
 		dev.nbw.rescue.RopeService.reset();   // 绳索/钩竿冷却表是局内的（D-2）

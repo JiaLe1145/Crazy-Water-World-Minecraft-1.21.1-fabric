@@ -166,4 +166,16 @@ public final class Sailing {
 				v[0], v[1], v[2], Math.hypot(v[0], v[2]), sailCount(world, raftId),
 				SableRafts.mass(world, raftId), SableRafts.posY(world, raftId));
 	}
+
+	/**
+	 * 局后清理：帆表（队 → 帆格）必须清，否则下一局：
+	 * <ul>
+	 *   <li>{@code sail read} 会报上一局的帆数（实体早被重生成，读数是假的）；</li>
+	 *   <li>{@code rig} 的容量判断拿旧 cells 当基准，明明空船却说"摆不下"。</li>
+	 * </ul>
+	 * 2026-11-20 复查发现：这张表只有 deRig 会摘条目，整局结束不会走到 deRig。
+	 */
+	public static void reset() {
+		sailsByTeam.clear();
+	}
 }

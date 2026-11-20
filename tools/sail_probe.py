@@ -106,6 +106,13 @@ def main():
     p("forceload add 985 935 1015 1065")
 
     print("== 0. 起一局到 PLAY（READY 会自动发筏）")
+    # 先收掉上一局：串跑时上一条探针可能停在 SETTLE/RETURN，此时 spawn/start 都会被拒，
+    # 表现为"进入 PLAY"失败、后续全部连锁（2026-11-20 批量串跑踩到）。
+    p("cww abort")
+    for _ in range(30):
+        if "LOBBY" in p.cmd("cww phase"):
+            break
+        time.sleep(1)
     for bot, _ in BOTS:
         p("player %s kill" % bot)
         p("player %s spawn" % bot)
