@@ -738,7 +738,18 @@ public final class RoundMachine {
 			for (UUID id : t.membersOrdered()) {
 				PlayerSession s = sessions.get(id);
 				if (s != null) {
-					String mark = phase.matchActive() ? (s.isAlive() ? "" : (s.isEliminated() ? "[淘汰]" : "[失联]")) : "";
+					// 2026-11-21 修：原来只按 alive/eliminated 打标记，于是"掉线但席位还没到期"
+					// 的玩家在 cww state 里显示成完全正常（探针 B11 因此判定"没标 [失联]"）。
+					// 掉线状态本身就是 PlayerSession 的字段，用它才是真话：
+					// 掉线中 → [失联]（席位仍保留，90s 内重连可恢复）；已淘汰 → [淘汰]。
+					String mark;
+					if (s.isDisconnected()) {
+						mark = s.isEliminated() ? "[淘汰]" : "[失联]";
+					} else if (phase.matchActive()) {
+						mark = s.isAlive() ? "" : (s.isEliminated() ? "[淘汰]" : "");
+					} else {
+						mark = "";
+					}
 					names.add(s.name() + mark);
 				}
 			}

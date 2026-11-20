@@ -26,8 +26,9 @@ PY = os.path.join(PROJECT, "run", "py-embed", "python.exe")
 LOG_DIR = os.path.join(PROJECT, "run", "probe_logs")
 SUMMARY_PATH = os.path.join(PROJECT, "run", "all_probes_summary.txt")
 TIMEOUT = 300
-# 个别重活探针单独给时长：sea_probe 要建 1.35M 方块的 test_sea 海域
-PROBE_TIMEOUTS = {"sea_probe": 600, "build_probe": 400}
+# 个别重活探针单独给时长：sea_probe 要建 1.35M 方块的 test_sea 海域；
+# m6_round_probe 里有 B10 的 90s 席位到期等待 + 两局完整对局，300s 不够（2026-11-21 实测超时）
+PROBE_TIMEOUTS = {"sea_probe": 900, "build_probe": 400, "m6_round_probe": 700}
 
 # 两段式探针不进批量列表（restart_probe 会主动停服）
 PROBES = [

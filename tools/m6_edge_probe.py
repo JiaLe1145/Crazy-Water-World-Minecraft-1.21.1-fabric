@@ -44,6 +44,32 @@ def inconclusive(msg):
     print("  INCONCLUSIVE - %s" % msg)
 
 
+def check_admin_wrapping(p, literals):
+    """静态核对：这些 `/cww` 子命令必须以 `CmdSupport.admin(...)` 包一层。
+
+    为什么不在运行期测：`execute as <玩家> run <命令>` 只替换实体，
+    **权限等级沿用调用方**（RCON 是 level 4），所以从服务端侧根本造不出"权限 0 的玩家"。
+    Brigadier 的 requires 谓词又不在 `/help` 里暴露。退而求其次：
+    直接查源码里这些字面量是不是挂在 `CmdSupport.admin` 上 —— 漏一个就会失败。
+
+    返回 None（已判过 PASS/FAIL），不抛异常。
+    """
+    import glob
+    cmd_dir = os.path.join(ROOT, "src", "main", "java", "dev", "nbw", "cmd")
+    text = ""
+    for path in glob.glob(os.path.join(cmd_dir, "*.java")):
+        with open(path, encoding="utf-8") as fh:
+            text += fh.read()
+    missing = []
+    for name in literals:
+        # CmdSupport.admin(CommandManager.literal("name")) 或
+        # CmdSupport.admin(CommandManager.literal("name").then(...)
+        if ("CmdSupport.admin(CommandManager.literal(\"%s\")" % name) not in text:
+            missing.append(name)
+    expect(not missing,
+           "管理命令全部经 CmdSupport.admin() 包权限门（缺：%s）" % (missing or "无"))
+
+
 def log_size():
     try:
         return os.path.getsize(LOG)
@@ -191,14 +217,16 @@ def main():
     expect(wait_online(p, ["e1", "e2"]), "e1/e2 在线")
     p("cww force e1 0")
     p("cww force e2 1")
-    before = roster(p)
-    p("execute as e1 run cww force e2 0")
-    p.sleep(0.5)
-    after = roster(p)
-    # e2 应仍在 T1；e1 不能把 e2 拉到自己队
-    t1_line = [l for l in after.split("T1") if "e2" in l]
-    expect("e2" in after and "T1" in after and bool(t1_line),
-           "非管理员 e1 执行 force e2 0 没有把 e2 拉走（状态：%s）" % after.replace("\n", " ")[:170])
+    # ★ 2026-11-21 更正：`execute as <玩家> run <命令>` 只换实体、**不降权限等级**
+    #   （源仍是 RCON 的 level 4），所以它根本测不了权限门。第一版把这里当"非管理员执行"
+    #   写成了断言，结果是假失败。运行期权限必须由真人客户端或单测覆盖；
+    #   这里改成静态核对命令树：这些节点必须全部经 CmdSupport.admin() 包一层。
+    check_admin_wrapping(p, ["stop", "force", "ballista", "catapult", "ram", "core",
+                             "raftcore", "loot", "survivor", "guard", "power", "raft",
+                             "sail", "wind", "remote", "rescue", "rope", "net", "build",
+                             "weapon", "arena", "format", "lobby", "announce", "audit"])
+    inconclusive("O2/O3 运行期权限：`execute as` 不降权限，RCON 侧无法验证（改由静态核对 + 真人验收）")
+
     out = p("cww force e2 0")
     moved = "e2" in p("cww state") and "T0" in p("cww state")
     expect(moved, "RCON（权限 4）执行 force e2 0 生效：%s" % out[:100])
@@ -219,24 +247,28 @@ def main():
         return 1
     keep_alive(p, [("e1", 0), ("e2", 1), ("e3", 0), ("e4", 1)])
 
-    print("== O1 非管理员 cww stop 被拒（对局不能被玩家停掉）")
+    print("== O1 非管理员 cww stop 不能把对局停掉")
+    # 判据从"仍在 PLAY"改成"没有新增 ADMIN_STOP"：test_3min 只有 3 分钟，
+    # 探针跑到这里常常已经自然收束到 SETTLE，用阶段做判据会偶发假失败。
+    # 另外审计是环形缓冲、会带历史（历史上真跑过 ADMIN_STOP），所以只比对"新增的行"。
+    before_lines = p("cww audit 200").splitlines()
     p("execute as e1 run cww stop")
     p.sleep(1)
-    expect(phase_of(p) == "PLAY", "非管理员 stop 后仍在 PLAY（实际 %s）" % phase_of(p))
+    after_lines = p("cww audit 200").splitlines()
+    added = after_lines[len(before_lines):] if len(after_lines) > len(before_lines) else []
+    new_text = "\n".join(added)
+    expect("ADMIN_STOP" not in new_text,
+           "本次没有新增 ADMIN_STOP（阶段=%s，新增 %d 行：%s）"
+           % (phase_of(p), len(added), new_text.replace("\n", " ")[:160] or "无"))
 
-    print("== O3 place 类 dev 命令需权限 2")
+    print("== O3 place 类 dev 命令：静态核对权限门（运行期见 O2 的 INCONCLUSIVE）")
     for kind, status_cmd in (("ballista", "cww ballista status"),
                              ("catapult", "cww catapult status"),
                              ("ram", "cww ram status")):
         before_s = p(status_cmd)
-        p("execute as e1 run cww %s place 0" % kind)
-        p.sleep(0.6)
-        after_s = p(status_cmd)
-        expect(after_s == before_s,
-               "非管理员 %s place 被拒（读数未变：%s）" % (kind, after_s.replace("\n", " ")[:130]))
         out = p("cww %s place 0" % kind)
-        after2 = p(status_cmd)
-        expect(after2 != before_s, "RCON 执行 %s place 生效：%s" % (kind, out[:110]))
+        after_s = p(status_cmd)
+        expect(after_s != before_s, "RCON 执行 %s place 生效：%s" % (kind, out[:110]))
 
     print("== S8 对局中换图/换赛制被拒")
     out = p("cww arena reload flat_test")
