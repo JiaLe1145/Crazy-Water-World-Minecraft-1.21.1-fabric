@@ -36,6 +36,7 @@ public final class NbwContent {
 	public static final String BALLISTA = "ballista";
 	public static final String CATAPULT = "catapult";
 	public static final String RAM = "ram";
+	public static final String BALLISTA_BOLT = "ballista_bolt";
 	public static final String BANDAGE = "bandage";
 	public static final String WATER_PISTOL = "water_pistol";
 	public static final String HAND_CROSSBOW = "hand_crossbow";
@@ -61,6 +62,7 @@ public final class NbwContent {
 	public static BallistaBlock ballista;
 	public static CatapultBlock catapult;
 	public static RamBlock ram;
+	public static Item ballistaBolt;
 	public static RangedWeaponItem handCrossbow;
 	public static RangedWeaponItem harpoonGun;
 	public static RangedWeaponItem musket;
@@ -144,6 +146,10 @@ public final class NbwContent {
 				new RamBlock(AbstractBlock.Settings.create().strength(3.0f).requiresTool()));
 		Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, RAM),
 				new BlockItem(ram, new Item.Settings()));
+
+		// 弩炮弹药（09 §2.2「需弹药（铁+木合成）」）：铁锭 + 2 木板 → 4 发。
+		ballistaBolt = Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, BALLISTA_BOLT),
+				new Item(new Item.Settings()));
 
 		// 远程武器（M4-7，09 §2.2）：右键 hitscan。伤害 HP / 装填 tick / 射程 格 / 拉近 格。
 		// 09 §2.2 表里的伤害单位是 ♥，这里 ×2 换成 HP（与近战表口径一致：

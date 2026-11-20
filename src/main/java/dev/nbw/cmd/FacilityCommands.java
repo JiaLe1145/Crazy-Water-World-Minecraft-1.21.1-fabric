@@ -50,6 +50,11 @@ public final class FacilityCommands {
 		ballista.then(CommandManager.literal("place")
 				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
 						.executes(FacilityCommands::ballistaPlace)));
+		// 补弹（dev/运维）：Carpet 假玩家的 use 不触发方块 onUse，探针没法走装填路径
+		ballista.then(CommandManager.literal("ammo")
+				.then(CommandManager.argument("team", IntegerArgumentType.integer(0))
+						.then(CommandManager.argument("count", IntegerArgumentType.integer(1, 64))
+								.executes(FacilityCommands::ballistaAmmo))));
 		root.then(ballista);
 
 		// 投石机（09 §2.2）：读数 + dev 在命令源位置放一门并登记归属
@@ -159,6 +164,15 @@ public final class FacilityCommands {
 		ctx.getSource().sendFeedback(() -> Text.literal(
 				"[cww] 已在 " + pos.toShortString() + " 放置队 " + team + " 的弩炮"), false);
 		return 1;
+	}
+
+	/** {@code /cww ballista ammo <队> <数量>}：dev/运维补弹（探针用它替代右键装填）。 */
+	private static int ballistaAmmo(CommandContext<ServerCommandSource> ctx) {
+		int team = IntegerArgumentType.getInteger(ctx, "team");
+		int count = IntegerArgumentType.getInteger(ctx, "count");
+		BallistaService.addAmmo(team, count);
+		return CmdSupport.tell(ctx, "队 " + team + " 弹药 +" + count + " → "
+				+ BallistaService.ammoCount(team) + " 发");
 	}
 
 	/** {@code /cww catapult status}：本局已放置的投石机与归属。 */

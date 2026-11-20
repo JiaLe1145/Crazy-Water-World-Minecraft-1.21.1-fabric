@@ -37,6 +37,8 @@ public final class BallistaService {
 	private static final Map<BlockPos, Integer> ballistas = new LinkedHashMap<>();
 	/** 炮位 → 上次开火 tick。 */
 	private static final Map<BlockPos, Integer> lastFire = new LinkedHashMap<>();
+	/** 各队已装填的弹药数（09 §2.2：弩炮需弹药，1 发消耗 1 枚）。 */
+	private static final Map<Integer, Integer> ammo = new LinkedHashMap<>();
 
 	private BallistaService() {
 	}
@@ -77,6 +79,12 @@ public final class BallistaService {
 			if (!PowerService.tryConsume(team, PowerService.FACILITY_COST)) {
 				continue;   // 没电就不打（不是减半：炮台没有"半发"）
 			}
+			// 09 §2.2：弩炮「需弹药（铁+木合成）」。弹药按队记，由玩家把 nbw:ballista_bolt
+			// 对着炮位右键装填（BallistaBlock.onUse）。没弹就不发，电也不再扣。
+			if (!consumeAmmo(team)) {
+				PowerService.add(team, PowerService.FACILITY_COST);   // 把上面扣的电退回去
+				continue;
+			}
 			double dmg = DAMAGE * (EventService.stormActive() ? STORM_MULTIPLIER : 1.0);
 			target.damage(world.getDamageSources().magic(), (float) dmg);
 			lastFire.put(pos, now);
@@ -89,8 +97,7 @@ public final class BallistaService {
 		}
 	}
 
-	/** 找 32 格内最近的敌方玩家（同队/旁观/未分队都不算）。 */
-	private static ServerPlayerEntity nearestEnemy(ServerWorld world, BlockPos pos, int team) {
+	/** 找 32 格内最近的敌方玩家（同队/旁观/未分队都不算）。 */	private static ServerPlayerEntity nearestEnemy(ServerWorld world, BlockPos pos, int team) {
 		ServerPlayerEntity best = null;
 		double bestD = RANGE * RANGE;
 		double cx = pos.getX() + 0.5;
@@ -123,6 +130,10 @@ public final class BallistaService {
 		for (Map.Entry<BlockPos, Integer> e : ballistas.entrySet()) {
 			sb.append(String.format(java.util.Locale.ROOT, "%s=队%d ", e.getKey(), e.getValue()));
 		}
+		sb.append(String.format(java.util.Locale.ROOT, "｜弹药 "));
+		for (var a : ammo.entrySet()) {
+			sb.append(String.format(java.util.Locale.ROOT, "队%d=%d发 ", a.getKey(), a.getValue()));
+		}
 		return sb.toString().trim();
 	}
 
@@ -130,5 +141,28 @@ public final class BallistaService {
 	public static void reset() {
 		ballistas.clear();
 		lastFire.clear();
+		ammo.clear();
+	}
+
+	/** 装填弹药（玩家拿 nbw:ballista_bolt 对炮位右键）。 */
+	public static void addAmmo(int team, int count) {
+		if (team >= 0 && count > 0) {
+			ammo.merge(team, count, Integer::sum);
+		}
+	}
+
+	/** 某队当前弹药数。 */
+	public static int ammoCount(int team) {
+		return ammo.getOrDefault(team, 0);
+	}
+
+	/** 消耗 1 发弹药；没有就返回 false（调用方据此不开火）。 */
+	private static boolean consumeAmmo(int team) {
+		int have = ammo.getOrDefault(team, 0);
+		if (have <= 0) {
+			return false;
+		}
+		ammo.put(team, have - 1);
+		return true;
 	}
 }

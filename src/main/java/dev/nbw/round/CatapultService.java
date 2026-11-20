@@ -2,6 +2,7 @@ package dev.nbw.round;
 
 import dev.nbw.NBW;
 import dev.nbw.raft.RaftCoreService;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.BlockPos;
@@ -30,6 +31,10 @@ public final class CatapultService {
 	public static final double DAMAGE = 24.0;
 	/** 开火间隔（tick）：5 秒。 */
 	public static final int INTERVAL_TICKS = 100;
+	/** 落点范围半径（格）：09 §2.2 只写了「12♥ 范围」，半径取 4 格（约 9×9 的甲板尺度）。 */
+	public static final double SPLASH_RADIUS = 4.0;
+	/** 对玩家只给 40%（即 −60%，09 §2.2）：拆家器械不杀人。 */
+	public static final double PLAYER_DAMAGE_RATIO = 0.4;
 
 	/** 炮位 → 归属队伍。 */
 	private static final Map<BlockPos, Integer> catapults = new LinkedHashMap<>();
@@ -79,8 +84,42 @@ public final class CatapultService {
 				continue;
 			}
 			double dealt = RaftCoreService.breakCoreSiege(target, DAMAGE);   // 0 电
-			NBW.LOGGER.info("[catapult] {} 命中队 {} 筏心 -{} HP", pos, target, Math.round(dealt));
+			int hit = splashPlayers(world, target, team);
+			NBW.LOGGER.info("[catapult] {} 命中队 {} 筏心 -{} HP，波及 {} 名玩家", pos, target,
+					Math.round(dealt), hit);
 		}
+	}
+
+	/**
+	 * 落点范围伤害（09 §2.2「12♥ 范围；对玩家伤害 −60%」）：以被砸筏心为中心
+	 * {@link #SPLASH_RADIUS} 格内的敌方玩家吃 {@code DAMAGE × PLAYER_DAMAGE_RATIO}。
+	 *
+	 * <p>为什么只对<b>敌方</b>生效：投石机是拆家器械，不能拿来在自家筏上炸队友；
+	 * 对玩家只给 40% 是为了守住"拆家不杀人"的定位（09 §2.2 约束列）。
+	 */
+	private static int splashPlayers(ServerWorld world, int victimTeam, int attackerTeam) {
+		var center = RaftCoreService.coreWorldPos(world, victimTeam);
+		if (center == null) {
+			return 0;
+		}
+		int hit = 0;
+		double dmg = DAMAGE * PLAYER_DAMAGE_RATIO;
+		for (ServerPlayerEntity p : world.getPlayers()) {
+			if (p.isSpectator() || !p.isAlive()) {
+				continue;
+			}
+			var s = RoundManager.machine().session(p.getUuid());
+			int t = s == null ? -1 : s.teamIndex();
+			if (t < 0 || t == attackerTeam) {
+				continue;   // 不炸自己队
+			}
+			if (p.squaredDistanceTo(center.x, center.y, center.z) > SPLASH_RADIUS * SPLASH_RADIUS) {
+				continue;
+			}
+			p.damage(world.getDamageSources().magic(), (float) dmg);
+			hit++;
+		}
+		return hit;
 	}
 
 	/** 找 40 格内最近的敌方筏心所属队伍；没有返回 -1。 */

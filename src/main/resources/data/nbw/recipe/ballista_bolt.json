@@ -1,0 +1,9 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": [
+    { "item": "minecraft:iron_ingot" },
+    { "item": "minecraft:oak_planks" },
+    { "item": "minecraft:oak_planks" }
+  ],
+  "result": { "id": "nbw:ballista_bolt", "count": 4 }
+}
