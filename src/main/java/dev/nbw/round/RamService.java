@@ -33,8 +33,8 @@ public final class RamService {
 	public static final double RANGE = 5.0;
 	/** 垂直窗口（格）：筏心上下这么多以内才算"贴着船壳"，防止站在岸上/天上远程白嫖。 */
 	public static final double VERTICAL_WINDOW = 6.0;
-	/** 每次撞击伤害（HP）；8♥ = 16 HP。 */
-	public static final double DAMAGE = 16.0;
+	/** 每次撞击伤害（HP）；5♥ = 10 HP（2026-11-21 用户裁决：定位是打断/骚扰，不是杀伤主力）。 */
+	public static final double DAMAGE = 10.0;
 	/** 撞击间隔（tick）：1 秒。 */
 	public static final int INTERVAL_TICKS = 20;
 	/** 每次撞击耗电。 */
