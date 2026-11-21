@@ -37,7 +37,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHOT_DIR = os.path.join(ROOT, "run", "play_shots")
 LOGSHOT = os.path.join(ROOT, "run", "client-console.log")
 PY = os.path.join(ROOT, "run", "py-embed", "python.exe")
-SHOTS_PS1 = os.path.join(ROOT, "run", "_shots.ps1")
+# 截图/起客户端脚本在 tools/ 下（入库版本）。run/_shots.ps1 只是本地转发壳，
+# 别的机器 clone 下来只有 tools/ 这一份，所以这里优先用 tools/。
+SHOTS_PS1 = os.path.join(ROOT, "tools", "mc-shots.ps1")
+if not os.path.isfile(SHOTS_PS1):
+    SHOTS_PS1 = os.path.join(ROOT, "run", "_shots.ps1")
 
 # 假玩家名单（用来把"真人客户端"从 list 里区分出来）
 BOT_PREFIXES = ("s", "g", "r", "c", "e", "k", "p", "h", "hp", "cfg")

@@ -38,6 +38,23 @@ docs/dev/       新开发计划（全部重写）
   M0-RESULTS.md / M2-RESULTS.md   逐条实测记录（翻车点都在这儿）
 ```
 
+## 想自己跑一遍测试？（给别的 AI / 协作者）
+
+> **先读 [`docs/dev/AI-自主测试手册.md`](docs/dev/AI-自主测试手册.md)** —— 起服、RCON、起客户端、
+> 截图、探针目录、判据契约、故障排查、黑名单全在里面，照着做不用问人。
+>
+> 最短路径：
+>
+> ```powershell
+> .\gradlew.bat runServer --offline --console=plain > run\server-console.log 2>&1   # 等 "Done ("
+> $env:RCON_PORT="25576"; $env:RCON_PASSWORD="nbwm0"; $env:PYTHONIOENCODING="utf-8"
+> .\run\py-embed\python.exe -I -X utf8 tools\rcon.py "cww state"
+> .\run\py-embed\python.exe -I -X utf8 tools\run_all_probes.py        # 30 个探针，约 30 分钟
+> ```
+>
+> 测什么、还差什么：`docs/dev/M6-FULL-TEST-PLAN.md`（总清单）+
+> `docs/dev/M6-REMAINING-TEST-PLAN.md`（剩余项与判据）。
+
 ## 现在最重要的事
 
 **新会话（含换模型、换 AI）先读 [`docs/dev/AI-交接-v2-当前状态.md`](docs/dev/AI-交接-v2-当前状态.md)**：

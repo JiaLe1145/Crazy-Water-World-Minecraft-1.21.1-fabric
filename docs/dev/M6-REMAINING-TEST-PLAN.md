@@ -20,7 +20,7 @@
 | §3.12 | **我自己补的 7 条** | 满员并发 / 事件风暴视觉 / 跨局残留 / 低光可读 / 大厅交互 / 结算文案 / 重连压力 |
 
 配套新增工具：`tools/play_loop_probe.py`（多轮对局 + 自动截图 + `summary.json`）、
-`run/_shots.ps1` 新增 `Start-McClient` / `Stop-McClient` / `Wait-McJoined` / `Save-McShot`。
+`tools/mc-shots.ps1` 新增 `Start-McClient` / `Stop-McClient` / `Wait-McJoined` / `Save-McShot`。
 
 
 ---
@@ -74,7 +74,7 @@ $env:RCON_PORT="25576"; $env:RCON_PASSWORD="nbwm0"; $env:PYTHONIOENCODING="utf-8
 ### 1.4 怎么自动启动客户端（并自动进服）★
 
 客户端**必须**从仓库根用 `gradlew runClient` 起——直接跑 jar 会缺 dev 环境里的
-Sable/Veil 依赖。`run\_shots.ps1` 里已经把这套封装成 `Start-McClient`，它做了四件事：
+Sable/Veil 依赖。`tools/mc-shots.ps1` 里已经把这套封装成 `Start-McClient`，它做了四件事：
 
 1. 把 `run-client\options.txt` 里的 `pauseOnLostFocus` 改成 `false`
    （**必须**：截图时焦点会离开 MC，否则它会自己弹暂停菜单，画面就不是你要看的那一屏）；
@@ -85,7 +85,7 @@ Sable/Veil 依赖。`run\_shots.ps1` 里已经把这套封装成 `Start-McClient
 ```powershell
 cd C:\Users\殷子竣\Desktop\NB-Water-World\NB-Water-World
 # .ps1 不能被直接执行（策略拦截），必须先 iex 进来
-iex (Get-Content ".\run\_shots.ps1" -Raw -Encoding utf8)
+iex (Get-Content ".\tools\mc-shots.ps1" -Raw -Encoding utf8)
 
 Start-McClient                 # 启动 + 等进服（最多 180s）
 Start-McClient -Fresh          # 先杀掉已有客户端再启动（换资源/换代码后必须用它）
@@ -108,7 +108,7 @@ Wait-McJoined "Player627" 90   # 只想等某个具体玩家进服
 ### 1.5 怎么自动截图并查看画面 ★
 
 ```powershell
-iex (Get-Content ".\run\_shots.ps1" -Raw -Encoding utf8)
+iex (Get-Content ".\tools\mc-shots.ps1" -Raw -Encoding utf8)
 Save-McShot "C:\...\NB-Water-World\NB-Water-World\run\_shot_x.png"   # 摆窗口+截图+还原 DSH 一步到位
 ```
 
@@ -263,7 +263,7 @@ Get-Content run\all_probes_summary.txt -Tail 40
 # 28 个物品图标一墙看全
 .\run\py-embed\python.exe -I -X utf8 tools\frame_showcase.py
 # 截图（会自动最小化 DSH、按 DPI 正确取窗口矩形）
-iex (Get-Content .\run\_shots.ps1 -Raw -Encoding utf8)
+iex (Get-Content .\tools\mc-shots.ps1 -Raw -Encoding utf8)
 $mc = Show-Mc; Start-Sleep -Milliseconds 1500
 Capture-Mc "$PWD\run\_shot_items.png" $mc | Out-Null
 Restore-Dsh
@@ -433,7 +433,7 @@ Select-String -Path run\client-console.log -Pattern "C21|respawn|placed .* elimi
   4. 连续 5 轮都成立（单轮通过不算）。
 - **卡死时的应急恢复**（测试可以继续做下去，不算通过）：
   ```powershell
-  iex (Get-Content .\run\_shots.ps1 -Raw -Encoding utf8)
+  iex (Get-Content .\tools\mc-shots.ps1 -Raw -Encoding utf8)
   Stop-McClient; Start-McClient -Fresh     # 重连最快；席位 90s 内还能保住
   # 或：cww abort → 回到 LOBBY 再开下一局
   ```
@@ -556,7 +556,7 @@ $env:RCON_PORT="25576"; $env:RCON_PASSWORD="nbwm0"
    Create 方块，**不是本项目的缺陷**，可忽略。
 7. **机器上可能同时开着别人的 Minecraft**（实测见到 `Minecraft* Forge 1.20.1 - 多人游戏`）：
    凡是"按窗口标题匹配/按进程名杀"的动作都必须收紧到 `Minecraft* 1.21.1`，
-   否则会截到别人的游戏、甚至把别人的游戏关掉。`run/_shots.ps1` 已按这条改好
+   否则会截到别人的游戏、甚至把别人的游戏关掉。`tools/mc-shots.ps1` 已按这条改好
    （`Stop-McClient` 只杀窗口所属 PID）。
 8. **最小化窗口的矩形是假的**：`GetWindowRect` 会返回 `-21333,-21333` 这种哨兵值，
    拿去 `CopyFromScreen` 会截出 158×26 的垃圾图。`Capture-Mc` 现在先用 `Test-McRect`
@@ -621,6 +621,6 @@ $env:RCON_PORT="25576"; $env:RCON_PASSWORD="nbwm0"
 | `tools/worldbuild.py <lobby\|flattest\|arena\|template>` | 重建大厅 / 水池 / 两张海域 / 残骸模板 |
 | `tools/gen_water_pistol_icon.py` | 重画 `water_pistol.png` 并全量校验贴图 |
 | `tools/rcon.py --batch "a" "b"` | 单条/多条 RCON |
-| `run/_shots.ps1` · `Start-McClient` / `Stop-McClient` / `Wait-McJoined` | **自动起客户端 + 自动进服**（§1.4） |
-| `run/_shots.ps1` · `Save-McShot` / `Show-Mc` / `Capture-Mc` / `Restore-Dsh` | **自动截图**（已处理 DPI，§1.5） |
-| `run/_win.ps1` | 窗口查找/置前/按矩形截图（底层实现） |
+| `tools/mc-shots.ps1` · `Start-McClient` / `Stop-McClient` / `Wait-McJoined` | **自动起客户端 + 自动进服**（§1.4） |
+| `tools/mc-shots.ps1` · `Save-McShot` / `Show-Mc` / `Capture-Mc` / `Restore-Dsh` | **自动截图**（已处理 DPI，§1.5） |
+| `tools/mc-window.ps1` | 窗口查找/置前/按矩形截图（底层实现） |
