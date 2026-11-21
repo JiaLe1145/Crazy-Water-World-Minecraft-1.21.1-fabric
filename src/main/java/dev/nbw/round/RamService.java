@@ -1,6 +1,7 @@
 package dev.nbw.round;
 
 import dev.nbw.NBW;
+import dev.nbw.content.NbwContent;
 import dev.nbw.raft.RaftCoreService;
 import dev.nbw.raft.RaftSpawner;
 import dev.nbw.sable.SableRafts;
@@ -12,6 +13,7 @@ import net.minecraft.util.math.BlockPos;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 撞角（09 §2.2 设施武器）：装在本队筏上，<b>筏在平移时</b>才会对贴上来的敌人造成撞击伤害。
@@ -163,5 +165,23 @@ public final class RamService {
 	public static void reset() {
 		rams.clear();
 		lastHit.clear();
+	}
+
+	/** 重启恢复：从各筏 plot 重建撞角登记。 */
+	public static void rebuildFromWorld(MinecraftServer srv) {
+		rams.clear();
+		lastHit.clear();
+		ServerWorld world = srv.getOverworld();
+		for (Map.Entry<Integer, UUID> raft : RaftSpawner.current().entrySet()) {
+			for (SableRafts.PlotBlock b : SableRafts.plotBlocks(world, raft.getValue(), 12, -1, 8)) {
+				if (b.state().isOf(NbwContent.ram)) {
+					BlockPos storage = SableRafts.localToStorage(world, raft.getValue(), b.lx(), b.ly(), b.lz());
+					if (storage != null) {
+						rams.put(storage, raft.getKey());
+					}
+				}
+			}
+		}
+		NBW.LOGGER.info("[ram] 重启恢复撞角 {} 个", rams.size());
 	}
 }

@@ -126,6 +126,30 @@ def main():
     expect("拒绝" in out and "攻速超频" in out,
            "同一 tick 第二发被超频拒绝：%s" % out[:220])
 
+    print("\n== 1b. 同队攻击必须没有任何效果（2026-11-21 修复的友伤泄漏）")
+    # probe2 刚占用了攻速窗口，先等冷却结束再真实挥击。
+    teammate = holder
+    p.sleep(1.0)
+    p("tp %s 1000.5 149 1000.5" % attacker)
+    p("tp %s 1001.5 149 1000.5" % teammate)
+    p.sleep(0.3)
+    hp0 = health(p, teammate)
+    pos0 = pos(p, teammate)
+    aim_and_attack(p, attacker, teammate)
+    p.sleep(0.6)
+    hp1 = health(p, teammate)
+    surv = p("cww survival status %s" % teammate)
+    stats = p("cww stats")
+    pos1 = pos(p, teammate)
+    print("      HP=%s -> %s｜%s｜%s" % (hp0, hp1, surv[:120], stats[:120]))
+    expect(hp0 == 20.0 and hp1 == 20.0, "同队攻击不掉血（%s -> %s）" % (hp0, hp1))
+    expect("流血=否" in surv and "骨折=否" in surv, "同队攻击不上流血/骨折：%s" % surv[:140])
+    expect("本局暂无战绩" in stats or "伤害" not in stats,
+           "同队攻击不进战绩：%s" % stats[:140])
+    expect(pos0 is not None and pos1 is not None
+           and abs(pos0[0] - pos1[0]) < 0.2 and abs(pos0[2] - pos1[2]) < 0.2,
+           "同队攻击不产生击退（%s -> %s）" % (pos0, pos1))
+
     print("\n== 2. 审计留痕：超频拒绝计数与最近判定")
     st2 = weapon_status(p)
     m = re.search(r"超频拒绝=(\d+)", st2)

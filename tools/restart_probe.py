@@ -76,6 +76,9 @@ def before():
         if all(b.lower() in cmd(sock, "list").lower() for b, _ in BOTS):
             break
         time.sleep(1)
+    # flat_test 现在是有水的测试池：假玩家会沉水并在 15s 后溺水，必须补水下呼吸。
+    for bot, _ in BOTS:
+        cmd(sock, "effect give %s minecraft:water_breathing infinite 0 true" % bot)
     for bot, team in BOTS:
         cmd(sock, "cww force %s %d" % (bot, team))
     cmd(sock, "cww start test_3min flat_test")
@@ -137,6 +140,24 @@ def after():
            "阶段内 tick 没倒退：%d -> %d" % (before_tick, after_tick))
     expect(after_tick - before_tick < 6000,
            "阶段内 tick 也没莫名跳一大截（差 %d）" % (after_tick - before_tick))
+
+    print("== after: 玩法子系统也必须恢复（2026-11-21 修复的半死局）")
+    # 筏子可能比状态机晚载入；先等重认领，再断言幸存者/帆等依赖筏的登记。
+    raft_all = ""
+    for _ in range(30):
+        raft_all = cmd(sock, "cww raft all")
+        if "队0" in raft_all and "还没生成" not in raft_all:
+            break
+        time.sleep(1)
+    expect("队0" in raft_all, "重启后筏已重新认领：%s" % raft_all[:140])
+    expect("未初始化" not in cmd(sock, "cww zone"), "圈层已恢复：%s" % cmd(sock, "cww zone")[:100])
+    expect("没有电量池" not in cmd(sock, "cww power status"),
+           "电量池已恢复：%s" % cmd(sock, "cww power status")[:100])
+    expect("没有事件池" not in cmd(sock, "cww event"), "事件池已恢复：%s" % cmd(sock, "cww event")[:100])
+    expect("未开局" not in cmd(sock, "cww metrics"), "埋点已恢复：%s" % cmd(sock, "cww metrics")[:100])
+    survivor = cmd(sock, "cww survivor")
+    expect("本局没有幸存者" not in survivor and "幸存者=0" not in survivor,
+           "幸存者已恢复：%s" % survivor[:140])
 
     print("== after: 恢复出来的机器还得能继续跑完")
     cmd(sock, "cww audit 6", quiet=False)

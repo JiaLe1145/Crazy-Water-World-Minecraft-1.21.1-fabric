@@ -1,6 +1,10 @@
 package dev.nbw.round;
 
 import dev.nbw.NBW;
+import dev.nbw.content.BallistaBlock;
+import dev.nbw.content.NbwContent;
+import dev.nbw.raft.RaftSpawner;
+import dev.nbw.sable.SableRafts;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
@@ -8,6 +12,7 @@ import net.minecraft.util.math.BlockPos;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 弩炮（09 §2.2 设施武器）：放在筏上的定点防御，自动打 32 格内最近的敌方玩家。
@@ -97,12 +102,17 @@ public final class BallistaService {
 		}
 	}
 
-	/** 找 32 格内最近的敌方玩家（同队/旁观/未分队都不算）。 */	private static ServerPlayerEntity nearestEnemy(ServerWorld world, BlockPos pos, int team) {
+	/** 找 32 格内最近的敌方玩家（同队/旁观/未分队都不算）。 */
+	private static ServerPlayerEntity nearestEnemy(ServerWorld world, BlockPos pos, int team) {
 		ServerPlayerEntity best = null;
 		double bestD = RANGE * RANGE;
-		double cx = pos.getX() + 0.5;
-		double cy = pos.getY() + 0.5;
-		double cz = pos.getZ() + 0.5;
+		double[] center = facilityWorldCenter(world, pos, team);
+		if (center == null) {
+			return null;
+		}
+		double cx = center[0];
+		double cy = center[1];
+		double cz = center[2];
 		for (ServerPlayerEntity p : world.getPlayers()) {
 			if (p.isSpectator() || !p.isAlive()) {
 				continue;
@@ -119,6 +129,26 @@ public final class BallistaService {
 			}
 		}
 		return best;
+	}
+
+	/**
+	 * 炮位键可能是两种坐标：
+	 * <ul>
+	 *   <li>玩家真实放置：Sable 存储坐标（量级 2×10^7）→ 用位的姿换算成世界坐标；</li>
+	 *   <li>dev 命令放置：命令源世界坐标（量级几百到几万）→ 原样使用。</li>
+	 * </ul>
+	 * 用坐标量级区分，避免把命令放置的炮位也做一次逆变换。
+	 */
+	private static double[] facilityWorldCenter(ServerWorld world, BlockPos pos, int team) {
+		if (Math.abs(pos.getX()) > 1_000_000 || Math.abs(pos.getZ()) > 1_000_000) {
+			UUID raft = RaftSpawner.raftOf(team);
+			if (raft == null) {
+				return null;
+			}
+			double[] w = SableRafts.storageToWorld(world, raft, pos);
+			return Double.isNaN(w[0]) ? null : w;
+		}
+		return new double[]{pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5};
 	}
 
 	/** 一行读数：给 {@code /cww ballista}。 */
@@ -142,6 +172,29 @@ public final class BallistaService {
 		ballistas.clear();
 		lastFire.clear();
 		ammo.clear();
+	}
+
+	/**
+	 * 重启恢复：炮位表是内存状态，重启后从各筏 plot 里的主方块重建。
+	 * 存储坐标必须走 {@link SableRafts#localToStorage}，与 {@code onPlaced} 登记的键同一空间。
+	 * 本局弹药/冷却不跨重启（没有持久化），这里只恢复“哪里有炮、属于谁”。
+	 */
+	public static void rebuildFromWorld(MinecraftServer srv) {
+		ballistas.clear();
+		lastFire.clear();
+		ServerWorld world = srv.getOverworld();
+		for (Map.Entry<Integer, UUID> raft : RaftSpawner.current().entrySet()) {
+			for (SableRafts.PlotBlock b : SableRafts.plotBlocks(world, raft.getValue(), 12, -1, 8)) {
+				if (b.state().isOf(NbwContent.ballista)
+						&& b.state().get(BallistaBlock.PART) == BallistaBlock.Part.MAIN) {
+					BlockPos storage = SableRafts.localToStorage(world, raft.getValue(), b.lx(), b.ly(), b.lz());
+					if (storage != null) {
+						ballistas.put(storage, raft.getKey());
+					}
+				}
+			}
+		}
+		NBW.LOGGER.info("[ballista] 重启恢复炮位 {} 门", ballistas.size());
 	}
 
 	/** 装填弹药（玩家拿 nbw:ballista_bolt 对炮位右键）。 */

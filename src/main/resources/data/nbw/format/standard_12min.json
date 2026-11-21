@@ -15,7 +15,7 @@
   },
   "loot": { "tierBias": "standard", "respawnIntervalSec": 22, "respawnBatch": 4, "maxFloating": 24 },
   "events": {
-    "pool": ["supply_rain", "storm", "kraken", "black_sea_surge", "survivor_drift", "bounty"],
+    "pool": ["supply_rain", "storm", "black_sea_surge", "survivor_drift", "bounty"],
     "intervalSec": [150, 240]
   }
 }

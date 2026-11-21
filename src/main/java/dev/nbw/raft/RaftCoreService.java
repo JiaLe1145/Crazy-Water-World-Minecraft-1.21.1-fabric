@@ -170,6 +170,13 @@ public final class RaftCoreService {
 
 	/** 客户端检测到最后一次有效右键时续一次；dev 侧走 {@link #hold}。 */
 	public static void keepalive(UUID player, int teamIndex) {
+		// 归属门：只有本队玩家能修复本队筏心。2026-11-21 实测敌队玩家可以把
+		// 我方 WRECKAGE 修回 INTACT 并消耗我方额度；这里同时覆盖 nbw:hold 包与
+		// RaftCoreBlock.onUse 两条入口。
+		var session = dev.nbw.round.RoundManager.machine().session(player);
+		if (session == null || session.teamIndex() != teamIndex) {
+			return;
+		}
 		if (phases.get(teamIndex) != Phase.WRECKAGE) {
 			return;
 		}
@@ -203,6 +210,11 @@ public final class RaftCoreService {
 	public static String hold(MinecraftServer server, @Nullable UUID player, int teamIndex, int ticks) {
 		if (player == null) {
 			return "必须指定在线玩家";
+		}
+		var session = dev.nbw.round.RoundManager.machine().session(player);
+		if (session == null || session.teamIndex() != teamIndex) {
+			return "队 " + teamIndex + " 的筏心只能由本队玩家修复（该玩家属于队 "
+					+ (session == null ? "无" : session.teamIndex()) + "）";
 		}
 		if (phases.get(teamIndex) != Phase.WRECKAGE) {
 			return "队 " + teamIndex + " 的筏心不是残骸状态，没有东西可修（先 /cww raftcore destroy " + teamIndex + "）";
@@ -238,7 +250,17 @@ public final class RaftCoreService {
 		}
 		coreByPos.put(key, teamIndex);
 		if (phases.get(teamIndex) == null) {
-			phases.put(teamIndex, Phase.INTACT);
+			// 重启恢复：BE 重新登记时从方块状态把“残骸”读回来。
+			// 快照没有存 coreHp，所以 HP 只能回到一个可继续游戏的值；
+			// 至少不会把已经打爆的筏心静默恢复成完好。
+			var state = server.getOverworld().getBlockState(pos);
+			if (state.getBlock() instanceof dev.nbw.content.RaftCoreBlock
+					&& state.get(dev.nbw.content.RaftCoreBlock.WRECKAGE)) {
+				phases.put(teamIndex, Phase.WRECKAGE);
+				coreHp.put(teamIndex, 0.0);
+			} else {
+				phases.put(teamIndex, Phase.INTACT);
+			}
 		}
 		return true;
 	}
@@ -388,6 +410,9 @@ public final class RaftCoreService {
 
 	private static void onRestored(MinecraftServer server, int teamIndex, UUID who) {
 		phases.put(teamIndex, Phase.INTACT);
+		// 残骸修复成功后 HP 必须回满：此前只把相位改回 INTACT，coreHp 仍是 0，
+		// 下一次破拆会立刻再次打爆（core_probe 只断言相位，没抓到这个）。
+		coreHp.put(teamIndex, CORE_HP);
 		holder.remove(teamIndex);
 		keepaliveUntil.remove(teamIndex);
 		simulatedHolder.remove(teamIndex);
@@ -412,6 +437,8 @@ public final class RaftCoreService {
 		simulatedHolder.clear();
 		simulatedHoldUntil.clear();
 		damagedThisTick.clear();
+		coreByPos.clear();   // 跨局残留会让下一局的投石机/坐标查询读到上一局的筏心
+		stateSyncs = 0;
 		tick = 0;
 	}
 

@@ -134,6 +134,33 @@ public final class Sailing {
 	}
 
 	/**
+	 * 重启恢复：帆表是内存状态，重启后必须从筏的 plot 里重新扫出来，
+	 * 否则服务端认为“帆=0”，风就推不动一艘明明挂着帆的筏。
+	 * 重复调用会先清空再重建，幂等。
+	 */
+	public static void rebuildFromWorld(MinecraftServer server) {
+		sailsByTeam.clear();
+		if (server == null) {
+			return;
+		}
+		ServerWorld world = server.getOverworld();
+		int total = 0;
+		for (Map.Entry<Integer, UUID> entry : RaftSpawner.current().entrySet()) {
+			List<SailCell> cells = new ArrayList<>();
+			for (SableRafts.PlotBlock b : SableRafts.plotBlocks(world, entry.getValue(), 12, -1, 8)) {
+				if (b.state().isOf(NbwContent.sail)) {
+					cells.add(new SailCell(b.lx(), b.ly(), b.lz(), b.state().get(SailBlock.FACING)));
+				}
+			}
+			if (!cells.isEmpty()) {
+				sailsByTeam.put(entry.getKey(), cells);
+				total += cells.size();
+			}
+		}
+		NBW.LOGGER.info("[sail] 从世界重建帆表：{} 面（{} 队）", total, sailsByTeam.size());
+	}
+
+	/**
 	 * 玩家<b>手动</b>放下一块帆（{@code SailBlock.onPlaced} 调这里）。
 	 *
 	 * <p>2026-11-21 补：此前帆只能由 {@code /cww sail rig}（权限 2）挂上去，

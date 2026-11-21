@@ -1,7 +1,11 @@
 package dev.nbw.round;
 
 import dev.nbw.NBW;
+import dev.nbw.content.CatapultBlock;
+import dev.nbw.content.NbwContent;
 import dev.nbw.raft.RaftCoreService;
+import dev.nbw.raft.RaftSpawner;
+import dev.nbw.sable.SableRafts;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.world.ServerWorld;
@@ -10,6 +14,7 @@ import net.minecraft.util.math.BlockPos;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 投石机（09 §2.2 设施武器）：40 格外的攻城器械，只打敌方筏心。
@@ -75,10 +80,11 @@ public final class CatapultService {
 			if (target < 0) {
 				// 调试：告诉运维"为什么没打"——是没有敌方筏心，还是超距
 				var mine = RaftCoreService.coreWorldPos(world, team == 0 ? 1 : 0);
-				double d = mine == null ? -1.0 : Math.sqrt(
-						Math.pow(mine.x - (pos.getX() + 0.5), 2)
-						+ Math.pow(mine.y - (pos.getY() + 0.5), 2)
-						+ Math.pow(mine.z - (pos.getZ() + 0.5), 2));
+				double[] center = facilityWorldCenter(world, pos, team);
+				double d = mine == null || center == null ? -1.0 : Math.sqrt(
+						Math.pow(mine.x - center[0], 2)
+						+ Math.pow(mine.y - center[1], 2)
+						+ Math.pow(mine.z - center[2], 2));
 				NBW.LOGGER.debug("[catapult] {} 无目标：敌方筏心={} 距离={}（射程 {}）",
 						pos, mine == null ? "取不到" : mine.toString(), String.format(Locale.ROOT, "%.1f", d), RANGE);
 				continue;
@@ -126,9 +132,13 @@ public final class CatapultService {
 	private static int nearestEnemyCore(net.minecraft.server.world.ServerWorld world, BlockPos pos, int team) {
 		int best = -1;
 		double bestD = RANGE;
-		double cx = pos.getX() + 0.5;
-		double cy = pos.getY() + 0.5;
-		double cz = pos.getZ() + 0.5;
+		double[] center = facilityWorldCenter(world, pos, team);
+		if (center == null) {
+			return -1;
+		}
+		double cx = center[0];
+		double cy = center[1];
+		double cz = center[2];
 		for (var t : RoundManager.machine().teams()) {
 			int other = t.index();
 			if (other == team) {
@@ -151,6 +161,19 @@ public final class CatapultService {
 		return best;
 	}
 
+	/** 炮位坐标归一：玩家真实放置的是 Sable 存储坐标，dev 命令放置的是世界坐标。 */
+	private static double[] facilityWorldCenter(ServerWorld world, BlockPos pos, int team) {
+		if (Math.abs(pos.getX()) > 1_000_000 || Math.abs(pos.getZ()) > 1_000_000) {
+			UUID raft = RaftSpawner.raftOf(team);
+			if (raft == null) {
+				return null;
+			}
+			double[] w = SableRafts.storageToWorld(world, raft, pos);
+			return Double.isNaN(w[0]) ? null : w;
+		}
+		return new double[]{pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5};
+	}
+
 	/** 一行读数：给 {@code /cww catapult}。 */
 	public static String status() {
 		if (catapults.isEmpty()) {
@@ -167,5 +190,24 @@ public final class CatapultService {
 	public static void reset() {
 		catapults.clear();
 		lastFire.clear();
+	}
+
+	/** 重启恢复：从各筏 plot 重建投石机炮位（只认主方块）。 */
+	public static void rebuildFromWorld(MinecraftServer srv) {
+		catapults.clear();
+		lastFire.clear();
+		ServerWorld world = srv.getOverworld();
+		for (Map.Entry<Integer, UUID> raft : RaftSpawner.current().entrySet()) {
+			for (SableRafts.PlotBlock b : SableRafts.plotBlocks(world, raft.getValue(), 12, -1, 8)) {
+				if (b.state().isOf(NbwContent.catapult)
+						&& b.state().get(CatapultBlock.PART) == CatapultBlock.Part.MAIN) {
+					BlockPos storage = SableRafts.localToStorage(world, raft.getValue(), b.lx(), b.ly(), b.lz());
+					if (storage != null) {
+						catapults.put(storage, raft.getKey());
+					}
+				}
+			}
+		}
+		NBW.LOGGER.info("[catapult] 重启恢复炮位 {} 门", catapults.size());
 	}
 }

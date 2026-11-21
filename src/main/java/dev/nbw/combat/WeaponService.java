@@ -203,11 +203,18 @@ public final class WeaponService {
 			return ActionResult.PASS;
 		}
 		if (sp.isSpectator()) {
-			return ActionResult.PASS;   // 淘汰观战者不能挥击：防伪造攻击包让观战者参与 PVP
+			return ActionResult.FAIL;   // 淘汰观战者不能挥击：防伪造攻击包让观战者参与 PVP
 		}
 		// 只在 PLAY 生效：非 PLAY 阶段挥击不该触发攻速闸门/击退/审计（PVP 本身已由 RoundManager 闸掉）。
 		if (!RoundManager.phase().allowsPvp()) {
 			return ActionResult.PASS;
+		}
+		// 同队攻击必须在任何效果之前彻底取消：RoundManager 的 ALLOW_DAMAGE 只能挡住血量，
+		// 挡不住下面这些回调里的击退、流血/骨折和战绩统计（2026-11-21 实测：
+		// 队友被砍后 HP 不掉，但流血=是、战绩记 6 伤害、被击退 4.6 格，2 秒后 HP 20→14）。
+		if (target instanceof ServerPlayerEntity teammate
+				&& RoundManager.machine().sameTeam(sp.getUuid(), teammate.getUuid())) {
+			return ActionResult.FAIL;
 		}
 		ItemStack stack = sp.getStackInHand(hand);
 		if (!(stack.getItem() instanceof WeaponItem wi)) {

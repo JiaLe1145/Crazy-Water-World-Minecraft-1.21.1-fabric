@@ -129,6 +129,12 @@ public final class RangedWeaponItem extends Item {
 			if (!(e instanceof LivingEntity le) || le.isDead() || le.isSpectator()) {
 				continue;
 			}
+			// 同队玩家不作为远程目标：RoundManager 的同队门只能挡住最终血量，
+			// 挡不住鱼叉拉人和战绩累计，所以必须在选目标时就排除（2026-11-21 实测）。
+			if (le instanceof ServerPlayerEntity other
+					&& RoundManager.machine().sameTeam(shooter.getUuid(), other.getUuid())) {
+				continue;
+			}
 			Vec3d targetCenter = le.getPos().add(0.0, le.getHeight() * 0.5, 0.0);
 			Vec3d toEntity = targetCenter.subtract(eye);
 			double along = toEntity.dotProduct(dir);

@@ -90,6 +90,29 @@ public final class LootService {
 	}
 
 	/**
+	 * 重启恢复：服务端重启后不重新预铺（旧箱子还在世界里），
+	 * 只恢复计时/补箱配置并清掉压在筏体附近的旧箱子。
+	 * 旧箱子没有进 {@code spawned} 表，所以本局结束不会替它们做还原——
+	 * 这是重启用最小实现，避免把“恢复”做成“重新撒一遍”。
+	 */
+	public static void resume(MinecraftServer server) {
+		LootService.server = server;
+		ConfigModels.Format f = RoundManager.formatOrNull();
+		int sec = f != null && f.loot != null && f.loot.respawnIntervalSec > 0 ? f.loot.respawnIntervalSec : 22;
+		int batch = f != null && f.loot != null && f.loot.respawnBatch != null && f.loot.respawnBatch > 0
+				? f.loot.respawnBatch : 4;
+		int maxFloating = f != null && f.loot != null && f.loot.maxFloating != null && f.loot.maxFloating > 0
+				? f.loot.maxFloating : 24;
+		respawnIntervalTicks = sec * 20;
+		RESPAWN_BATCH = batch;
+		MAX_FLOATING = maxFloating;
+		tick = 0;
+		spawned.clear();
+		int cleared = clearNearRafts(server);
+		NBW.LOGGER.info("[loot] 重启恢复：沿用海面已有箱子（清掉近筏 {} 个），补箱计时从 0 开始", cleared);
+	}
+
+	/**
 	 * 开局撒箱子：读 {@code arena.loot.prefill}，在 radiusBand 里按数量随机布点。
 	 *
 	 * @return 一行结论（给日志/命令）

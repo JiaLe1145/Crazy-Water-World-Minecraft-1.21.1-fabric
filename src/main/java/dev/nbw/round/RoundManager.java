@@ -29,6 +29,7 @@ import dev.nbw.raft.RaftMotionService;
 import dev.nbw.raft.RaftSinking;
 import dev.nbw.raft.RaftSpawner;
 import dev.nbw.raft.RemoteService;
+import dev.nbw.raft.Sailing;
 import dev.nbw.raft.WindService;
 import dev.nbw.domain.round.Transitions;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
@@ -85,6 +86,13 @@ public final class RoundManager {
 	 */
 	private static final Set<UUID> pendingPlacement = new LinkedHashSet<>();
 	private static int placementStallTicks;
+	/**
+	 * 重启恢复后筏子可能比状态机晚载入；帆/设施登记要等重认领成功后再从 plot 扫一次。
+	 * 这个标记只在对局中恢复时为 true，由 20 tick 的重试块消费。
+	 */
+	private static boolean restoredRuntimePending;
+	/** 幸存者必须在筏子所在区块加载之后再 spawn，否则世界还找不到实体、下一拍就被当死亡清掉。 */
+	private static boolean restoredSurvivorsPending;
 
 	/** 报名期席位清扫的节拍计数（每秒一次就够，不必每 tick 点一遍在场列表）。 */
 	private static int lobbySweepTicks;
@@ -230,6 +238,9 @@ public final class RoundManager {
 		// rebind 是幂等的（补 UUID + 绑沉筏 + 补票），所以只在还有队没绑上时按节拍重试。
 		if (machine.phase().matchActive() && machine.tickInPhase() % 20 == 0 && RaftSpawner.needsRebind()) {
 			NBW.LOGGER.info("[state] 延后重试认领：{}", RaftSpawner.rebindFromWorld(srv));
+			if (restoredRuntimePending) {
+				rebuildRestoredRegistriesIfReady();
+			}
 		}
 		broadcastCountdown();
 	}
@@ -367,6 +378,9 @@ public final class RoundManager {
 			case ENROLL -> {
 				anchors.clear();
 				lastParticipants.clear();
+				// 新一轮正常开局：上一局残留的“重启恢复待办”绝不能带进来。
+				restoredRuntimePending = false;
+				restoredSurvivorsPending = false;
 				announce("§b第 " + t.matchIndex() + " 局开始分队（" + seconds(machine.config().enrollTicks())
 						+ "s），/cww join [队伍号] 自主选队");
 			}
@@ -394,8 +408,15 @@ public final class RoundManager {
 				LootService.begin(server);   // 海面物资：按 loot.prefill 撒补给箱 + 定补箱间隔
 				SurvivalService.begin(server);   // 生存：参赛者满营养/满水分
 				EventService.begin(server);   // 事件池（M5-1）：排第一发
-				SurvivorService.begin(server);   // 幸存者（M5-2）：每队按人数发人/口粮
+				if (!restoredSurvivorsPending) {
+					// 从 READY 恢复进 PLAY 时，幸存者要等筏重认领后再 spawn（见 rebuildRestoredRegistriesIfReady）。
+					SurvivorService.begin(server);   // 幸存者（M5-2）：每队按人数发人/口粮
+				}
 				PowerService.begin(server);   // 功率池（M4 补）：每队电量清零
+				if (restoredRuntimePending) {
+					// 从 READY 恢复后第一次进 PLAY：筏已载入，补扫帆/设施登记。
+					rebuildRestoredRegistriesIfReady();
+				}
 				announce("§c对局开始！最后存活队获胜");
 			}
 			case SETTLE -> {
@@ -898,11 +919,74 @@ public final class RoundManager {
 		// 不在快照里。不重认领的话，恢复出来的这一局会看不见自己的筏。
 		if (machine.phase().matchActive()) {
 			NBW.LOGGER.info("[state] {}", RaftSpawner.rebindFromWorld(server));
+			// 状态机恢复只是第一步：anchors / lastParticipants / 各玩法 Service 全是运行时状态，
+			// 不重建就会出现“phase=PLAY 但圈层未初始化、幸存者/电量/事件/帆表全空”的半死局。
+			buildAnchors();
+			lastParticipants.clear();
+			lastParticipants.addAll(currentParticipants());
+			restoredRuntimePending = true;
+			restoredSurvivorsPending = true;
+			if (machine.phase() == Phase.PLAY) {
+				resumePlayServices();
+			}
+			NBW.LOGGER.info("[state] 玩法子系统恢复完成：anchors={} participants={} phase={}",
+					anchors.size(), lastParticipants.size(), machine.phase());
 		}
 		NBW.LOGGER.info("[state] 已恢复到阶段 {}（match={}，阶段内 {} tick，参战 {} 人）",
 				machine.phase(), machine.matchIndex(), machine.tickInPhase(),
 				machine.snapshot(0).participantCount());
 		return RoundStateStore.describe(load);
+	}
+
+	/**
+	 * 对局中重启后重做一次“进入 PLAY”的运行时初始化。
+	 *
+	 * <p>快照只存回合状态机，不存圈层模型、物资列表、幸存者、电量、事件窗口、帆表/炮位表；
+	 * 这些全是内存状态。恢复时把它们按当前阶段重新起一遍，比让对局带着半套系统继续跑要好。
+	 * 能保住的部分（阶段秒数、队伍、席位）已经在 {@code machine.restore} 里恢复。
+	 *
+	 * <p>已知边界：筏心 HP、沉筏倒计时、弩炮弹药/冷却没有持久化，重启后回到初始值；
+	 * 这一层要真正无损需要把对应状态写进快照，属于后续工作。
+	 */
+	private static void resumePlayServices() {
+		MetricsService.begin(server);
+		ZoneService.begin(server);
+		LootService.resume(server);
+		SurvivalService.begin(server);
+		EventService.begin(server);
+		PowerService.begin(server);
+		rebuildRestoredRegistriesIfReady();
+	}
+
+	/** 筏子载入后从 plot 重建帆/弩炮/投石机/撞角登记；筏还没载入时留给 20 tick 重试块。 */
+	private static void rebuildRestoredRegistriesIfReady() {
+		if (server == null) {
+			return;
+		}
+		if (RaftSpawner.current().isEmpty()) {
+			restoredRuntimePending = true;
+			NBW.LOGGER.info("[state] 筏尚未载入，帆/设施/幸存者将在重认领后重建");
+			return;
+		}
+		// 所有“有成员的队”都认出筏之后再重建：Sable 可能分两拍才把两艘筏载进来，
+		// 只看到第一艘就重建会让第二队的帆/设施漏登记。
+		for (var team : machine.teams()) {
+			if (!team.members().isEmpty() && RaftSpawner.raftOf(team.index()) == null) {
+				restoredRuntimePending = true;
+				NBW.LOGGER.info("[state] 还有队未认出筏（队 {}），登记重建推迟到下一拍", team.index());
+				return;
+			}
+		}
+		if (restoredSurvivorsPending) {
+			// 此刻筏已重认领、区块被 Sable 的持有票加载，spawn 的村民才找得到实体。
+			SurvivorService.begin(server);
+			restoredSurvivorsPending = false;
+		}
+		Sailing.rebuildFromWorld(server);
+		BallistaService.rebuildFromWorld(server);
+		CatapultService.rebuildFromWorld(server);
+		RamService.rebuildFromWorld(server);
+		restoredRuntimePending = false;
 	}
 
 	/** 运维手动落盘（正常路径是每次转移自动落，这里给"我想现在就存一份"留个口子）。 */

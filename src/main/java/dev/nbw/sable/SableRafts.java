@@ -200,6 +200,53 @@ public final class SableRafts {
 		return a == null ? null : a.getBlockState(new BlockPos(lx, ly, lz));
 	}
 
+	/** 一格非空 plot 方块：局部坐标 + 方块状态。给重启后重建帆/设施登记用。 */
+	public record PlotBlock(int lx, int ly, int lz, BlockState state) {
+	}
+
+	/**
+	 * 扫描 plot 局部盒里的非空方块。只在恢复/诊断时调用（不是每 tick），
+	 * 半径 12 × y[-1,8] 对 17×17 的筏约 6.9k 次读取。
+	 */
+	public static List<PlotBlock> plotBlocks(ServerWorld world, UUID raftId, int radius, int minY, int maxY) {
+		EmbeddedPlotLevelAccessor a = accessor(world, raftId);
+		if (a == null) {
+			return List.of();
+		}
+		List<PlotBlock> out = new ArrayList<>();
+		for (int y = minY; y <= maxY; y++) {
+			for (int x = -radius; x <= radius; x++) {
+				for (int z = -radius; z <= radius; z++) {
+					BlockState state = a.getBlockState(new BlockPos(x, y, z));
+					if (state != null && !state.isAir()) {
+						out.add(new PlotBlock(x, y, z, state));
+					}
+				}
+			}
+		}
+		return out;
+	}
+
+	/** 局部坐标 → 父世界存储坐标（设施服务的 Map<BlockPos,…> 键用的是存储坐标）。 */
+	public static @Nullable BlockPos localToStorage(ServerWorld world, UUID raftId, int lx, int ly, int lz) {
+		BlockPos center = accessorOrigin(world, raftId);
+		return center == null ? null : center.add(lx, ly, lz);
+	}
+
+	/**
+	 * 方块存储坐标 → 世界坐标（方块格中心）。
+	 *
+	 * <p>弩炮/投石机在 plot 里登记的是存储坐标，而射程要拿玩家世界坐标比；
+	 * 直接拿存储坐标（约 2×10^7）当世界坐标用，距离永远是天量，设施永远不开火。
+	 */
+	public static double[] storageToWorld(ServerWorld world, UUID raftId, BlockPos pos) {
+		double[] local = storageToLocal(world, raftId, pos);
+		if (Double.isNaN(local[0])) {
+			return new double[]{Double.NaN, Double.NaN, Double.NaN};
+		}
+		return localToWorld(world, raftId, local[0] + 0.5, local[1] + 0.5, local[2] + 0.5);
+	}
+
 	/**
 	 * 局部坐标六邻格里"实心方块"的位掩码（建造邻接判定用：新方块必须贴着已有筏体）。
 	 *

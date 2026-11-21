@@ -107,6 +107,10 @@ def main():
             if all(b.lower() in p.cmd("list").lower() for b, _ in BOTS):
                 break
             time.sleep(1)
+        # flat_test 现在是有水的测试池；假玩家会沉水并在 15s 后溺水，
+        # 那会在“连续引导”快完成时把引导者打断（实测 116/160 被打断）。
+        for bot, _ in BOTS:
+            p("effect give %s minecraft:water_breathing infinite 0 true" % bot)
         for bot, team in BOTS:
             p("cww force %s %d" % (bot, team))
         p("cww start test_3min flat_test")
@@ -177,11 +181,19 @@ def main():
     time.sleep(1.0)
     expect(p.sink_phase() == "COUNTDOWN", "第2局倒计时开始（实际 %s）" % p.sink_phase())
 
-    print("== 3b. 换一个干净的引导者")
-    # 不 kill+spawn（那会换 UUID）、也不复用被打残的人：用一个本局全新的名字
-    p("player " + CH + " spawn")
-    time.sleep(3.0)
-    expect(CH.lower() in p.cmd("list").lower(), CH + " 在线，可以当引导者")
+    print("== 3a. 敌队玩家不能修复本队筏心（2026-11-21 修复的归属门）")
+    enemy = BOTS[2][0]   # 队 1 的假玩家
+    denied = p(("cww raftcore hold " + enemy + " %d 100") % TEAM, quiet=False)
+    expect("只能由本队" in denied, "敌队修复被拒并点名归属：%s" % denied[:140])
+    expect(p.core_phase() == "WRECKAGE" and "已用额度 0/1" in p.core(),
+           "敌队尝试不改变筏心与额度：%s" % p.core()[:140])
+
+    print("== 3b. 使用本局重新 spawn 的本队引导者")
+    # 产品规则：筏心只能由本队玩家修复（2026-11-21 修）。第二局 start_match 已经把
+    # BOTS 全部 kill+spawn 并重新分队，所以 LEAD 是一个全新会话且属于队 0。
+    # 不再使用“新名字但未分队”的假玩家——那会被归属门正确拒绝。
+    CH = LEAD
+    expect(CH.lower() in p.cmd("list").lower(), CH + " 在线且属于队 0，可以当引导者")
 
     print("== 4. 一次连续引导 → 筏心恢复 + 倒计时解除（不是重置）")
     p(("cww raftcore hold " + CH + " %d 200") % TEAM, quiet=False)

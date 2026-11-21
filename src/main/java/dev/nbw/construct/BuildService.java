@@ -2,6 +2,8 @@ package dev.nbw.construct;
 
 import dev.nbw.NBW;
 import dev.nbw.cfg.ConfigModels;
+import dev.nbw.content.BallistaBlock;
+import dev.nbw.content.CatapultBlock;
 import dev.nbw.content.NbwContent;
 import dev.nbw.domain.construct.BuildRules;
 import dev.nbw.domain.construct.ExpansionRule;
@@ -451,8 +453,25 @@ public final class BuildService {
 		return world.getBlockState(global);
 	}
 
+	/**
+	 * 哪些方块算“设施”。这必须与 09 §2.4 / 01 §4.2 的设施口径一致：
+	 * 除了帆/桨台/筏心，生产设施与三件设施武器同样占设施位、且在甲板层不收扩建费。
+	 * 之前只认前三个，导致弩炮/投石机/撞角与生产设施可以绕过设施位、反而被收 4 木 1 线。
+	 */
 	private static boolean isFacility(BlockState state) {
-		return state.isOf(NbwContent.sail) || state.isOf(NbwContent.oar) || state.isOf(NbwContent.raftCore);
+		// 2×2 器械只统计主方块：把 3 个不可见的 EXT 也各算一个设施位，
+		// 会让一门弩炮吃掉 4 个额度（与 09 §2.4“占设施位”的语义不符）。
+		if (state.isOf(NbwContent.ballista)) {
+			return state.get(BallistaBlock.PART) == BallistaBlock.Part.MAIN;
+		}
+		if (state.isOf(NbwContent.catapult)) {
+			return state.get(CatapultBlock.PART) == CatapultBlock.Part.MAIN;
+		}
+		return state.isOf(NbwContent.sail) || state.isOf(NbwContent.oar) || state.isOf(NbwContent.raftCore)
+				|| state.isOf(NbwContent.seawaterFilter) || state.isOf(NbwContent.medicalKit)
+				|| state.isOf(NbwContent.compostFarm) || state.isOf(NbwContent.kitchen)
+				|| state.isOf(NbwContent.generator) || state.isOf(NbwContent.repairTable)
+				|| state.isOf(NbwContent.ram);
 	}
 
 	// ---------------------------------------------------------------- 反馈与观测
