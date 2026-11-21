@@ -7,6 +7,22 @@
 - **当前总体状态**：A/B/C/D/E/F/G/H/I/J/K/L/M/N/O/Q/S 域的**自动化部分已全绿**；
   剩下的主要是「必须真人上手」和「必须长时间/换形态」的项。
 
+## 本轮新增（2026-11-21 下午）
+
+| 节 | 内容 | 备注 |
+|---|---|---|
+| §1.4 | **怎么自动启动客户端并自动进服**（`Start-McClient`） | 一键，含 `pauseOnLostFocus` 与 quickPlay |
+| §1.5 | **怎么自动截图并看图**（`Save-McShot`） | 含 DPI 那个坑的说明 |
+| §3.8 | **真人客户端多轮对局观察** | ★最高优先；**硬性要求 ≥15 轮 / ≥2 时段（含凌晨）/ ≥2 张图** |
+| §3.9 | **功能性方块全量 12 项** | 每块都有「人类动作 + 读回证据 + 算过」 |
+| §3.10 | **幸存者系统 9 项** | 6 种职业逐个验 |
+| §3.11 | **死亡→复活→观战 回归** | 凌晨实际遇到的"死亡不复活"，单列并给应急恢复 |
+| §3.12 | **我自己补的 7 条** | 满员并发 / 事件风暴视觉 / 跨局残留 / 低光可读 / 大厅交互 / 结算文案 / 重连压力 |
+
+配套新增工具：`tools/play_loop_probe.py`（多轮对局 + 自动截图 + `summary.json`）、
+`run/_shots.ps1` 新增 `Start-McClient` / `Stop-McClient` / `Wait-McJoined` / `Save-McShot`。
+
+
 ---
 
 ## 0. 上一次执行的结论（作为本轮起点）
@@ -54,6 +70,60 @@ $env:RCON_PORT="25576"; $env:RCON_PASSWORD="nbwm0"; $env:PYTHONIOENCODING="utf-8
 ```powershell
 .\run\py-embed\python.exe -I -X utf8 tools\m6_world_repair.py
 ```
+
+### 1.4 怎么自动启动客户端（并自动进服）★
+
+客户端**必须**从仓库根用 `gradlew runClient` 起——直接跑 jar 会缺 dev 环境里的
+Sable/Veil 依赖。`run\_shots.ps1` 里已经把这套封装成 `Start-McClient`，它做了四件事：
+
+1. 把 `run-client\options.txt` 里的 `pauseOnLostFocus` 改成 `false`
+   （**必须**：截图时焦点会离开 MC，否则它会自己弹暂停菜单，画面就不是你要看的那一屏）；
+2. 用 `--quickPlayMultiplayer 127.0.0.1:25565` 启动，**跳过主菜单直接进服**；
+3. 等 MC 窗口出现（按标题匹配 `Minecraft`）；
+4. 轮询服务端 `list`，确认玩家真的进来了才算"可以开始测"。
+
+```powershell
+cd C:\Users\殷子竣\Desktop\NB-Water-World\NB-Water-World
+# .ps1 不能被直接执行（策略拦截），必须先 iex 进来
+iex (Get-Content ".\run\_shots.ps1" -Raw -Encoding utf8)
+
+Start-McClient                 # 启动 + 等进服（最多 180s）
+Start-McClient -Fresh          # 先杀掉已有客户端再启动（换资源/换代码后必须用它）
+Start-McClient -TimeoutSec 300 # 机器慢就加时长
+Stop-McClient                  # 只杀客户端（按窗口标题匹配，不会误杀服务端）
+Wait-McJoined "Player627" 90   # 只想等某个具体玩家进服
+```
+
+> **为什么不能按内存大小杀 java 进程**：服务端和客户端都是 `java.exe`，
+> 按内存筛会连服务端一起杀掉。`Stop-McClient` 只杀**窗口所属的那个 PID**
+> （`GetWindowThreadProcessId`），不按进程名/内存筛。
+
+> **另一个更要紧的坑**：这台机器上可能同时开着**别人的** Minecraft（实测见到过
+> `Minecraft* Forge 1.20.1 - 多人游戏（第三方服务器）`）。所以
+> **绝对不能**用 `MainWindowTitle -like "*Minecraft*"` 去匹配窗口或杀进程 ——
+> 那会截到别人的游戏、甚至把别人的游戏关掉。本套工具统一用
+> `Minecraft* 1.21.1`（我们 dev 客户端的标题）来收紧匹配。
+
+
+### 1.5 怎么自动截图并查看画面 ★
+
+```powershell
+iex (Get-Content ".\run\_shots.ps1" -Raw -Encoding utf8)
+Save-McShot "C:\...\NB-Water-World\NB-Water-World\run\_shot_x.png"   # 摆窗口+截图+还原 DSH 一步到位
+```
+
+它内部做的事（也是这套东西全部踩过的坑）：
+
+| 步骤 | 为什么必须这么做 |
+|---|---|
+| `SetProcessDPIAware()` | 不调的话 `GetWindowRect` 返回**逻辑像素**、`CopyFromScreen` 返回**物理像素**，截出来是错的（实测窗口 1920×1080 却只截到 1280×720 的一块） |
+| 最小化 DSH 窗口 | 否则 DSH 盖在 MC 上面，截到的是聊天界面 |
+| `GetWindowRect` + `CopyFromScreen` | 比 `PrintWindow` 可靠（GL 窗口用 `PrintWindow` 常得到黑图） |
+| 截完 `Restore-Dsh` | 不然人看不到 DSH 了 |
+| 等 1.2s 再截 | MC 要几帧才把新画面画完 |
+
+**看图**：截图落在 `run\*.png`，用 `read_image`（或任何看图工具）打开即可。
+**不要**指望 `F2`（MC 自带截图）：那需要键盘输入，而本机的键鼠注入进不了 MC（见 §7.1）。
 
 ---
 
@@ -219,6 +289,202 @@ Restore-Dsh
 
 ---
 
+### 3.8 【新增】真人客户端多轮对局观察（**必须多轮**）★最高优先
+
+- **目的**：服务端读数全绿**不等于**玩家看到的是对的。这一项只看**客户端画面**：
+  换局后画面对不对、HUD 对不对、帆/器械/幸存者在不在、死亡与观战是否正常。
+- **工具**：`tools/play_loop_probe.py`（会自动摆局、做一串"真人会做的事"、每步截图、
+  最后把每轮结论写进 `run/play_shots/summary.json`）。
+- **跑法**：
+
+```powershell
+# 前置：服务端已起、客户端已进服（§1.4）
+$env:RCON_PORT="25576"; $env:RCON_PASSWORD="nbwm0"; $env:PYTHONIOENCODING="utf-8"
+.\run\py-embed\python.exe -I -X utf8 tools\play_loop_probe.py --rounds 5
+```
+
+- **每轮自动做的事**（每步一张图 `run\play_shots\rNN_0X_*.png`）：
+  1. `01_play_start` 刚进 PLAY：站位、筏、HUD 基线
+  2. `02_equipped` 发一整套装备后：热键栏图标、手持模型、营养/水分条
+  3. `03_ballista` 筏上放一门弩炮 + 补 16 发弹：2×2 外形、描边
+  4. `04_wet_hud` 泡水 11 秒：失温提示与状态读数
+  5. `05_after_death` 被打死后：死亡/观战画面，`cww state` 里的 `[淘汰]`
+  6. `06_spectator` 淘汰后 8 秒：**是否卡在死亡界面**（见 §3.11）
+- **怎么判**：一轮里的 6 张图逐张对照 `01`（基线）看差异，重点看**不该变的东西变了没**
+  （比如第二轮的 `01` 和第一轮应该长得一样，除非地形/时间不同）。
+- **★ 轮次要求（这条是硬性的）**：
+
+| 维度 | 最低要求 | 说明 |
+|---|---|---|
+| 单次会话轮数 | **≥ 5 轮** | 少于 5 轮不做结论；`--rounds 5` 是底线 |
+| 累计轮数 | **≥ 15 轮** | 分 3 次会话跑，不要一次跑完 |
+| 时段 | **≥ 2 个时段**（含**凌晨**一次） | 凌晨那次就是发现"死亡不复活"的场景，必须复现 |
+| 地图 | **≥ 2 张**（`flat_test` + `test_sea` 或 `default_sea`） | 图不同，锚点/水位/区块加载都不同 |
+| 赛制 | **≥ 2 种**（`test_3min` + `standard_12min`） | 12 分钟局才会遇到事件/风暴/黑海收圈 |
+| 换代码/换资源后 | **重跑 ≥ 3 轮** | 免得"修一个坏一个" |
+
+```powershell
+# 第 2 批：换图换赛制（记得先建海域：tools\sea_probe.py 或 worldbuild.py arena）
+.\run\py-embed\python.exe -I -X utf8 tools\play_loop_probe.py --rounds 5 --arena test_sea --format standard_12min
+```
+
+### 3.9 【新增】功能性方块全量：每个都要能真用
+
+- **为什么只能人工**：这些方块的效果都挂在 `onUse`（右键）上（`ItemProductBlock` /
+  `SeawaterFilterBlock` / `GeneratorBlock` / `RepairTableBlock` / `MedicalKitBlock`），
+  而 Carpet 假玩家的 `use` 触发不到方块 `onUse`，RCON 也发不出右键。
+- **统一摆场**（进 PLAY 后，把自己队的筏当工作台）：
+
+```powershell
+# 一次性把 12 个方块摆在自己面前（y、z 按当前筏面自行微调）
+.\run\py-embed\python.exe -I -X utf8 tools\rcon.py --batch `
+  "gamemode creative <你的ID>" `
+  "give <你的ID> nbw:seawater_filter 1" "give <你的ID> nbw:generator 1" `
+  "give <你的ID> nbw:compost_farm 1"   "give <你的ID> nbw:kitchen 1" `
+  "give <你的ID> nbw:medical_kit 1"    "give <你的ID> nbw:repair_table 1" `
+  "give <你的ID> nbw:ballista 1"       "give <你的ID> nbw:catapult 1" `
+  "give <你的ID> nbw:ram 1"            "give <你的ID> nbw:sail 7" `
+  "give <你的ID> nbw:oar 1"            "cww power status" "cww supply"
+```
+
+- **逐块验收表**（右键一次 → 用右侧命令读回证据）：
+
+| 方块 | 人类动作 | 读回证据 | 算过 |
+|---|---|---|---|
+| 海水过滤器 `seawater_filter` | 右键 | `data get entity <ID> Inventory` 里 `nbw:fresh_water` +2 | 一次产 **2 份淡水**，30s 内再点是"冷却中"提示 |
+| 电鳗发电机 `generator` | 右键 | `cww power status` 的队内电量 | 一次 **+5**，30s 冷却 |
+| 堆肥农场 `compost_farm` | 右键 | 背包多出作物类物品 | 产出 1 份，按功率倍率（有电满效/没电减半） |
+| 厨台 `kitchen` | 右键 | 背包多出熟食 | 产出 1 份熟食 |
+| 医疗箱 `medical_kit` | 先把自己打到半血，再右键 | `cww survival status <ID>` 的 `血=` | 回血；60s 冷却；有医护幸存者时冷却 −30% |
+| 修理台 `repair_table` | 右键 | `cww core status` | 修筏心 / 重置沉筏倒计时；耗电 1；60s 冷却 |
+| 弩炮 `ballista` | 手持 `nbw:ballista_bolt` 右键装填，等它自动开火 | `cww ballista status`（弹药）、`cww power status` | 装填 +1/次、全队共享弹药、每 2.0s 一发、耗电 1 |
+| 投石机 `catapult` | 贴近敌方筏自动开火 | `cww catapult status` | 只打敌方**筏心**，落点 4 格内敌方玩家吃 40% |
+| 撞角 `ram` | 让筏**动起来**撞敌方筏 | `cww ram status` | 筏速 > 0.05 才算撞；5♥/次；1s 一次；耗电 2 |
+| 帆 `sail` | 手放到甲板（见 §3.1） | `cww sail read` | 帆数 +1；风向受力生效 |
+| 桨台 `oar` | 放下来看模型 | — | **只剩装饰**（推进已删），能放、能拆、不报错即可 |
+| 筏心 `raft_core` | 右键（长按修复） | `cww core status` + `cww raftcore status` | 长按修复有进度；打到 0 血 → 残骸 + 全队出局 |
+
+- **另外要验的横切面**：
+  1. 同上 12 个方块**破掉能不能掉回物品**（§3.3）。
+  2. 每个方块在**没电**时是否按文档降效（`cww power status` 里把电扣到 0 再点一次）。
+  3. 冷却提示文案是可读中文，不是 `translation.key` 原文。
+
+### 3.10 【新增】幸存者系统
+
+- **命令面**：`cww survivor`（总览）/ `cww survivor job <队> <职业>` / `cww guard` /
+  `cww supply`。职业共 6 种：**水手 SAILOR / 厨师 COOK / 医护 MEDIC / 工匠 CRAFTSMAN /
+  舵手 HELMSMAN / 卫兵 GUARD**。
+- **摆场**：
+
+```powershell
+.\run\py-embed\python.exe -I -X utf8 tools\rcon.py --batch `
+  "cww survivor" "cww guard" "cww supply" `
+  "cww survivor job 0 SAILOR" "cww survivor job 0 COOK" `
+  "cww survivor job 0 MEDIC"  "cww survivor job 0 CRAFTSMAN" `
+  "cww survivor job 0 HELMSMAN" "cww survivor job 0 GUARD" `
+  "cww survivor"
+```
+
+- **验收表**：
+
+| 项 | 怎么做 | 算过 |
+|---|---|---|
+| 生成 | 进 PLAY 后 `cww survivor` | 每队 1 名，`口粮` 有读数，<br>`职业[...]` 显示正确中文名 |
+| 外观 | 走到幸存者旁边看 | 村民外观、有名字牌、不穿模、不卡在筏体里 |
+| 职业生效 | 切 `CRAFTSMAN` 后用任意生产方块右键 | 与不切职业相比，`口粮` 消耗/产出速度有差异（`SurvivorService.productionSpeedFor`） |
+| 医护 | 切 `MEDIC` 后点医疗箱 | 冷却比 60s 短（−30%） |
+| 卫兵 | 切 `GUARD`，让敌方靠近 | `cww guard` 读数变化；有攻击/拦截行为 |
+| 舵手/水手 | 切 `HELMSMAN`/`SAILOR` 后开船 | `cww sail read` 速率或操控手感有变化（按文档口径） |
+| 口粮消耗 | 连开 3 分钟 | `cww survivor` 的 `口粮` 单调下降；到 0 后应有后果（按文档：幸存者离开/失效） |
+| 可被击杀 | `damage` 或让敌方打死幸存者 | 能被击杀（用户已裁决"幸存者可杀"），死亡后 `幸存者=` 归零，不刷屏报错 |
+| 跨局不残留 | 打完一局再开一局 | 新一局幸存者重新生成、`口粮` 回满，上一局的尸体/状态不带过来 |
+
+### 3.11 【新增】死亡 → 复活 → 观战 回归（**凌晨实际遇到，重点盯**）
+
+- **现象**（2026-11-21 凌晨）：客户端死亡后**没有正常复活**，画面停在死亡状态。
+  这会让后续所有"多轮"测试中断（客户端卡死在死亡屏，后面的摆局都在对空气截图）。
+- **已知代码路径**（`RoundManager`）：
+  - 死亡瞬间：先切 `SPECTATOR`（"淘汰后观战"）
+  - `AFTER_RESPAWN` → `onRespawn()`：日志 `[C21] respawn: old=… phase=…`，
+    补记淘汰（日志 `[round] respawn 兜底淘汰：…`），并加入 `pendingPlacement`
+  - 下一 tick `placeByPhase()`：`[round] placed <名字> at team N anchor (phase=…, eliminated=true)`
+- **最可能的成因**（待实机确认，**不要照着猜就改**）：
+  MC 的死亡屏是**客户端 UI**，只有客户端发出 `Client Status: PERFORM_RESPAWN` 才会关掉。
+  服务端把人切成旁观并传送到锚点，**并不会**替客户端关掉那一屏——
+  于是"服务端认为他已经观战了，客户端还停在 You Died"。
+  若确认是这条，修法是服务端主动复活（`PlayerManager.respawnPlayer`），
+  但会与"淘汰后留图观战"的口径冲突，**需要先定口径再改**。
+- **怎么复现**（每轮都做，`play_loop_probe` 已内置）：
+
+```powershell
+# PLAY 中让客户端玩家被打死
+.\run\py-embed\python.exe -I -X utf8 tools\rcon.py --batch `
+  "damage <你的ID> 200 minecraft:player_attack by <假玩家>" `
+  "cww state"
+# 8 秒后看三处证据
+.\run\py-embed\python.exe -I -X utf8 tools\rcon.py --batch "cww state" "list"
+Select-String -Path run\client-console.log -Pattern "C21|respawn|placed .* eliminated" | Select-Object -Last 8
+```
+
+- **算过**：
+  1. `cww state` 里该玩家标 `[淘汰]`，且**仍在 `list` 里**（没被踢）。
+  2. 客户端日志出现 `[C21] respawn` 与 `[round] placed … eliminated=true`。
+  3. **截图上看到的是观战视角（能自由飞、无 HUD 血条），不是 You Died 屏**。
+  4. 连续 5 轮都成立（单轮通过不算）。
+- **卡死时的应急恢复**（测试可以继续做下去，不算通过）：
+  ```powershell
+  iex (Get-Content .\run\_shots.ps1 -Raw -Encoding utf8)
+  Stop-McClient; Start-McClient -Fresh     # 重连最快；席位 90s 内还能保住
+  # 或：cww abort → 回到 LOBBY 再开下一局
+  ```
+
+### 3.12 【新增】其它补充测试计划（我自己加的）
+
+#### 3.12.1 满员并发（4×3 = 12 人）
+
+```powershell
+# 用 11 个假玩家 + 1 个真人客户端把 4×3 塞满
+for ($i=0; $i -lt 11; $i++) { .\run\py-embed\python.exe -I -X utf8 tools\rcon.py "player b$i spawn" }
+# 逐个 cww force 到 4 队，然后 cww start standard_12min default_sea
+```
+- **算过**：12 人都进 PLAY；客户端帧率不明显掉（记 F3 的 fps）、内存不持续涨；
+  服务端 `soak_monitor --minutes 5` 无 `Can't keep up`；4 队筏心/帆/器械登记都对得上。
+
+#### 3.12.2 事件与风暴的视觉验证
+
+```powershell
+.\run\py-embed\python.exe -I -X utf8 tools\rcon.py --batch "cww event" "cww event fire" "cww zone"
+```
+- **算过**：`cww event fire` 后客户端有可见事件（风雨/黑海提示/广播）；
+  风暴期间远程武器失效、弩炮伤害 −50% 的**提示文案**能看到；`cww zone` 的 P1/P2/P3 时刻与倒计时一致。
+
+#### 3.12.3 跨局残留（同一客户端连开 5 局）
+
+- **算过**：每局开始时 背包清空、HUD 重置、`cww sail read` 帆=0、
+  `cww ballista status` 无残留登记、`cww survivor` 口粮回满、`[S10] residue=CLEAN` 出现在日志里。
+
+#### 3.12.4 可读性：低光 / 全状态 HUD
+
+- 把时间调到夜里（`time set midnight`，世界规则会拉回正午，所以临时用 `gamerule doDaylightCycle` 前先 `cww` 侧确认）或进黑海圈内，
+  看：营养/水分条是否可读、失温/流血/骨折三个状态提示是否同时显示不重叠、准星与描边是否看得清。
+
+#### 3.12.5 大厅交互
+
+- 报名 NPC、4 面队旗、观战锚点：站在大厅里逐个右键/靠近，确认 `cww join` 生效、
+  队旗颜色正确、`cww state` 的 `anchors=` 数量对得上、观战锚点能飞到。
+
+#### 3.12.6 结算与战绩文案
+
+- 打完一局看结算广播：胜者名/原因/时长/存活人数四项齐全；
+  `state/matches/<n>.json` 落盘；`career.json` 累加；文案里没有占位符或 `{}`。
+
+#### 3.12.7 客户端重连压力（连续 3 次强杀）
+
+- 连续 3 次 `Stop-McClient` + `Start-McClient -Fresh`，中间不做别的事。
+- **算过**：每次都能重连回原队席位（90s 内），不出现"重复登录/幽灵玩家/`list` 里两个人"。
+
+---
+
 ## 4. 性能与长稳（P1，需要长时间挂机）
 
 ### 4.1 冒烟（10 分钟，先跑这个）
@@ -288,6 +554,15 @@ $env:RCON_PORT="25576"; $env:RCON_PASSWORD="nbwm0"
    `run_all_probes.py` 的中文写坏、把 `_send.ps1` 的 C# 属性吞进注释里。
 6. **Sable 客户端 ERROR `Unknown block: create:flywheel`**：Sable 自带的物理 tag 引用未安装的
    Create 方块，**不是本项目的缺陷**，可忽略。
+7. **机器上可能同时开着别人的 Minecraft**（实测见到 `Minecraft* Forge 1.20.1 - 多人游戏`）：
+   凡是"按窗口标题匹配/按进程名杀"的动作都必须收紧到 `Minecraft* 1.21.1`，
+   否则会截到别人的游戏、甚至把别人的游戏关掉。`run/_shots.ps1` 已按这条改好
+   （`Stop-McClient` 只杀窗口所属 PID）。
+8. **最小化窗口的矩形是假的**：`GetWindowRect` 会返回 `-21333,-21333` 这种哨兵值，
+   拿去 `CopyFromScreen` 会截出 158×26 的垃圾图。`Capture-Mc` 现在先用 `Test-McRect`
+   校验并尝试还原窗口，不满足就**明确报错跳过**，不会静默存一张废图。
+9. **`pwsh`（PS7）不在 PATH**：只有 `powershell.exe`（5.1）。脚本里要调 PowerShell 时
+   必须两个都试（`play_loop_probe.py` 的 `ps_exe()` 就是干这个的）。
 
 ---
 
@@ -313,6 +588,19 @@ $env:RCON_PORT="25576"; $env:RCON_PASSWORD="nbwm0"
 | 16 | 崩溃自动重启 | P1 | 人工编排 | ☐ | | |
 | 17 | 回滚演练 | P1 | 人工编排 | ☐ | | |
 | 18 | 内容口径 5 条裁决（§6） | P2 | 你 | ☐ | | |
+| **19** | **真人客户端多轮对局 第 1 批 5 轮（§3.8）** | **P0** | 半自动 | ☐ | | 截图在 `run/play_shots/` |
+| **20** | **真人客户端多轮对局 第 2 批 5 轮（换图换赛制）** | **P0** | 半自动 | ☐ | | |
+| **21** | **真人客户端多轮对局 第 3 批 5 轮（含凌晨时段）** | **P0** | 半自动 | ☐ | | 累计 ≥15 轮才做结论 |
+| 22 | 功能性方块 12 项（§3.9） | P0 | 真人 | ☐ | | 逐块记录读数 |
+| 23 | 幸存者 9 项（§3.10） | P0 | 真人 | ☐ | | |
+| 24 | 死亡→复活→观战 回归 5 轮（§3.11） | **P0** | 半自动 | ☐ | | 凌晨问题，必须单独确认 |
+| 25 | 满员并发 4×3（§3.12.1） | P1 | 半自动 | ☐ | | |
+| 26 | 事件/风暴视觉（§3.12.2） | P1 | 真人 | ☐ | | |
+| 27 | 跨局残留 连开 5 局（§3.12.3） | P1 | 半自动 | ☐ | | |
+| 28 | 可读性：低光/全状态 HUD（§3.12.4） | P2 | 真人 | ☐ | | |
+| 29 | 大厅交互（§3.12.5） | P1 | 真人 | ☐ | | |
+| 30 | 结算与战绩文案（§3.12.6） | P1 | 真人 | ☐ | | |
+| 31 | 客户端重连压力 连续 3 次（§3.12.7） | P1 | 半自动 | ☐ | | |
 
 ---
 
@@ -321,6 +609,7 @@ $env:RCON_PORT="25576"; $env:RCON_PASSWORD="nbwm0"
 | 工具 | 用途 |
 |---|---|
 | `tools/run_all_probes.py [--only a,b]` | 批量跑探针（每项独立子进程 + 超时 + 汇总） |
+| `tools/play_loop_probe.py --rounds N` | **真人客户端多轮对局**：摆局 + 脚本化操作 + 每步截图 + `summary.json` |
 | `tools/sea_probe.py [--big]` | 建海域 + 航行端到端 |
 | `tools/restart_probe.py before\|after` | 重启恢复两段式 |
 | `tools/loot_pool_probe.py --crates N` | 补给箱内容 / 设施池出现率 |
@@ -332,5 +621,6 @@ $env:RCON_PORT="25576"; $env:RCON_PASSWORD="nbwm0"
 | `tools/worldbuild.py <lobby\|flattest\|arena\|template>` | 重建大厅 / 水池 / 两张海域 / 残骸模板 |
 | `tools/gen_water_pistol_icon.py` | 重画 `water_pistol.png` 并全量校验贴图 |
 | `tools/rcon.py --batch "a" "b"` | 单条/多条 RCON |
-| `run/_shots.ps1` | `Show-Mc` / `Capture-Mc` / `Restore-Dsh`（已处理 DPI） |
-| `run/_win.ps1` | 窗口查找/置前/按矩形截图 |
+| `run/_shots.ps1` · `Start-McClient` / `Stop-McClient` / `Wait-McJoined` | **自动起客户端 + 自动进服**（§1.4） |
+| `run/_shots.ps1` · `Save-McShot` / `Show-Mc` / `Capture-Mc` / `Restore-Dsh` | **自动截图**（已处理 DPI，§1.5） |
+| `run/_win.ps1` | 窗口查找/置前/按矩形截图（底层实现） |
