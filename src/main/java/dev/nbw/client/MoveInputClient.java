@@ -35,6 +35,17 @@ public final class MoveInputClient {
 		ClientTickEvents.END_CLIENT_TICK.register(MoveInputClient::onClientTick);
 	}
 
+	/**
+	 * 当前是否处于"遥控器移动模式"。
+	 *
+	 * <p>给 {@code InputMixin} 用：移动模式里 WASD 只该开船、不该让人物自己走。
+	 * 光在这里读键是不够的 —— 玩家自己的移动由原版 {@code Input} 算出来并施加，
+	 * 必须在 {@code Input.tick()} 之后把 movementForward/Sideways 清零才拦得住。
+	 */
+	public static boolean isMoveMode() {
+		return moveMode;
+	}
+
 	private static void onClientTick(MinecraftClient client) {
 		if (client.player == null || client.getNetworkHandler() == null) {
 			reset();

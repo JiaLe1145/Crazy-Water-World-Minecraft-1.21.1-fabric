@@ -194,14 +194,15 @@ function Start-McClient {
     $gameDir = if ($Client -le 1) { "run-client" } else { "run-client$Client" }
     if ($Fresh) { [void](Stop-McClient) }
     [void](Set-McOptions -GameDir (Join-Path $script:RepoRoot $gameDir))
-    $logFile = Join-Path $script:RepoRoot ("run\client-console" + $(if ($Client -le 1) { "" } else { "$Client" }) + ".log")
+    $relLog = if ($Client -le 1) { "run\client-console.log" } else { "run\client-console$Client.log" }
+    $logFile = Join-Path $script:RepoRoot $relLog
     # 注意别用 $args 这个名字：它是 PowerShell 的自动变量
     $gradleArgs = $task + ' --offline --console=plain'
     # 两个实例都要 --quickPlayMultiplayer：否则第二个只会停在主菜单（第一版就踩了这个）
     $gradleArgs += ' --args="--quickPlayMultiplayer ' + $Address + '"'
     # 第二个实例的用户名由 build.gradle 的 client2 配置注入（--username Tester2）
     Start-Process -FilePath "cmd.exe" `
-        -ArgumentList '/c', ("gradlew.bat " + $gradleArgs + " > " + (Split-Path -Leaf $logFile) + " 2>&1") `
+        -ArgumentList '/c', ("gradlew.bat " + $gradleArgs + " > " + $relLog + " 2>&1") `
         -WorkingDirectory $script:RepoRoot -WindowStyle Hidden | Out-Null
     Write-Output "客户端启动中（日志：$logFile）"
     $deadline = (Get-Date).AddSeconds($TimeoutSec)
