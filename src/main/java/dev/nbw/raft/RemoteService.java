@@ -39,7 +39,12 @@ public final class RemoteService {
 	/**
 	 * A/D 转向时每 tick 施加的绕 Y 角冲量。2026-11-08 用户把转向速度定为 0.5。
 	 */
-	public static final double TURN_IMPULSE = 0.5;
+	/**
+	 * 转向角冲量。2026-11-21 实测：0.5 时 A/D 只有约 10°/s（一圈 36 秒），
+	 * 手感上等于"转不动"（用户实机反馈"转向过小甚至没有"）。改到 1.5 后约 30°/s。
+	 * 实测方法：`cww remote move 1 a 200` 后每秒钟读一次 `cww remote status 1` 的朝向。
+	 */
+	public static final double TURN_IMPULSE = 1.5;
 
 	/** 移动意图的有效窗口（tick）。客户端每 2 tick 发一次包，这里给 6 tick 兜掉线/换物品。 */
 	public static final int INTENT_WINDOW_TICKS = 6;

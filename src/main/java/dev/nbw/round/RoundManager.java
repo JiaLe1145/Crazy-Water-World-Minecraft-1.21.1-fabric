@@ -744,14 +744,16 @@ public final class RoundManager {
 			return;
 		}
 		double x = a.x() + 0.5, y = a.y(), z = a.z() + 0.5;
-		// 权威传送（05 C25）；真人手感与橡皮筋需真人验证
-		player.teleport(world, x, y, z, a.yaw(), 0f);
-		// ★ 2026-11-21 修：`teleport()` 只改服务端实体，真客户端不一定会跟着走 ——
-		// 实测 `moved Player700 team=0 -> anchor=1000,150,952 nowAt=(2.5,201.0,1.5)`：
-		// 传送调用之后立刻读坐标，真人还停在大厅，而假玩家同一行是 nowAt=(1000.5,149,1048.5)。
-		// 玩家位置是客户端权威的，必须再发一次 requestTeleport 让客户端一起搬。
-		// （RescueService 的绳索/救援传送一直用的是 requestTeleport，所以那几条链路是通的。）
+		// ★ 2026-11-21 第二次修：只发 requestTeleport，**不要**再先调 teleport()。
+		// 同时调两个会发两份位置包：服务端实体先跳过去，客户端那份还没确认就又报了旧坐标，
+		// 反作弊于是判定 "moved too quickly" 把它拉回来 —— 实测日志刷屏
+		// `Tester2 moved too quickly! -1000.0,60.95,-1048.0`，玩家被卡在大厅进不了图。
+		// requestTeleport 会让 networkHandler 进入"等待确认"状态，正好避免这套打架
+		// （RescueService 的绳索传送一直只用它，所以那条链路从来没出过这个问题）。
 		player.requestTeleport(x, y, z);
+		if (player.getYaw() != a.yaw()) {
+			player.setYaw(a.yaw());
+		}
 	}
 
 	private static int teleportParticipants() {
@@ -835,9 +837,10 @@ public final class RoundManager {
 		if (world == null) {
 			return;
 		}
-		player.teleport(world, spawn.x + 0.5, spawn.y, spawn.z + 0.5, spawn.yaw, spawn.pitch);
-		// 同上：真客户端不跟着 teleport() 走，补一次 requestTeleport（见 teleportToAnchor 的注释）
+		// 同 teleportToAnchor：只发 requestTeleport，别和 teleport() 一起发（会触发 moved too quickly 拉锯）
 		player.requestTeleport(spawn.x + 0.5, spawn.y, spawn.z + 0.5);
+		player.setYaw(spawn.yaw);
+		player.setPitch(spawn.pitch);
 	}
 
 	private static void returnToLobby() {

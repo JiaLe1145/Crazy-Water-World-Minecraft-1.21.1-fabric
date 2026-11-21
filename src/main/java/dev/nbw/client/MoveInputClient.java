@@ -87,6 +87,12 @@ public final class MoveInputClient {
 			lastLeft = l;
 			lastRight = r;
 			cooldown = SEND_EVERY_TICKS;
+			// 诊断（2026-11-21）：用户反馈"移动模式下木筏完全不动"，但服务端用
+			// /cww remote move 夹具能推起来 —— 说明包没发出去或发的是全 false。
+			// 这条日志就是用来区分"客户端没发"和"服务端没收"的，每秒最多一条。
+			if ((f || b || l || r) && (client.world != null && client.world.getTime() % 20 == 0)) {
+				NBW.LOGGER.info("[remote] 发包 w={} s={} a={} d={}", f, b, l, r);
+			}
 			ClientPlayNetworking.send(new MovePayload(f, b, l, r));
 		}
 	}
