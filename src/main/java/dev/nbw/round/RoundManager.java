@@ -471,6 +471,14 @@ public final class RoundManager {
 			}
 			case PLAY -> {
 				setParticipantsGameMode(GameMode.SURVIVAL);
+				// ★ 2026-11-21 修：READY 阶段是"发筏之后立刻传送"，但 Sable 建筏是延后的，
+				// 传送那一刻甲板还没有碰撞体 —— 玩家会直接穿过筏掉进水里、沉到池底。
+				// 实测：出生点改到 generateY+3 之后，手动 tp 到甲板上方能稳定站住（y=151.38），
+				// 但开局自动传送的人仍然停在 y=140。PLAY 开始时筏一定已经实体化，所以这里补传一次。
+				int remade = teleportParticipants();
+				if (remade > 0) {
+					NBW.LOGGER.info("[round] PLAY 补传 {} 人落回甲板（READY 时筏还没实体化）", remade);
+				}
 				WorldRules.apply(server);   // 每局再刷一遍，防管理员中途改规则
 				MetricsService.begin(server);   // 埋点：局时长/首战/生产参与率的起点
 				ZoneService.begin(server);   // 黑海圈层：抓半径/伤害表与圈心
@@ -735,8 +743,15 @@ public final class RoundManager {
 		if (world == null) {
 			return;
 		}
+		double x = a.x() + 0.5, y = a.y(), z = a.z() + 0.5;
 		// 权威传送（05 C25）；真人手感与橡皮筋需真人验证
-		player.teleport(world, a.x() + 0.5, a.y(), a.z() + 0.5, a.yaw(), 0f);
+		player.teleport(world, x, y, z, a.yaw(), 0f);
+		// ★ 2026-11-21 修：`teleport()` 只改服务端实体，真客户端不一定会跟着走 ——
+		// 实测 `moved Player700 team=0 -> anchor=1000,150,952 nowAt=(2.5,201.0,1.5)`：
+		// 传送调用之后立刻读坐标，真人还停在大厅，而假玩家同一行是 nowAt=(1000.5,149,1048.5)。
+		// 玩家位置是客户端权威的，必须再发一次 requestTeleport 让客户端一起搬。
+		// （RescueService 的绳索/救援传送一直用的是 requestTeleport，所以那几条链路是通的。）
+		player.requestTeleport(x, y, z);
 	}
 
 	private static int teleportParticipants() {
@@ -821,6 +836,8 @@ public final class RoundManager {
 			return;
 		}
 		player.teleport(world, spawn.x + 0.5, spawn.y, spawn.z + 0.5, spawn.yaw, spawn.pitch);
+		// 同上：真客户端不跟着 teleport() 走，补一次 requestTeleport（见 teleportToAnchor 的注释）
+		player.requestTeleport(spawn.x + 0.5, spawn.y, spawn.z + 0.5);
 	}
 
 	private static void returnToLobby() {

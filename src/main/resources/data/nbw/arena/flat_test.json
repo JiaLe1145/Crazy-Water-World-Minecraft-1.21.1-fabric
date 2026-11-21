@@ -45,14 +45,14 @@
       {
         "teamIndex": 0,
         "x": 1000,
-        "y": 149,
+        "y": 152,
         "z": 952,
         "facing": "south"
       },
       {
         "teamIndex": 1,
         "x": 1000,
-        "y": 149,
+        "y": 152,
         "z": 1048,
         "facing": "north"
       }
