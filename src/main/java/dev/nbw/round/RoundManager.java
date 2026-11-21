@@ -467,6 +467,11 @@ public final class RoundManager {
 				}
 				RemoteService.distributeRemotes(server);   // 每筏发一个遥控器（问题③）
 				int moved = teleportParticipants();
+				// ★ 2026-11-21 修（用户实机："开局先掉进水里，又被传回筏上"）：
+				// READY 时把玩家放到锚点上方，但此刻 Sable 的筏还没完全实体化，
+				// 玩家会先往下掉进水里、到 PLAY 补传时才被拉回甲板 —— 视觉上就是"掉水里再弹回来"。
+				// 这里在 READY 期间关掉重力，PLAY 补传后再恢复。
+				setParticipantsNoGravity(true);
 				announce("§e进入对局（" + moved + " 人已传送），" + seconds(machine.config().readyTicks()) + " 秒后开局");
 			}
 			case PLAY -> {
@@ -479,6 +484,7 @@ public final class RoundManager {
 				if (remade > 0) {
 					NBW.LOGGER.info("[round] PLAY 补传 {} 人落回甲板（READY 时筏还没实体化）", remade);
 				}
+				setParticipantsNoGravity(false);   // 甲板已实体化，恢复重力（见 READY 那段注释）
 				WorldRules.apply(server);   // 每局再刷一遍，防管理员中途改规则
 				MetricsService.begin(server);   // 埋点：局时长/首战/生产参与率的起点
 				ZoneService.begin(server);   // 黑海圈层：抓半径/伤害表与圈心
@@ -513,6 +519,7 @@ public final class RoundManager {
 			}
 			case RETURN -> {
 				cleanupParticipants();
+				setParticipantsNoGravity(false);   // 安全网：任何路径离开对局都恢复重力
 				returnToLobby();
 				auditResidue();
 			}
@@ -529,6 +536,7 @@ public final class RoundManager {
 				} else {
 					// 中止路径（ENROLL/READY/PLAY 直接回 LOBBY）同样必须走一遍清理，否则残留会带进下一局
 					cleanupParticipants();
+					setParticipantsNoGravity(false);   // 安全网：任何路径离开对局都恢复重力
 					returnToLobby();
 					auditResidue();
 					announce("§7本局已中止（原因 " + t.event() + "），局内状态已清理");
@@ -785,6 +793,24 @@ public final class RoundManager {
 			p.changeGameMode(mode);
 		}
 		NBW.LOGGER.info("[round] game mode {} applied to {} / {} participants", mode, players.size(), ids.size());
+	}
+
+	/**
+	 * 开关参赛者的重力（READY 悬停用）。
+	 *
+	 * <p>为什么需要：READY 阶段把玩家放到锚点上方时，Sable 的筏还没完全实体化，
+	 * 人会在那 10 秒里往下掉进水里，然后到 PLAY 补传时才被拉回甲板 ——
+	 * 用户实机看到的就是"开局先掉水里、又被传回筏上"。关掉重力即可平滑度过这段。
+	 * 任何路径离开对局都必须恢复重力，否则人会一直飘着。
+	 */
+	private static void setParticipantsNoGravity(boolean noGravity) {
+		Set<UUID> ids = currentParticipants().isEmpty() ? new LinkedHashSet<>(lastParticipants) : currentParticipants();
+		for (ServerPlayerEntity p : collect(ids)) {
+			p.setNoGravity(noGravity);
+		}
+		if (!ids.isEmpty()) {
+			NBW.LOGGER.info("[round] 参赛者重力={} （{} 人）", noGravity ? "关（READY 悬停）" : "开", ids.size());
+		}
 	}
 
 	/**

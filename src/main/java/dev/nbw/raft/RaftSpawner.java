@@ -420,11 +420,17 @@ public final class RaftSpawner {
 			chest.setStack(slot++, new ItemStack(paddle));
 		}
 		chest.setStack(slot++, new ItemStack(Items.OAK_PLANKS, 8));
+		// 线（2026-11-21 补）：扩建一块甲板的规则是"4 木板 + 1 线"
+		// （见 BuildService.chargeExpansion / ExpansionRule）。开局物资里原来**一块线都没有**，
+		// 于是任何人一上来都造不了东西 —— 实测日志：
+		// `[build] 拒绝 Tester2：扩建一块甲板需要 4 木板 + 1 线；背包现有 8 木板 / 0 线`。
+		// 给 2 根线 = 开局可以立刻扩 2 格甲板，之后仍要去补给箱找线。
+		chest.setStack(slot++, new ItemStack(Items.STRING, 2));
 		if (NbwContent.freshWater != null) {
 			chest.setStack(slot++, new ItemStack(NbwContent.freshWater, 2));
 		}
 		chest.markDirty();
-		NBW.LOGGER.info("[raftgen] 队 {} 物资箱落位 local=({}, {}, {})，内容 木桨={} 木板=8 淡水={}",
+		NBW.LOGGER.info("[raftgen] 队 {} 物资箱落位 local=({}, {}, {})，内容 木桨={} 木板=8 线=2 淡水={}",
 				teamIndex, x, y, z, paddle != null, NbwContent.freshWater != null);
 		return null;
 	}
