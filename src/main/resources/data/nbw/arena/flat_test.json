@@ -18,7 +18,7 @@
     "centerZ": 1000,
     "radius": 60,
     "waterLevel": 149,
-    "generateY": 149
+    "generateY": 150
   },
   "rings": [
     {
@@ -45,14 +45,14 @@
       {
         "teamIndex": 0,
         "x": 1000,
-        "y": 149,
+        "y": 150,
         "z": 952,
         "facing": "south"
       },
       {
         "teamIndex": 1,
         "x": 1000,
-        "y": 149,
+        "y": 150,
         "z": 1048,
         "facing": "north"
       }

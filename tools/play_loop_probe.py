@@ -188,10 +188,28 @@ def client_log_tail(n=40):
         return ""
 
 
-def spawn_bot(p, name):
-    p("player %s kill" % name)
+def spawn_bot(p, name, timeout=15, kill_first=False):
+    """spawn 一个 Carpet 假玩家，并**等它真的出现在 list 里**再返回。
+
+    2026-11-21 踩了两个坑，都是夹具问题、不是模组 bug：
+    1. 原来只 `player X spawn` + sleep 0.5s 就去 `cww force`，假玩家还没上线 →
+       force 找不到人 → 只有 1 名玩家 → `cww start` 被"人数不足"拒绝。
+    2. 原来每轮复用同一个名字（`s2`）并先 `player s2 kill`。Carpet 假玩家的 UUID
+       是按名字**稳定**的，所以 kill 会把那个 UUID 的席位标成已死，再 spawn 还是同一个 UUID
+       → 一进 PLAY 就只剩一支队伍有活人 → 立刻 `WINNER_DECIDED`
+       （audit 里表现为 `PLAY --WINNER_DECIDED--> SETTLE` 只隔 1 tick）。
+       所以现在**每轮用全新名字**，并且默认不 kill。
+    """
+    if kill_first:
+        p("player %s kill" % name)
     p("player %s spawn" % name)
-    p.sleep(0.5)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if name.lower() in [n.lower() for n in online_names(p)]:
+            return True
+        p.sleep(1)
+    print("    [bot] %s 未上线（list=%s）" % (name, online_names(p)))
+    return False
 
 
 def one_round(p, idx, player, arena, fmt, shots, notes):
@@ -208,11 +226,27 @@ def one_round(p, idx, player, arena, fmt, shots, notes):
     p("time set noon")
     p("weather clear")
 
-    bot = "s%d" % (idx % 9 + 1)
-    spawn_bot(p, bot)
+    # 每轮一个全新名字：Carpet 假玩家的 UUID 按名字稳定，复用名字会把"上一轮已死"的
+    # 席位状态带进本轮（详见 spawn_bot 的注释）。
+    bot = "p%02d%02d" % (idx, int(time.time()) % 100)
+    bot_ok = spawn_bot(p, bot)
+    expect(bot_ok, "[%s] 假玩家 %s 已上线" % (tag, bot))
+    if not bot_ok:
+        p("cww abort")
+        p.sleep(2)
+        return got
     p("cww force %s 0" % player)
     p("cww force %s 1" % bot)
-    p("cww start %s %s" % (fmt, arena))
+    # 开局前先给假玩家上保命效果：它们不会自己上浮/不会躲，泡在水里就会掉血，
+    # 一旦队1 全灭，PLAY 会立刻 WINNER_DECIDED（夹具失效，测不到东西）。
+    keep_alive(p, [(bot, 1)])
+    start_out = p("cww start %s %s" % (fmt, arena))
+    print("    cww start -> %s" % start_out.replace("\n", " ")[:140])
+    if "人数不足" in start_out or "下限" in start_out or "拒绝" in start_out:
+        expect(False, "[%s] cww start 被拒：%s" % (tag, start_out[:120]))
+        p("cww abort")
+        p.sleep(2)
+        return got
     reached, cur = wait_phase(p, "PLAY", 150)
     expect(reached, "[%s] 进入 PLAY（实际 %s）" % (tag, cur))
     if not reached:

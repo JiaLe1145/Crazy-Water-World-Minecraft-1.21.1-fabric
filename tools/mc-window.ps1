@@ -46,6 +46,19 @@ public class McWin {
     /** Every visible window title seen by the last Find() call (for diagnostics). */
     public static List<string> Titles = new List<string>();
 
+    /** All visible windows whose title contains `like`, in enumeration order. */
+    public static IntPtr[] FindAll(string like) {
+        var hits = new List<IntPtr>();
+        EnumWindows(delegate(IntPtr h, IntPtr l) {
+            if (!IsWindowVisible(h)) return true;
+            var sb = new StringBuilder(512);
+            GetWindowTextW(h, sb, 512);
+            if (sb.ToString().IndexOf(like, StringComparison.OrdinalIgnoreCase) >= 0) hits.Add(h);
+            return true;
+        }, IntPtr.Zero);
+        return hits.ToArray();
+    }
+
     public static IntPtr Find(string like) {
         Titles = new List<string>();
         IntPtr found = IntPtr.Zero;

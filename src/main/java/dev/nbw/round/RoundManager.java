@@ -85,6 +85,13 @@ public final class RoundManager {
 	 * 而原版在 JOIN/AFTER_RESPAWN 之后还会按存档或世界出生点落位，直接在我们的事件里传送会被它盖掉。
 	 */
 	private static final Set<UUID> pendingPlacement = new LinkedHashSet<>();
+	/**
+	 * 待强制复活的玩家（死亡那一 tick 只登记，下一 tick 再走 respawn）。
+	 *
+	 * <p>为什么不直接在 AFTER_DEATH 里调 respawn：那个回调在实体死亡处理的中途，
+	 * 当场替换玩家实体会把死亡流程搅乱。隔一 tick 做是安全的。
+	 */
+	private static final Set<UUID> pendingRespawn = new LinkedHashSet<>();
 	private static int placementStallTicks;
 	/**
 	 * 重启恢复后筏子可能比状态机晚载入；帆/设施登记要等重认领成功后再从 plot 扫一次。
@@ -154,6 +161,9 @@ public final class RoundManager {
 				// 淘汰后观战（M5-3）：死亡瞬间先切成旁观，重生时就是旁观视角（不必等 onRespawn）
 				if (machine.phase() == Phase.PLAY) {
 					player.changeGameMode(GameMode.SPECTATOR);
+					// 登记"下一 tick 强制复活"：不复活的话客户端会一直卡在死亡屏，
+					// 实体也停在 isAlive()==false（下一局会被 sweep 判成淘汰）。
+					pendingRespawn.add(player.getUuid());
 					String tail = spectatorTail(player.getUuid());
 					player.sendMessage(Text.literal("§7[cww] 你已被淘汰｜" + tail), false);
 					// 这条日志是探针唯一能读到的"观战提示已下发"证据（RCON 读不到玩家聊天）。
@@ -210,6 +220,7 @@ public final class RoundManager {
 			persist("阶段转移");   // 03 §6.1：每次转移落盘
 		}
 		drainPendingPlacements();
+		drainPendingRespawns();
 		// 预热队列跨阶段推进（ENROLL 就开始排队），所以不能塞进下面那个 PLAY-only 块里
 		ArenaChunkLoader.tick(srv.getOverworld());
 		MapResetService.onEndTick();   // 模板复制：READY 期间逐 tick 推进，不能只放在 PLAY 块里
@@ -298,6 +309,13 @@ public final class RoundManager {
 			if (p != null && (p.isRemoved() || !p.isAlive())) {
 				NBW.LOGGER.info("[round] sweep: {} 实体在场但不存活，按淘汰处理", s.name());
 				machine.onDeath(s.id());
+				// ★ 2026-11-21 修真 bug：淘汰之后**必须**把实体真正复活一次。
+				// 死亡屏是客户端 UI，只有服务端走一次 respawn 才会关掉；我们原来只
+				// changeGameMode(SPECTATOR) 就完事，于是实体永远停在 isAlive()==false：
+				//   · 客户端一直卡在 You Died（用户凌晨看到的"死亡后没有正常复活"）；
+				//   · 下一局一进 PLAY，本 sweep 立刻把它判成"在场但不存活"→按淘汰处理，
+				//     整队瞬间全灭（实测 match=80 的 PLAY 只存在 1 tick）。
+				forceRespawn(p);
 				continue;
 			}
 			if (p == null && !present.contains(s.id()) && !s.isDisconnected()) {
@@ -305,6 +323,34 @@ public final class RoundManager {
 				NBW.LOGGER.warn("[round] sweep: {} 不在场且未收到 DISCONNECT，按掉线开席位倒计时", s.name());
 				machine.onDisconnect(s.id());
 			}
+		}
+	}
+
+	/**
+	 * 强制走一次服务端复活流程（关掉客户端的死亡界面，让实体重新 isAlive()）。
+	 *
+	 * <p>为什么非做不可：MC 的死亡屏是**客户端 UI**，只有收到 respawn 的数据包才会消失；
+	 * 服务端把玩家切成旁观、改血量、传送，都关不掉它。玩家卡在死亡屏时实体一直
+	 * {@code isAlive()==false}，于是：
+	 * <ul>
+	 *   <li>客户端画面停在 You Died（用户实际遇到的现象）；</li>
+	 *   <li>下一局 {@link #sweepDeaths()} 会把它判成"在场但不存活"→ 立刻淘汰，
+	 *       整队全灭（实测 match=80 的 PLAY 只存在 1 tick）。</li>
+	 * </ul>
+	 * 复活会触发 {@code AFTER_RESPAWN} → {@link #onRespawn}，那里本来就有
+	 * "复活兜底淘汰"（幂等）与重新落位，所以这里只管把人从死亡状态里拉出来。
+	 */
+	private static void forceRespawn(ServerPlayerEntity p) {
+		if (server == null) {
+			return;
+		}
+		try {
+			server.getPlayerManager().respawnPlayer(p, false,
+					net.minecraft.entity.Entity.RemovalReason.KILLED);
+			NBW.LOGGER.info("[round] force respawn（关掉客户端死亡界面）：{}", p.getNameForScoreboard());
+		} catch (Throwable t) {
+			// 不吞异常地静默失败：这条如果坏了，后面的每一局都会被"1 tick 全灭"污染
+			NBW.LOGGER.warn("[round] force respawn 失败（{}）：{}", p.getNameForScoreboard(), t.toString());
 		}
 	}
 
@@ -346,6 +392,29 @@ public final class RoundManager {
 		if (!released.isEmpty()) {
 			NBW.LOGGER.warn("[round] 报名期放掉 {} 个不在场的席位（事件漏报兜底）：{}",
 					released.size(), String.join("、", released));
+		}
+	}
+
+	/**
+	 * 把"死亡下一 tick 要复活"的玩家真正复活一次（关掉客户端死亡屏）。
+	 *
+	 * <p>只处理还在线、且实体确实 {@code !isAlive()} 的人；已经复活的直接跳过。
+	 */
+	private static void drainPendingRespawns() {
+		if (pendingRespawn.isEmpty() || server == null) {
+			return;
+		}
+		List<UUID> ids = new ArrayList<>(pendingRespawn);
+		pendingRespawn.clear();
+		for (UUID id : ids) {
+			ServerPlayerEntity p = server.getPlayerManager().getPlayer(id);
+			if (p == null) {
+				continue;   // 已离线：下次进来时 onRespawn 会重新落位
+			}
+			if (p.isAlive()) {
+				continue;   // 已经活过来了（比如被别的路径复活），不要重复换实体
+			}
+			forceRespawn(p);
 		}
 	}
 

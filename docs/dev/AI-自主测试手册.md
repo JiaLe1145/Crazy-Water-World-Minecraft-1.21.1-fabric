@@ -245,6 +245,21 @@ Select-String -Path run\client-console.log -Pattern "missing texture|JsonParseEx
 
 #### 起客户端
 
+> **可以同时开两个客户端（内存允许）**。双客户端是测"真 PvP / 双队都有真人 / 双方各自死亡复活"
+> 这类链路的唯一办法，也能绕开"假玩家一死整队全灭"的夹具缺陷。要点：
+> - 第二个实例走独立的 run 配置（`gradlew runClient2`）+ 独立 gameDir `run-client2\`，
+>   否则两个实例抢 logs/options.txt；
+> - 用户名必须不同（`build.gradle` 的 client2 里注入 `--username Tester2`），
+>   同名会拿到同一 UUID 被服务端当重复登录踢掉；
+> - **新 gameDir 第一次启动会卡在"无障碍引导/多人游戏警告"**，quickPlay 不会生效。
+>   先把这几行写进 `run-client2\options.txt`：`onboardAccessibility:false`、`skipMultiplayerWarning:true`。
+>
+> ```powershell
+> Start-McClient                 # 客户端 1（run-client\, 用户名 Loom 生成）
+> Start-McClient -Client 2       # 客户端 2（run-client2\, 用户名 Tester2）
+> [McWin]::FindAll("Minecraft* 1.21.1")   # 两个窗口的 hwnd，按枚举顺序取
+> ```
+
 ```powershell
 cd <仓库根>
 iex (Get-Content ".\tools\mc-shots.ps1" -Raw -Encoding utf8)   # .ps1 不能直接执行，必须 iex

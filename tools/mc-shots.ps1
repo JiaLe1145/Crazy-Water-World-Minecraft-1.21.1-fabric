@@ -19,13 +19,28 @@
 # 依赖：tools/mc-window.ps1（窗口查找/矩形/键鼠注入）。下面会自动 load 它。
 param()
 
-$__mcWindow = Join-Path $PSScriptRoot "mc-window.ps1"
-if (Test-Path $__mcWindow) {
-    # 必须带 -Encoding utf8 再 iex：PS 5.1 默认按 ANSI 读 .ps1，
-    # UTF-8 的多字节序列被错解时可能吞掉换行，把下一行并进注释里（踩过）。
-    iex (Get-Content $__mcWindow -Raw -Encoding utf8)
-} else {
-    Write-Output "缺少 tools/mc-window.ps1（窗口工具），截图与起客户端都不可用"
+# 加载窗口原语（mc-window.ps1）。
+# 注意：本文件经常是 `iex (Get-Content .\tools\mc-shots.ps1 -Raw)` 这样进来的，
+# 那种情况下 $PSScriptRoot **是空的**（不是 dot-source），Join-Path 会直接报错，
+# 于是 [McWin] 类型根本不存在、后面所有窗口函数静默失效（2026-11-21 踩过）。
+# 所以这里按候选路径逐个找，找不到就明确报错。
+$__mcWindowCandidates = @()
+if ($PSScriptRoot) { $__mcWindowCandidates += (Join-Path $PSScriptRoot "mc-window.ps1") }
+$__mcWindowCandidates += (Join-Path (Get-Location).Path "tools\mc-window.ps1")
+$__mcWindowCandidates += (Join-Path (Get-Location).Path "run\_win.ps1")
+$__mcWindowLoaded = $false
+foreach ($__cand in $__mcWindowCandidates) {
+    if ($__cand -and (Test-Path $__cand)) {
+        # 必须带 -Encoding utf8 再 iex：PS 5.1 默认按 ANSI 读 .ps1，
+        # UTF-8 的多字节序列被错解时可能吞掉换行，把下一行并进注释里（踩过）。
+        iex (Get-Content $__cand -Raw -Encoding utf8)
+        if ($null -ne ("McWin" -as [type])) { $__mcWindowLoaded = $true; break }
+    }
+}
+if (-not $__mcWindowLoaded) {
+    Write-Output "致命：找不到 tools/mc-window.ps1（试过：$($__mcWindowCandidates -join ' ; ')）"
+    Write-Output "请在仓库根目录下加载本文件，例如：iex (Get-Content .\tools\mc-shots.ps1 -Raw -Encoding utf8)"
+    return
 }
 
 # [removed] McWin class lives in tools/mc-window.ps1 (loaded above; a second
@@ -168,17 +183,27 @@ function Start-McClient {
     param(
         [switch]$Fresh,
         [string]$Address = "127.0.0.1:25565",
-        [int]$TimeoutSec = 180
+        [int]$TimeoutSec = 180,
+        [int]$Client = 1
     )
+    # Client=1 → gradlew runClient  + run-client\
+    # Client=2 → gradlew runClient2 + run-client2\ + 用户名 Tester2
+    # 两个实例共用一个 gameDir 会抢 logs/options.txt，共用用户名会拿到同一个 UUID
+    # 被服务端当重复登录踢掉 —— 所以第二个 run 配置在 build.gradle 里单列。
+    $task = if ($Client -le 1) { "runClient" } else { "runClient$Client" }
+    $gameDir = if ($Client -le 1) { "run-client" } else { "run-client$Client" }
     if ($Fresh) { [void](Stop-McClient) }
-    [void](Set-McOptions)
-    $log = Join-Path $script:RepoRoot "run\client-console.log"
+    [void](Set-McOptions -GameDir (Join-Path $script:RepoRoot $gameDir))
+    $logFile = Join-Path $script:RepoRoot ("run\client-console" + $(if ($Client -le 1) { "" } else { "$Client" }) + ".log")
     # 注意别用 $args 这个名字：它是 PowerShell 的自动变量
-    $gradleArgs = 'runClient --offline --console=plain --args="--quickPlayMultiplayer ' + $Address + '"'
+    $gradleArgs = $task + ' --offline --console=plain'
+    # 两个实例都要 --quickPlayMultiplayer：否则第二个只会停在主菜单（第一版就踩了这个）
+    $gradleArgs += ' --args="--quickPlayMultiplayer ' + $Address + '"'
+    # 第二个实例的用户名由 build.gradle 的 client2 配置注入（--username Tester2）
     Start-Process -FilePath "cmd.exe" `
-        -ArgumentList '/c', ("gradlew.bat " + $gradleArgs + " > run\client-console.log 2>&1") `
+        -ArgumentList '/c', ("gradlew.bat " + $gradleArgs + " > " + (Split-Path -Leaf $logFile) + " 2>&1") `
         -WorkingDirectory $script:RepoRoot -WindowStyle Hidden | Out-Null
-    Write-Output "客户端启动中（日志：$log）"
+    Write-Output "客户端启动中（日志：$logFile）"
     $deadline = (Get-Date).AddSeconds($TimeoutSec)
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 3

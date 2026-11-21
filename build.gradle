@@ -27,6 +27,17 @@ loom {
 			// 两者并行开发必须分开运行目录。
 			runDir = "run-client"
 		}
+		// 第二个客户端（2026-11-21 加）：双客户端才测得了真 PvP、双队都有真人的对局、
+		// 以及"双方各自死亡→复活"这类只有真玩家才走得通的链路。
+		// 要点：
+		//   · 必须独立 runDir —— 两个实例共用 run-client/ 会抢 logs/options.txt/saves；
+		//   · 必须独立用户名 —— 同名会拿到同一个 UUID，服务端直接当成重复登录踢掉；
+		//   · 用 --username 覆盖 Loom 默认的开发用户名（后出现的参数生效）。
+		client2 {
+			client()
+			runDir = "run-client2"
+			programArgs "--username", "Tester2"
+		}
 	}
 }
 
@@ -93,7 +104,7 @@ java {
 // 运行期 Sable 必须从 mods/ 加载**原始 jar**：只有原始 jar 的 fabric.mod.json 还带 "jars"，
 // Loader 才会展开内嵌的 veil / sable_rapier / sablecompanion / forge-config-api-port。
 // （Loom 重映射后的 classpath jar 会丢掉 "jars"，见上面 dependencies 里的说明。）
-def devModsDirs = [file("run-client/mods"), file("run/mods")]
+def devModsDirs = [file("run-client/mods"), file("run-client2/mods"), file("run/mods")]
 def sableDevJar = file("libs/sable-fabric-1.21.1-2.0.6.jar")
 
 tasks.register("syncDevMods") {
@@ -115,7 +126,7 @@ tasks.register("syncDevMods") {
 	}
 }
 
-tasks.matching { it.name == "runClient" || it.name == "runServer" }.configureEach {
+tasks.matching { it.name in ["runClient", "runClient2", "runServer"] }.configureEach {
 	dependsOn "syncDevMods"
 }
 
