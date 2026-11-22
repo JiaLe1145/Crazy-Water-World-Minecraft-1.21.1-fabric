@@ -32,6 +32,7 @@ import dev.nbw.raft.RemoteService;
 import dev.nbw.raft.Sailing;
 import dev.nbw.raft.WindService;
 import dev.nbw.domain.round.Transitions;
+import dev.nbw.domain.raft.RaftLayout;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -52,6 +53,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 
@@ -103,6 +105,24 @@ public final class RoundManager {
 
 	/** 报名期席位清扫的节拍计数（每秒一次就够，不必每 tick 点一遍在场列表）。 */
 	private static int lobbySweepTicks;
+
+	/**
+	 * READY 的"入图闸门"是否还挂着（{@code true} = 人还在大厅，等地图重置完 + 筏停稳）。
+	 *
+	 * <p>2026-11-22：原来是"发完筏立刻传人"，于是人先掉水里、木筏再浮上来。
+	 * 现在按用户要求改成严格顺序：<b>重置地图 → 生成木筏 → 木筏停稳 → 才传送玩家</b>。
+	 */
+	private static boolean entryPending;
+	/** 闸门挂起后经过的 tick 数（用于"观察期"与超时兜底）。 */
+	private static int entryWaitTicks;
+	/** 入图后第几 tick 去读"人到底站到哪了"；{@code >0} 表示还在倒计时。 */
+	private static int entryProbeTicks;
+	/** 本局已经被"PLAY 兜底补传"救过的玩家（同一局每人只报一次 WARN，避免假玩家刷屏）。 */
+	private static final Set<UUID> pulledThisMatch = new LinkedHashSet<>();
+	/** 发筏之后至少等这么多 tick 才放人：Sable 推物理管线、再把 sub-level 同步给客户端都要 tick。 */
+	private static final int ENTRY_MIN_TICKS = 10;
+	/** 闸门最多挂这么久：超时也要放人，绝不能因为某艘筏一直"没停稳"把人整局留在大厅。 */
+	private static final int ENTRY_MAX_TICKS = 120;
 
 	/** 出生锚点：方块坐标 + 朝向圈心的 yaw。 */
 	public record Anchor(int x, int y, int z, float yaw) {
@@ -221,10 +241,17 @@ public final class RoundManager {
 		}
 		drainPendingPlacements();
 		drainPendingRespawns();
+		// 入图闸门只在 READY 里有意义；每 tick 判一次"该不该放人"
+		tickEntryGate();
 		// 预热队列跨阶段推进（ENROLL 就开始排队），所以不能塞进下面那个 PLAY-only 块里
 		ArenaChunkLoader.tick(srv.getOverworld());
 		MapResetService.onEndTick();   // 模板复制：READY 期间逐 tick 推进，不能只放在 PLAY 块里
 		sweepLobbySeats();   // 报名期的幽灵席位清扫，同理不能塞进 PLAY-only 块里
+		if (machine.phase() != Phase.PLAY) {
+			// 非对局阶段不该有人死着：死亡屏是客户端 UI，服务端不主动 respawn 就永远关不掉。
+			// 实测（2026-11-22）：SETTLE 里淹死一个人 → 之后一直卡在 "你死了"，连大厅都回不来。
+			respawnDeadOutsidePlay(srv);
+		}
 		if (machine.phase() == Phase.PLAY) {
 			sweepDeaths();
 			ZoneService.onEndTick(srv);   // 黑海圈层：收缩预告 + 圈外每秒伤害
@@ -466,25 +493,25 @@ public final class RoundManager {
 					NBW.LOGGER.error("[round] READY 发筏有问题：{}", gen);
 				}
 				RemoteService.distributeRemotes(server);   // 每筏发一个遥控器（问题③）
-				int moved = teleportParticipants();
-				// ★ 2026-11-21 修（用户实机："开局先掉进水里，又被传回筏上"）：
-				// READY 时把玩家放到锚点上方，但此刻 Sable 的筏还没完全实体化，
-				// 玩家会先往下掉进水里、到 PLAY 补传时才被拉回甲板 —— 视觉上就是"掉水里再弹回来"。
-				// 这里在 READY 期间关掉重力，PLAY 补传后再恢复。
-				setParticipantsNoGravity(true);
-				announce("§e进入对局（" + moved + " 人已传送），" + seconds(machine.config().readyTicks()) + " 秒后开局");
+				// ★ 2026-11-22 修（用户实机："开局直接掉水里，木筏刷新后才被传回筏上"）：
+				// **不再"发完筏立刻传人"**。发筏那一刻筏只是被写进了坐标，Sable 还没把它推进
+				// 物理管线、客户端也还没收到；立刻传送等于把人放在空气里，他先掉进水里，
+				// 等筏子浮上来、到 PLAY 再补传一次，看起来就是"掉水→木筏出现→被弹回筏上"。
+				// 现在的顺序是：重置地图 → 发筏 → 等筏停稳 → 再放人（闸门见 tickEntryGate）。
+				entryPending = true;
+				entryWaitTicks = 0;
+				pulledThisMatch.clear();   // 本局的"兜底补传"告警按人只报一次，跨局要重置
+				NBW.LOGGER.info("[round] 入图闸门已挂起：等模板复制与发筏稳定后再放人（READY {} tick）",
+						machine.config().readyTicks());
+				announce("§e正在重置地图并生成木筏，" + seconds(machine.config().readyTicks()) + " 秒后开局");
 			}
 			case PLAY -> {
 				setParticipantsGameMode(GameMode.SURVIVAL);
-				// ★ 2026-11-21 修：READY 阶段是"发筏之后立刻传送"，但 Sable 建筏是延后的，
-				// 传送那一刻甲板还没有碰撞体 —— 玩家会直接穿过筏掉进水里、沉到池底。
-				// 实测：出生点改到 generateY+3 之后，手动 tp 到甲板上方能稳定站住（y=151.38），
-				// 但开局自动传送的人仍然停在 y=140。PLAY 开始时筏一定已经实体化，所以这里补传一次。
-				int remade = teleportParticipants();
-				if (remade > 0) {
-					NBW.LOGGER.info("[round] PLAY 补传 {} 人落回甲板（READY 时筏还没实体化）", remade);
-				}
-				setParticipantsNoGravity(false);   // 甲板已实体化，恢复重力（见 READY 那段注释）
+				// 入图已由 READY 闸门保证（人在自己筏的甲板上）。这里只做**兜底**：
+				// 闸门超时、或者客户端没跟上被判定在水里的，补一次落位。
+				// 正常情况下这一段一次都不会触发 —— 触发就会留 WARN，便于以后回溯。
+				pullFallenParticipants();
+				setParticipantsNoGravity(false);   // 安全网：任何路径进 PLAY 都确保重力是开的
 				WorldRules.apply(server);   // 每局再刷一遍，防管理员中途改规则
 				MetricsService.begin(server);   // 埋点：局时长/首战/生产参与率的起点
 				ZoneService.begin(server);   // 黑海圈层：抓半径/伤害表与圈心
@@ -692,7 +719,11 @@ public final class RoundManager {
 				anchors.add(new Anchor(manual.x, manual.y, manual.z, yawToward(manual.x, manual.z, sea.centerX, sea.centerZ)));
 			} else {
 				SpawnGeometry.Spot spot = auto.get(i);
-				anchors.add(new Anchor(spot.x(), sea.waterLevel + 1, spot.z(), spot.yaw()));
+				// 锚点 y = <b>筏底基准</b>（= 水线那一格），不是玩家落脚点：
+				// 筏体生成在 anchor.y+1、甲板占 anchor.y+1..anchor.y+2，玩家的实际落点由
+				// RaftSpawner.entryPoint 按 plot 局部坐标算（甲板面）。2026-11-22 之前这里用的
+				// waterLevel+1，配手写点用 generateY+4，两种口径混着用，最后人全被放进甲板方块里。
+				anchors.add(new Anchor(spot.x(), sea.waterLevel, spot.z(), spot.yaw()));
 			}
 		}
 		int separation = SpawnGeometry.minSeparation(toSpots());
@@ -742,6 +773,18 @@ public final class RoundManager {
 		return (float) Math.toDegrees(Math.atan2(x - cx, cz - z));
 	}
 
+	/**
+	 * 把参赛者放到"自己那艘筏的甲板面"上。
+	 *
+	 * <p><b>2026-11-22 修的真 bug：</b>原来用的是出生锚点的 Y。锚点是"筏底基准"，
+	 * 筏体生成在 {@code y+1}、甲板占 {@code y+1..y+2}，所以玩家被放进去时脑袋正好埋进甲板方块，
+	 * 原版把他往下顶 → 开局掉水里。现在落点由 {@link RaftSpawner#entryPoint} 从筏的
+	 * plot 局部坐标正变换出来（可站面 = 局部 {@link RaftLayout#DECK_SURFACE_Y} + 余量），
+	 * 筏漂到哪、转到哪都对。
+	 *
+	 * <p>没有筏（或筏已沉到水线以下）时退回锚点上方 {@code +2.05}：那是"甲板顶 ≈ 锚点+2"
+	 * 的经验值再加一点余量，宁可多落半格，也不能再把人放到甲板方块里。
+	 */
 	private static void teleportToAnchor(ServerPlayerEntity player, int teamIndex) {
 		if (teamIndex < 0 || teamIndex >= anchors.size()) {
 			return;
@@ -751,7 +794,18 @@ public final class RoundManager {
 		if (world == null) {
 			return;
 		}
-		double x = a.x() + 0.5, y = a.y(), z = a.z() + 0.5;
+		double x = a.x() + 0.5, y = a.y() + 2.05, z = a.z() + 0.5;
+		double[] deck = server == null ? null : RaftSpawner.entryPoint(server, teamIndex);
+		if (deck != null && deck[1] >= a.y() + 0.5) {
+			// 只有"落在水线以上"的甲板落点才可信：筏已经沉了的话，甲板面在水下，
+			// 把人放上去等于直接把他塞进水里，不如退回锚点上方的浮空落点。
+			x = deck[0];
+			y = deck[1] + 0.05;
+			z = deck[2];
+		} else if (deck != null) {
+			NBW.LOGGER.warn("[round] 队 {} 的甲板落点在水线以下（y={}，水线 {}），退回锚点上方",
+					teamIndex, Math.round(deck[1] * 100) / 100.0, a.y());
+		}
 		// ★ 2026-11-21 第二次修：只发 requestTeleport，**不要**再先调 teleport()。
 		// 同时调两个会发两份位置包：服务端实体先跳过去，客户端那份还没确认就又报了旧坐标，
 		// 反作弊于是判定 "moved too quickly" 把它拉回来 —— 实测日志刷屏
@@ -761,6 +815,168 @@ public final class RoundManager {
 		player.requestTeleport(x, y, z);
 		if (player.getYaw() != a.yaw()) {
 			player.setYaw(a.yaw());
+		}
+	}
+
+	/**
+	 * READY 的入图闸门：<b>模板重置完成 + 每队筏都生成并停稳</b>之后，才把参赛者放进图里。
+	 *
+	 * <p>用户 2026-11-22 的原话是要改时间逻辑：先重置地图，重置完先不传人，先生成木筏，
+	 * 木筏出来了再把玩家传进去，避免"先掉水 → 生成木筏 → 传回木筏"。
+	 * 这里就按这个顺序做，另外补了一条"观察期"：Sable 把 sub-level 推进物理管线、
+	 * 再把方块同步给客户端都需要 tick，发筏当 tick 就传人，客户端那一刻还什么都看不到。
+	 *
+	 * <p>超时兜底：{@link #ENTRY_MAX_TICKS} 之内没等到（例如某艘筏一直判定"还在动"），
+	 * 仍然照常传送并写 ERROR —— 卡在大厅比"稍微掉一下"更糟。
+	 */
+	private static void tickEntryGate() {
+		// 闸门放行之后还要补一次"实测读数"：requestTeleport 当 tick 读到的还是大厅坐标
+		if (entryProbeTicks > 0 && --entryProbeTicks == 0) {
+			logSettledDeckY();
+		}
+		if (!entryPending) {
+			return;
+		}
+		if (machine.phase() != Phase.READY) {
+			// 阶段被中止（abort/管理员跳阶段）时闸门作废。
+			// ★ 但如果已经进了 PLAY（例如 READY 倒计时走完、闸门还卡着），**必须**补一次传送：
+			// 否则整局人都在大厅里，"入图闸门"反而变成"没入图"。这正是我们要避免的那类新 bug。
+			boolean intoMatch = machine.phase().matchActive();
+			entryPending = false;
+			entryWaitTicks = 0;
+			if (intoMatch) {
+				int moved = teleportParticipants();
+				entryProbeTicks = 10;
+				NBW.LOGGER.error("[round] 入图闸门没等到就进入了 {}：仍然传送 {} 人（请查发筏日志）",
+						machine.phase(), moved);
+			} else {
+				NBW.LOGGER.info("[round] 入图闸门作废：阶段已离开 READY（{}），未入图的人留在大厅",
+						machine.phase());
+			}
+			return;
+		}
+		entryWaitTicks++;
+		String blocked = entryBlockedReason();
+		if (blocked == null) {
+			int moved = teleportParticipants();
+			entryPending = false;
+			NBW.LOGGER.info("[round] 入图闸门放行（等了 {} tick）：{} 人落到各自木筏的甲板上", entryWaitTicks, moved);
+			entryWaitTicks = 0;
+			// requestTeleport 是"发出去等客户端确认"的：当 tick 读 p.getY() 还是旧坐标（大厅）。
+			// 所以要隔几 tick 再读一次实测读数，那才是"人到底站在哪"。
+			entryProbeTicks = 10;
+			return;
+		}
+		if (entryWaitTicks >= ENTRY_MAX_TICKS) {
+			int moved = teleportParticipants();   // 兜底：宁可回到旧行为，也不能让人整局留在大厅
+			entryPending = false;
+			NBW.LOGGER.error("[round] 入图闸门超时（{} tick，原因：{}）：仍然传送 {} 人 —— 请查上面的发筏日志",
+					entryWaitTicks, blocked, moved);
+			entryWaitTicks = 0;
+		} else if (entryWaitTicks % 20 == 0) {
+			NBW.LOGGER.info("[round] 入图闸门等待中（{} tick）：{}", entryWaitTicks, blocked);
+		}
+	}
+
+	/** 闸门为什么还没放行；{@code null} = 可以放人。 */
+	private static @Nullable String entryBlockedReason() {
+		if (server == null) {
+			return "服务端未就绪";
+		}
+		if (entryWaitTicks < ENTRY_MIN_TICKS) {
+			return "观察期未满（" + entryWaitTicks + "/" + ENTRY_MIN_TICKS + "）";
+		}
+		if (MapResetService.isRunning()) {
+			return "模板复制还没结束：" + MapResetService.status();
+		}
+		return RaftSpawner.entryBlockedReason(server);
+	}
+
+	/**
+	 * 入图之后把"人站上去以后的实测读数"写一行日志：脚底 Y、落点 Y、筏位姿 Y、以及脚底−位姿。
+	 *
+	 * <p>为什么要专门记这一行：{@link RaftLayout#DECK_SURFACE_Y} 那个数是**实测**出来的
+	 * （站上去以后脚底 = 位姿 + 0.295），不是从方块几何推出来的。以后有人怀疑"落点偏高/偏低"，
+	 * 这一行就是第一手证据：<b>差(脚底-位姿) 应当稳定在 0.30 附近</b>；
+	 * 明显大于 0.5 说明落点偏高（人会看到下落），明显小于 0.1 说明压进了甲板方块。
+	 */
+	private static void logSettledDeckY() {
+		if (server == null) {
+			return;
+		}
+		for (ServerPlayerEntity p : collect(currentParticipants())) {
+			PlayerSession s = machine.session(p.getUuid());
+			if (s == null || s.teamIndex() < 0) {
+				continue;
+			}
+			double[] entry = RaftSpawner.entryPoint(server, s.teamIndex());
+			double poseY = RaftSpawner.poseY(server, s.teamIndex());
+			NBW.LOGGER.info("[entry] {} 队={} 脚底Y={} 落点Y={} 筏位姿Y={} 差(脚底-位姿)={}",
+					p.getNameForScoreboard(), s.teamIndex(),
+					Math.round(p.getY() * 100) / 100.0,
+					entry == null ? "?" : Math.round(entry[1] * 100) / 100.0,
+					Double.isNaN(poseY) ? "?" : Math.round(poseY * 100) / 100.0,
+					Double.isNaN(poseY) ? "?" : Math.round((p.getY() - poseY) * 100) / 100.0);
+		}
+	}
+
+	/**
+	 * PLAY 开局兜底：还在水里的参赛者补一次落位。
+	 *
+	 * <p>入图已经由 READY 闸门保证，这一段正常<b>一次都不该触发</b>；
+	 * 它存在是为了"闸门超时兜底"与"客户端没跟上"这两种残余情况不至于毁掉整局。
+	 */
+	private static void pullFallenParticipants() {
+		if (server == null) {
+			return;
+		}
+		for (ServerPlayerEntity p : collect(currentParticipants())) {
+			PlayerSession s = machine.session(p.getUuid());
+			if (s == null || s.teamIndex() < 0 || s.isEliminated() || p.isSpectator()) {
+				continue;
+			}
+			Anchor a = anchorAt(s.teamIndex());
+			if (a == null || p.getY() >= a.y() + 0.5) {
+				continue;   // 站得比水线高：正常
+			}
+			// 必须在传送**之前**把读数取下来：requestTeleport 之后 p.getY() 就可能已经是新坐标了，
+			// 拿它写日志会得到"y=151 却报'仍在水里'"这种自相矛盾的行（第一版就这么写错了）。
+			double yBefore = p.getY();
+			teleportToAnchor(p, s.teamIndex());
+			boolean first = pulledThisMatch.add(p.getUuid());
+			String line = String.format(Locale.ROOT,
+					"[round] PLAY 兜底补传 %s：入图后仍在水里（y=%.2f，水线 %d）",
+					p.getNameForScoreboard(), yBefore, a.y());
+			if (first) {
+				NBW.LOGGER.warn(line);
+			} else {
+				// 假玩家（Carpet）不受 sub-level 碰撞约束，一局里会反复掉下去：
+				// 第一次 WARN 足够报警，后面降成 INFO，别把日志刷满。
+				NBW.LOGGER.info(line + "（本局已补传过，降级为 INFO）");
+			}
+		}
+	}
+
+	/**
+	 * 非对局阶段把"死着的人"复活回来。
+	 *
+	 * <p>为什么要单独有一条：{@link #sweepDeaths()} 只在 PLAY 跑，AFTER_DEATH 里登记重生的分支也只在
+	 * PLAY 生效。于是"SETTLE 里淹死一个人"就变成一个永久死亡屏 —— 实测 2026-11-22：
+	 * 结算阶段玩家淹死后客户端一直停在"你死了"，回不到大厅，下一局也进不去。
+	 *
+	 * <p>每秒最多处理一次：这不是玩法判定，只是把人从死亡状态里拉出来的兜底。
+	 */
+	private static void respawnDeadOutsidePlay(MinecraftServer srv) {
+		if (srv.getTicks() % 20 != 0) {
+			return;
+		}
+		for (ServerPlayerEntity p : srv.getPlayerManager().getPlayerList()) {
+			if (p.isAlive() || p.isRemoved()) {
+				continue;
+			}
+			NBW.LOGGER.info("[round] 非对局阶段发现死亡实体（phase={}）：{} —— 强制复活回大厅", machine.phase(),
+					p.getNameForScoreboard());
+			forceRespawn(p);
 		}
 	}
 
@@ -796,12 +1012,13 @@ public final class RoundManager {
 	}
 
 	/**
-	 * 开关参赛者的重力（READY 悬停用）。
+	 * 开关参赛者的重力。
 	 *
-	 * <p>为什么需要：READY 阶段把玩家放到锚点上方时，Sable 的筏还没完全实体化，
-	 * 人会在那 10 秒里往下掉进水里，然后到 PLAY 补传时才被拉回甲板 ——
-	 * 用户实机看到的就是"开局先掉水里、又被传回筏上"。关掉重力即可平滑度过这段。
-	 * 任何路径离开对局都必须恢复重力，否则人会一直飘着。
+	 * <p><b>2026-11-22 起这只是安全网</b>：入图改成"闸门放行后落到甲板面上"（见
+	 * {@link #tickEntryGate()}），不再需要在 READY 里悬停，所以现在只会在
+	 * 进入 PLAY / 离开对局时统一置 {@code false}（恢复重力）。
+	 * 留着这个入口是因为历史路径（重启恢复、中止对局）可能带着 {@code noGravity=true}
+	 * 的实体进入下一阶段 —— 那种实体会永远飘着。
 	 */
 	private static void setParticipantsNoGravity(boolean noGravity) {
 		Set<UUID> ids = currentParticipants().isEmpty() ? new LinkedHashSet<>(lastParticipants) : currentParticipants();
@@ -809,7 +1026,7 @@ public final class RoundManager {
 			p.setNoGravity(noGravity);
 		}
 		if (!ids.isEmpty()) {
-			NBW.LOGGER.info("[round] 参赛者重力={} （{} 人）", noGravity ? "关（READY 悬停）" : "开", ids.size());
+			NBW.LOGGER.info("[round] 参赛者重力={} （{} 人）", noGravity ? "关（悬停）" : "开", ids.size());
 		}
 	}
 

@@ -200,6 +200,77 @@ public final class RaftSpawner {
 	}
 
 	/**
+	 * 开局落位点：参赛者的脚应当踩在**自己那艘筏的甲板面**上。
+	 *
+	 * <p><b>为什么不能直接拿出生锚点当落点（2026-11-22 修的真 bug）。</b>
+	 * 锚点 {@code {x, y, z}} 是"筏底基准"：筏体生成在 {@code y+1}，甲板占 {@code y+1..y+2}
+	 * 那一层。把玩家放到锚点的 {@code y} 上，等于让他的脑袋正好埋进甲板方块里，
+	 * 原版沿最小穿透轴把他往<b>下</b>顶 → 人就穿到筏底下、掉进水里；等 PLAY 再补传一次，
+	 * 看起来才像"又被传回筏上"。实测日志（20:30:37）：
+	 * <pre>
+	 * [sable] 生成筏 ... 落点=(1000.5 154.0 952.5)
+	 * [round] moved Player264 team=0 -> anchor=1000,153,952 nowAt=(1000.5,153.0,952.5)
+	 * </pre>
+	 * 玩家脚在 153、脑袋在 154.8，而甲板是 154..155 —— 对上了。
+	 *
+	 * <p><b>为什么走局部坐标而不是"锚点 + 固定偏移"。</b>
+	 * 筏子会漂、会转、还会被浮力顶起来一点。唯一恒定的口径是 plot 局部坐标
+	 * （甲板面 = 局部 y=1，中心 = 局部原点），再用 {@link SableRafts#localToWorld} 正变换
+	 * 回世界坐标 —— 这与幸存者贴回甲板用的是同一条链（{@code SurvivorService}）。
+	 *
+	 * @return {@code {x, y, z}}（脚底）；筏还没生成/不在场时返回 null，调用方退回锚点并告警
+	 */
+	public static double @Nullable [] entryPoint(MinecraftServer server, int teamIndex) {
+		UUID raft = raftOf(teamIndex);
+		if (raft == null) {
+			return null;
+		}
+		double[] local = RaftLayout.entryLocal(deckSide());
+		double[] pos = SableRafts.localToWorld(server.getOverworld(), raft, local[0], local[1], local[2]);
+		return Double.isNaN(pos[0]) ? null : pos;
+	}
+
+	/** 筏的位姿 Y（读数用；筏不在场返回 NaN）。甲板可站面 ≈ 位姿 + 0.3，见 {@link RaftLayout#DECK_SURFACE_Y}。 */
+	public static double poseY(MinecraftServer server, int teamIndex) {
+		UUID raft = raftOf(teamIndex);
+		return raft == null ? Double.NaN : SableRafts.posY(server.getOverworld(), raft);
+	}
+
+	/** 筏"停稳"的判定阈值：竖直速度绝对值（格/tick）。实测发筏瞬间是自由落体，远超这个值。 */
+	private static final double SETTLE_VY = 0.05;
+
+	/**
+	 * 开局入图闸门对筏的要求：每支<b>有人的</b>队都有一艘已经生成、还在场、并且已经停稳的筏。
+	 *
+	 * <p>为什么必须等停稳：筏是"凭空出现在目标坐标"的，只要那个坐标比平衡浮位高一点，
+	 * 它就先自由落体、再被浮力顶上来。人这时站上去，看到的是"木筏在脚底下慢慢浮起来"——
+	 * 用户反馈的"上方木筏刷新后才又传送回木筏上方"正是这段。
+	 *
+	 * @return null = 全部就绪；否则一句人话原因（写进日志用）
+	 */
+	public static @Nullable String entryBlockedReason(MinecraftServer server) {
+		ServerWorld world = server.getOverworld();
+		for (var team : RoundManager.machine().teams()) {
+			if (team.members().isEmpty()) {
+				continue;
+			}
+			int index = team.index();
+			UUID id = spawned.get(index);
+			if (id == null) {
+				return "队 " + index + " 还没发筏";
+			}
+			if (!SableRafts.present(world, id)) {
+				return "队 " + index + " 的筏不在场（生成后立刻消失？）";
+			}
+			double vy = SableRafts.velocityY(world, id);
+			if (!Double.isNaN(vy) && Math.abs(vy) > SETTLE_VY) {
+				return String.format(Locale.ROOT, "队 %d 的筏还在上下动（vy=%.3f）", index, vy);
+			}
+		}
+		return null;
+	}
+
+	/**
 	 * 局后清理：收票 → 收筏 → 返回残留清单。
 	 *
 	 * <p>顺序是先收票再删筏。反过来做的话，删筏时票还挂在容器上，

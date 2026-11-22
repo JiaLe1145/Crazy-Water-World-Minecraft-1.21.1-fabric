@@ -85,6 +85,11 @@ public final class MapResetService {
 		return String.format(Locale.ROOT, "[reset] 复制中 %d/%d 块", active.copied, active.total());
 	}
 
+	/** 还有未完成的复制任务吗。开局入图闸门用它把"地图重置完"变成硬条件。 */
+	public static boolean isRunning() {
+		return active != null;
+	}
+
 	/** 局后/换局取消未完成的复制，避免旧任务写到新地图上。 */
 	public static void cancel() {
 		if (active != null) {

@@ -126,4 +126,37 @@ class BuiltinArenaJsonTest {
 		assertTrue(doc.has("weight") && doc.get("weight").getAsInt() > 0,
 				"default_sea 必须给正权重，否则随机开不出对局");
 	}
+
+	/**
+	 * 出生锚点的 Y 必须等于 {@code sea.waterLevel}（= 水线那一格 = 筏底基准）。
+	 *
+	 * <p><b>这条是 2026-11-22"开局掉水里"的直接护栏。</b>
+	 * 锚点 Y 有两种错误写法，两种都真出现过：
+	 * <ul>
+	 *   <li>写成 {@code waterLevel+1}（自动锚点的旧口径）：筏子比水面高一格，开局先自由落体；</li>
+	 *   <li>写成 {@code generateY+4}（2026-11-21 为了"别掉水"抬的）：筏子凭空出现在水面之上
+	 *       三四格，落水要好几秒 —— 用户看到的就是"人先掉水里，木筏过一会儿才浮上来"。</li>
+	 * </ul>
+	 * 锚点 Y 的语义是"筏底基准"：筏体生成在 {@code y+1}、甲板占 {@code y+1..y+2}。
+	 * 玩家的落点由 {@code RaftSpawner.entryPoint} 按 plot 局部坐标算，不再复用这个 Y。
+	 */
+	@Test
+	void teamSpawnYIsTheWaterLineNotThePlayerFeet() {
+		for (String id : BuiltinArenaJson.IDS) {
+			var text = BuiltinArenaJson.SOURCE.readBuiltin(id).orElseThrow();
+			JsonObject doc = JsonParser.parseString(text).getAsJsonObject();
+			int waterLevel = doc.getAsJsonObject("sea").get("waterLevel").getAsInt();
+			if (!doc.has("spawns") || !doc.getAsJsonObject("spawns").has("teams")) {
+				continue;
+			}
+			var teams = doc.getAsJsonObject("spawns").getAsJsonArray("teams");
+			for (var el : teams) {
+				JsonObject t = el.getAsJsonObject();
+				assertEquals(waterLevel, t.get("y").getAsInt(),
+						"图 '" + id + "' 队 " + t.get("teamIndex").getAsInt()
+								+ " 的出生锚点 Y 必须等于 waterLevel（筏底基准），当前 "
+								+ t.get("y").getAsInt() + " vs " + waterLevel);
+			}
+		}
+	}
 }

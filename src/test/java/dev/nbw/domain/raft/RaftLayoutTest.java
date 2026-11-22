@@ -133,4 +133,42 @@ class RaftLayoutTest {
 		assertNull(RaftLayout.sailCell(1, 0));
 		assertNull(RaftLayout.oarCell(1, 0));
 	}
+
+	/**
+	 * 开局落位格（2026-11-22 修"开局掉水里"时加的）。
+	 *
+	 * <p>守三件事：①落位格必须在甲板上（否则人掉海）；②不能是筏心那一格的正上方
+	 * （否则人嵌进筏心方块、被原版顶出去）；③不能是物资箱那一格。脚底高度必须贴着实测可站面。
+	 *
+	 * <p><b>不</b>要求"不是帆/桨位"：4×4 的甲板每一格都归某个设施族（帆占偶数排、桨占奇数排），
+	 * 不存在"纯甲板格"。开局那几秒设施还没摆，人站一下不算占用。
+	 */
+	@Test
+	void entryCellIsOnDeckAndNotTheCoreColumn() {
+		for (int side : new int[]{4, 7, 10}) {
+			double[] e = RaftLayout.entryLocal(side);
+			// 脚底必须在"实测可站面"之上一点，但不能高出一大截（那就是"开局掉一下"）
+			assertTrue(e[1] >= RaftLayout.DECK_SURFACE_Y,
+					"边长 " + side + " 的落位低于实测可站面（会压进甲板方块）");
+			assertTrue(e[1] - RaftLayout.DECK_SURFACE_Y <= 0.2,
+					"边长 " + side + " 的落位比可站面高太多（会看到明显下落）：" + e[1]);
+			assertTrue(RaftLayout.onDeck(side, e[0], e[2]),
+					"边长 " + side + " 的落位格 " + e[0] + "," + e[2] + " 落在甲板外");
+			int bx = (int) Math.floor(e[0]);
+			int bz = (int) Math.floor(e[2]);
+			assertTrue(bx != RaftLayout.CORE_X || bz != RaftLayout.CORE_Z,
+					"边长 " + side + " 的落位格正好是筏心那一格");
+			// 物资箱固定在 (0, FACILITY_Y, deckStart+1) 那一格的正上方（见 RaftSpawner.supplyBoxLocal）
+			assertTrue(!(bx == 0 && bz == RaftLayout.deckStart(side) + 1),
+					"边长 " + side + " 的落位格正好是物资箱那一格");
+		}
+	}
+
+	@Test
+	void degenerateDeckStillHasAStandingCell() {
+		// 边长 2：中心右边一格已经在甲板外了，必须退回起始格，而不是给出甲板外的坐标
+		double[] e = RaftLayout.entryLocal(2);
+		assertTrue(RaftLayout.onDeck(2, e[0], e[2]), "退化筏的落位格 " + e[0] + "," + e[2] + " 在甲板外");
+		assertTrue(e[1] >= RaftLayout.DECK_SURFACE_Y, "退化筏的落位不能压进甲板");
+	}
 }

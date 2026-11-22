@@ -67,6 +67,60 @@ public final class RaftLayout {
 	}
 
 	/**
+	 * 甲板可站面的**实测**局部 Y：站上去以后，脚底 = 筏位姿 Y + 0.295（2026-11-22 两次实测一致）。
+	 *
+	 * <p>它不是从方块几何推出来的 1.0。<b>这是本项目踩过的坑</b>：甲板方块写在 plot 局部
+	 * {@code y=0} 那一层，于是很容易推出"可站面 = 局部 1.0"；但 Sable 的位姿原点并不在甲板底面，
+	 * {@link dev.nbw.sable.SableRafts#localToWorld} 的局部 1.0 比真实可站面高约 0.7 格。
+	 * 用 1.0 当落点，人会从 0.7 格高处落到甲板上（不致命，但"开局掉一下"正是用户抱怨的观感）；
+	 * 用实测值 + 一点余量，人几乎是**站上去**而不是掉上去。
+	 *
+	 * <p>实测方法（写进 M6 计划书）：rtp 到 {@code 位姿+1.05} 与 {@code 位姿+0.45} 两个高度，
+	 * 落定后读数相同（{@code 150.325}，位姿 {@code 150.03}），且连续 8 次采样不漂移。
+	 */
+	public static final double DECK_SURFACE_Y = 0.30;
+
+	/** 落位在实测可站面之上再留的余量：宁可多 0.1 格自由落体，也不要"算低压进甲板被顶一下"。 */
+	public static final double ENTRY_CLEARANCE = 0.10;
+
+	/**
+	 * 开局落位用的甲板局部格（{@code {x, y, z}}，脚底坐标）。
+	 *
+	 * <p><b>为什么要单独有一个"落位格"而不是直接用中心：</b>
+	 * 中心 {@code (0,0)} 那一格的正上方 {@code (0,1,0)} 是筏心方块，物资箱也在
+	 * {@code (0,1,deckStart+1)}。把人放在中心，他的身体就嵌进筏心方块里，原版会沿最小
+	 * 穿透轴把人顶出去（顶到筏心上面 = 站在方块顶上，或顶到侧面 = 摔进水里）。
+	 * 取中心右边一格（局部 {@code x=+1.5}）就没有任何设施占位。
+	 *
+	 * <p>退化筏（边长 &lt; 4，中心格就是唯一可站格）退回起始格——这种筏本来也塞不下设施，
+	 * 有落脚点比"精确避开筏心"更重要。
+	 *
+	 * <p>纯函数：能直接单测"落位格在甲板范围内且不是筏心那一格"。
+	 */
+	public static double[] entryLocal(int side) {
+		double x = 1.5;
+		double z = 0.5;
+		if (side > 0) {
+			double maxX = deckEnd(side) + 1.0;    // 该轴的最外边界（开区间）
+			if (x >= maxX) {
+				x = deckStart(side) + 0.5;
+			}
+		}
+		return new double[]{x, DECK_SURFACE_Y + ENTRY_CLEARANCE, z};
+	}
+
+	/** 局部 XZ 是否落在甲板格内（含边界判定用格子中心，不含"正好踩在边上"）。 */
+	public static boolean onDeck(int side, double lx, double lz) {
+		if (side <= 0) {
+			return false;
+		}
+		int bx = (int) Math.floor(lx);
+		int bz = (int) Math.floor(lz);
+		return bx >= deckStart(side) && bx <= deckEnd(side)
+				&& bz >= deckStart(side) && bz <= deckEnd(side);
+	}
+
+	/**
 	 * 第 {@code index} 面帆的格子。
 	 *
 	 * @return {@code {x, y, z}}；甲板铺不下时返回 null（调用方必须报失败，不许静默少挂）

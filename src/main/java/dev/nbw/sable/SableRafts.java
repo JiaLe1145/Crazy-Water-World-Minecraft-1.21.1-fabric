@@ -570,6 +570,34 @@ public final class SableRafts {
 		return resolve(world, raftId) != null;
 	}
 
+	/**
+	 * 筏的竖直速度（世界 Y 分量）。给"筏停稳了没有"用。
+	 *
+	 * <p>开局入图闸门要等筏停稳再放人：发筏那一刻筏是"凭空出现在目标坐标"的，
+	 * 目标坐标只要比水面高一点，它就会先自由落体、再被浮力顶回来。
+	 * 人这时候传上去，看到的就是"脚下木筏慢慢浮上来"。
+	 *
+	 * @return 竖直速度；筏不在场、或物理体还没就绪时返回 {@code NaN}
+	 *         （调用方要按"不知道"处理，不能当成 0 = 已停稳）
+	 */
+	public static double velocityY(ServerWorld world, UUID raftId) {
+		ServerSubLevel sl = resolve(world, raftId);
+		if (sl == null) {
+			return Double.NaN;
+		}
+		ServerSubLevelContainer c = SubLevelContainer.getContainer(world);
+		if (c == null) {
+			return Double.NaN;
+		}
+		RigidBodyHandle handle = c.physicsSystem().getPhysicsHandle(sl);
+		if (handle == null || !handle.isValid()) {
+			return Double.NaN;
+		}
+		Vector3d v = new Vector3d();
+		handle.getLinearVelocity(v);
+		return v.y;
+	}
+
 	// ---------------------------------------------------------------- 施力
 
 	/**

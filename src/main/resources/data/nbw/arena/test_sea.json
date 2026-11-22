@@ -53,28 +53,28 @@
       {
         "teamIndex": 0,
         "x": -1000,
-        "y": 67,
+        "y": 62,
         "z": 952,
         "facing": "south"
       },
       {
         "teamIndex": 1,
         "x": -952,
-        "y": 67,
+        "y": 62,
         "z": 1000,
         "facing": "west"
       },
       {
         "teamIndex": 2,
         "x": -1000,
-        "y": 67,
+        "y": 62,
         "z": 1048,
         "facing": "north"
       },
       {
         "teamIndex": 3,
         "x": -1048,
-        "y": 67,
+        "y": 62,
         "z": 1000,
         "facing": "east"
       }
