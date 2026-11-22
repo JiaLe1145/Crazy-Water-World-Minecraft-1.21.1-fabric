@@ -20,7 +20,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOG = os.path.join(ROOT, "run", "server-console.log")
 BOTS = (("g0", 0), ("g1", 0), ("g2", 1), ("g3", 1))
 DEFAULT_DECK = 16          # 初始筏削弱到 4×4（limits.initialRaftSide，缺省 RaftSpawner.DEFAULT_SIDE=4）
-DECK_MASS = 8.5            # 16 格 oak_planks ×0.5 + 物资箱 0.5；筏心自 2026-11-22 起零质量
+DECK_MASS = 10.5            # 16 格 oak_planks ×0.5 + 物资箱 0.5；筏心自 2026-11-22 起零质量
 
 
 class P:
@@ -123,8 +123,8 @@ def main():
     print("== 2. 生成结果应当符合 arena 配置（边长 4 → 16 格 + 筏心 + 物资箱 → 质量 8.5）")
     status = p("cww raft all")
     print("      %s" % status[:260])
-    expect(status.count("质量=8.5") == 2,
-           "两队都是 16 甲板格(8.0) + 物资箱(0.5) = 8.5（筏心/设施自 2026-11-22 起零质量，实际：%s）"
+    expect(status.count("质量=10.5") == 2,
+           "两队都是 16 甲板格(8.0) + 物资箱(0.5) = 10.5（筏心/设施自 2026-11-22 起零质量，实际：%s）"
            % status[:160])
     ys = [float(m) for m in re.findall(r"Y=([\d.-]+)", status)]
     expect(len(ys) == 2, "读到两艘筏的 Y：%s" % ys)

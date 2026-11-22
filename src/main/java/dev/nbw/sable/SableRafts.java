@@ -76,7 +76,7 @@ public final class SableRafts {
 	 *         是为了让调用方既能拿到成功值又能拿到具体原因，而不必再查日志）
 	 */
 	public static @Nullable UUID createRaft(ServerWorld world, double cx, double cy, double cz,
-			int side, BlockState deck, @Nullable String name, String[] outError) {
+			int width, int length, BlockState deck, @Nullable String name, String[] outError) {
 		ServerSubLevelContainer c = SubLevelContainer.getContainer(world);
 		if (c == null) {
 			outError[0] = "该维度不是 sub-level 承载维度";
@@ -96,9 +96,11 @@ public final class SableRafts {
 		LevelPlot plot = subLevel.getPlot();
 		// 甲板几何的唯一来源是 RaftLayout：帆位与桨位也从那里取。
 		// 两边各写一遍公式，迟早出现"设施挂在甲板外面"这种 bug——4×4 偶数边长就是这么暴露的。
-		int from = RaftLayout.deckStart(side);
-		int to = RaftLayout.deckEnd(side);
-		int radiusChunks = (side - 1) / 16;
+		int fromX = RaftLayout.deckStartX(width);
+		int toX = RaftLayout.deckEndX(width);
+		int fromZ = RaftLayout.deckStartZ(length);
+		int toZ = RaftLayout.deckEndZ(length);
+		int radiusChunks = (Math.max(width, length) - 1) / 16;
 		ChunkPos center = plot.getCenterChunk();
 		for (int x = -radiusChunks; x <= radiusChunks; x++) {
 			for (int z = -radiusChunks; z <= radiusChunks; z++) {
@@ -106,8 +108,8 @@ public final class SableRafts {
 			}
 		}
 		EmbeddedPlotLevelAccessor accessor = plot.getEmbeddedLevelAccessor();
-		for (int x = from; x <= to; x++) {
-			for (int z = from; z <= to; z++) {
+		for (int x = fromX; x <= toX; x++) {
+			for (int z = fromZ; z <= toZ; z++) {
 				accessor.setBlockState(new BlockPos(x, 0, z), deck, 2);
 			}
 		}
@@ -119,8 +121,8 @@ public final class SableRafts {
 				new Vector3d(cx, cy, cz), subLevel.logicalPose().orientation());
 
 		UUID id = subLevel.getUniqueId();
-		NBW.LOGGER.info("[sable] 生成筏 '{}' id={} 边长={} 甲板 {} 格，落点=({} {} {})",
-				name, id, side, deckCount(side),
+		NBW.LOGGER.info("[sable] 生成筏 '{}' id={} 尺寸={}x{} 甲板 {} 格，落点=({} {} {})",
+				name, id, width, length, deckCount(width, length),
 				String.format(java.util.Locale.ROOT, "%.1f", cx),
 				String.format(java.util.Locale.ROOT, "%.1f", cy),
 				String.format(java.util.Locale.ROOT, "%.1f", cz));
@@ -463,6 +465,10 @@ public final class SableRafts {
 	}
 
 	/** 边长 side 的方形甲板格数（可以是偶数；4 → 16 格，就是现在的初始筏）。 */
+	public static int deckCount(int width, int length) {
+		return RaftLayout.deckCells(width, length);
+	}
+
 	public static int deckCount(int side) {
 		return RaftLayout.deckCells(side);
 	}

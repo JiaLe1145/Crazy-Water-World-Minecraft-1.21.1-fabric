@@ -121,6 +121,16 @@ public final class ConfigModels {
 			 * 而赛制只管时间与人数（03 §2 的字段归属）。
 			 */
 			public int initialRaftSide;
+
+			/**
+			 * 初始筏的 X 向格数（宽度）。0 = 用 {@link #initialRaftSide}。
+			 * <p>2026-11-23 用户把初始筏定为 **4x5**：宽度 4、长度 5。拆成两个字段是为了
+			 * 不再正方形贯穿全线——{@code RaftLayout} 的取格、物资箱、落位格按 width/length 各取一轴。
+			 */
+			public int initialRaftWidth;
+
+			/** 初始筏的 Z 向格数（长度）。0 = 宽度 + 1（即 4x5 里的 5）。 */
+			public int initialRaftLength;
 			/** 初始筏的材质，缺省 oak_planks。材质决定质量（#sable:light → 0.5/格）。 */
 			public String initialRaftBlock;
 		}

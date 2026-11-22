@@ -145,6 +145,13 @@ public final class RemoteService {
 			boolean hasHelmsman = SurvivorService.hasJob(team, SurvivorJob.HELMSMAN);
 			if (intent.linear() != 0) {
 				double[] fwd = SableRafts.forward(world, raft);
+				// 2026-11-23：帆成为航向参考物 —— 有帆时"前进"就是帆面对的方向
+				// （帆的 FACING 是**方块局部**朝向，经筏体偏航旋到世界系）。
+				// 这条同时修掉用户报的"遥控方向偏移"：不再依赖筏体位姿里那个隐含的前方。
+				net.minecraft.util.math.Direction heading = Sailing.heading(team);
+				if (heading != null) {
+					fwd = rotateToHeading(fwd, heading);
+				}
 				double speed = SpeedGovernor.clampSpeed(
 						HelmsmanRule.speed(SpeedGovernor.REMOTE_SPEED, hasHelmsman));
 				RaftMotionService.request(team, fwd[0] * intent.linear(), fwd[1] * intent.linear(), speed);
@@ -193,6 +200,23 @@ public final class RemoteService {
 		intents.put(team, new HeldIntent(HelmModel.fromKeys(forward, backward, left, right), tick + ticks));
 		return "已登记遥控意图 前进=" + forward + " 后退=" + backward + " 左转=" + left
 				+ " 右转=" + right + " 共 " + ticks + " tick";
+	}
+
+	/**
+	 * 把"筏体前方"（局部 +Z 在世界里的方向）旋到帆面对的方向。
+	 *
+	 * <p>推导：局部 +Z（南）在世界里是 {@code (fx, fz)}；MC 的偏航是
+	 * {@code world = R(yaw)·local}，于是局部 +X（东）在世界里是 {@code (fz, -fx)}。
+	 * 四个朝向都是轴对齐的，所以只需要这两组基来回换。
+	 */
+	private static double[] rotateToHeading(double[] fwd, net.minecraft.util.math.Direction heading) {
+		double fx = fwd[0], fz = fwd[1];
+		return switch (heading) {
+			case NORTH -> new double[]{-fx, -fz};
+			case EAST -> new double[]{fz, -fx};
+			case WEST -> new double[]{-fz, fx};
+			default -> new double[]{fx, fz};   // SOUTH = 局部 +Z，与筏体前方一致
+		};
 	}
 
 	/** 一行读数：每队当前意图 + 朝向。探针靠它判断"遥控器到底改变了什么"。 */

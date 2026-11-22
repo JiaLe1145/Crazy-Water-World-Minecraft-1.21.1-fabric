@@ -3,6 +3,7 @@ package dev.nbw.raft;
 import dev.nbw.NBW;
 import dev.nbw.cfg.ConfigModels;
 import dev.nbw.content.NbwContent;
+import dev.nbw.content.SailBlock;
 import dev.nbw.content.NbwWeapons;
 import dev.nbw.content.RaftCoreBlockEntity;
 import dev.nbw.domain.raft.RaftLayout;
@@ -127,7 +128,8 @@ public final class RaftSpawner {
 	public static String generateForTeams(MinecraftServer server) {
 		ServerWorld world = server.getOverworld();
 		ConfigModels.Arena arena = RoundManager.arenaOrNull();
-		int side = deckSide();
+		int width = deckWidth();
+		int length = deckLength();
 		String blockId = arena == null || arena.limits == null
 				|| arena.limits.initialRaftBlock == null || arena.limits.initialRaftBlock.isEmpty()
 				? DEFAULT_BLOCK : arena.limits.initialRaftBlock;
@@ -142,7 +144,7 @@ public final class RaftSpawner {
 		if (!stale.isEmpty()) {
 			NBW.LOGGER.warn("[raftgen] 开局清掉 {} 艘上一局/重启残留的旧筏：{}", stale.size(), stale);
 		}
-		int deckBlocks = SableRafts.deckCount(side);
+		int deckBlocks = SableRafts.deckCount(width, length);
 		if (arena != null && arena.limits != null && arena.limits.maxBlocksPerRaft > 0
 				&& deckBlocks > arena.limits.maxBlocksPerRaft) {
 			return "初始筏 " + deckBlocks + " 格超过 limits.maxBlocksPerRaft=" + arena.limits.maxBlocksPerRaft
@@ -170,7 +172,7 @@ public final class RaftSpawner {
 				continue;
 			}
 			String[] err = new String[1];
-			UUID id = SableRafts.createRaft(world, cx, cy, cz, side,
+			UUID id = SableRafts.createRaft(world, cx, cy, cz, width, length,
 					block.getDefaultState(), name, err);
 			if (id == null) {
 				failures.add("队 " + index + " 生成失败：" + err[0]);
@@ -183,9 +185,13 @@ public final class RaftSpawner {
 			if (coreErr != null) {
 				failures.add("队 " + index + " " + coreErr);
 			}
-			String chestErr = placeSupplyBox(world, id, index, side);
+			String chestErr = placeSupplyBox(world, id, index, width, length);
 			if (chestErr != null) {
 				failures.add("队 " + index + " " + chestErr);
+			}
+			String sailErr = placeInitialSail(world, id, index, length);
+			if (sailErr != null) {
+				failures.add("队 " + index + " " + sailErr);
 			}
 			if (!SableRafts.holdLoaded(world, id)) {
 				failures.add("队 " + index + " 加载票没上成功（筏子可能在中途被卸载）");
@@ -193,10 +199,10 @@ public final class RaftSpawner {
 			created++;
 		}
 		String tail = failures.isEmpty() ? "" : "；失败：" + String.join(" | ", failures);
-		NBW.LOGGER.info("[raftgen] 生成 {} 艘初始筏（边长 {}，甲板 {} 格，材质 {}，票已上）{}",
-				created, side, deckBlocks, blockId, tail);
-		return "生成 " + created + " 艘初始筏，边长 " + side + "（甲板 " + deckBlocks + " 格，材质 "
-				+ blockId + "）" + tail;
+		NBW.LOGGER.info("[raftgen] 生成 {} 艘初始筏（{}x{}，甲板 {} 格，材质 {}，票已上）{}",
+				created, width, length, deckBlocks, blockId, tail);
+		return "生成 " + created + " 艘初始筏，尺寸 " + width + "x" + length + "（甲板 " + deckBlocks
+				+ " 格，材质 " + blockId + "）" + tail;
 	}
 
 	/**
@@ -225,7 +231,7 @@ public final class RaftSpawner {
 		if (raft == null) {
 			return null;
 		}
-		double[] local = RaftLayout.entryLocal(deckSide());
+		double[] local = RaftLayout.entryLocal(deckWidth(), deckLength());
 		double[] pos = SableRafts.localToWorld(server.getOverworld(), raft, local[0], local[1], local[2]);
 		return Double.isNaN(pos[0]) ? null : pos;
 	}
@@ -339,7 +345,7 @@ public final class RaftSpawner {
 		}
 		String[] err = new String[1];
 		UUID id = SableRafts.createRaft(world, anchor.x() + 0.5, anchor.y() + 1.0, anchor.z() + 0.5,
-				DEFAULT_SIDE, resolveBlock(DEFAULT_BLOCK).getDefaultState(),
+				deckWidth(), deckLength(), resolveBlock(DEFAULT_BLOCK).getDefaultState(),
 				raftName(teamIndex), err);
 		if (id == null) {
 			return "生成失败：" + err[0];
@@ -475,16 +481,20 @@ public final class RaftSpawner {
 	 * @return {@code {x, y, z}}；边长 < 4 的退化筏返回 null（没有不放筏心的中线桨格）
 	 */
 	public static @Nullable int[] supplyBoxLocal(int side) {
-		if (side < 4) {
-			return null;
-		}
-		return new int[]{0, RaftLayout.FACILITY_Y, RaftLayout.deckStart(side) + 1};
+		return supplyBoxLocal(side, side);
 	}
 
-	private static String placeSupplyBox(ServerWorld world, UUID raftId, int teamIndex, int side) {
-		int[] cell = supplyBoxLocal(side);
+	public static @Nullable int[] supplyBoxLocal(int width, int length) {
+		if (width < 4 || length < 4) {
+			return null;
+		}
+		return new int[]{0, RaftLayout.FACILITY_Y, RaftLayout.deckStartZ(length) + 1};
+	}
+
+	private static String placeSupplyBox(ServerWorld world, UUID raftId, int teamIndex, int width, int length) {
+		int[] cell = supplyBoxLocal(width, length);
 		if (cell == null) {
-			NBW.LOGGER.warn("[raftgen] 队 {} 初始筏边长 {} 太小，跳过物资箱", teamIndex, side);
+			NBW.LOGGER.warn("[raftgen] 队 {} 初始筏 {}x{} 太小，跳过物资箱", teamIndex, width, length);
 			return null;
 		}
 		int x = cell[0], y = cell[1], z = cell[2];
@@ -529,8 +539,7 @@ public final class RaftSpawner {
 		if (raft == null) {
 			return "队 " + teamIndex + " 没有筏";
 		}
-		int side = deckSide();
-		int[] cell = supplyBoxLocal(side);
+		int[] cell = supplyBoxLocal(deckWidth(), deckLength());
 		if (cell == null || !(SableRafts.plotBlockEntity(world, raft, cell[0], cell[1], cell[2])
 				instanceof ChestBlockEntity chest)) {
 			return "队 " + teamIndex + " 的物资箱读不到（可能已被拆掉）";
@@ -558,6 +567,53 @@ public final class RaftSpawner {
 	 * <p>帆位、桨位、甲板铺设三处都问这里要同一个数：设施格子由 {@code RaftLayout} 按边长推导，
 	 * 一旦谁自己记住"半径 3"，4×4 的筏上就会出现"帆挂在甲板外面的空气里"这种错。
 	 */
+	/** 初始筏的 X 向格数（宽度）。沿用 arena 的 initialRaftSide；4 是用户 2026-11-06 削弱后的值。 */
+	public static int deckWidth() {
+		ConfigModels.Arena arena = RoundManager.arenaOrNull();
+		if (arena != null && arena.limits != null && arena.limits.initialRaftWidth > 0) {
+			return arena.limits.initialRaftWidth;
+		}
+		return arena == null || arena.limits == null || arena.limits.initialRaftSide <= 0
+				? DEFAULT_SIDE : arena.limits.initialRaftSide;
+	}
+
+	/**
+	 * 初始筏的 Z 向格数（长度）。用户 2026-11-23 把初始筏定为 **4×5**：
+	 * 长度比宽度多一格，给"桅杆 + 落位 + 物资箱"留出前后空间。
+	 */
+	public static int deckLength() {
+		ConfigModels.Arena arena = RoundManager.arenaOrNull();
+		if (arena != null && arena.limits != null && arena.limits.initialRaftLength > 0) {
+			return arena.limits.initialRaftLength;
+		}
+		return deckWidth() + 1;
+	}
+
+	/**
+	 * 开局在筏头放**一面**帆，朝向 = 木筏前进正方向（用户 2026-11-23 的新规则）。
+	 *
+	 * <p>帆不再提供推力（"帆越多越快"已废用），它是**航向参考物**：
+	 * 遥控器的 W 就朝这面帆面对的方向走，右键可以把它转 90°。
+	 * 所以开局必须先有一面帆，否则 {@code Sailing.heading} 返回 null、只能退回筏体位姿。
+	 *
+	 * <p>放在 {@code (0, FACILITY_Y, deckEndZ)}（筏头中线）：不挡落位格、不压筏心与物资箱，
+	 * 且玩家一上筏就能看见"船往哪边走"。
+	 */
+	private static @Nullable String placeInitialSail(ServerWorld world, UUID raftId, int teamIndex, int length) {
+		if (NbwContent.sail == null) {
+			return null;   // 方块没注册（理论上不会）：不阻断发筏
+		}
+		int z = RaftLayout.deckEndZ(length);
+		var state = NbwContent.sail.getDefaultState().with(SailBlock.FACING, net.minecraft.util.math.Direction.SOUTH);
+		if (!SableRafts.setPlotBlock(world, raftId, 0, RaftLayout.FACILITY_Y, z, state)) {
+			return "初始帆没能写进 plot";
+		}
+		Sailing.registerPlaced(teamIndex, 0, RaftLayout.FACILITY_Y, z, net.minecraft.util.math.Direction.SOUTH);
+		NBW.LOGGER.info("[raftgen] 队 {} 初始帆落位 local=(0, {}, {})，朝向 SOUTH（= 该筏前进正方向）",
+				teamIndex, RaftLayout.FACILITY_Y, z);
+		return null;
+	}
+
 	public static int deckSide() {
 		ConfigModels.Arena arena = RoundManager.arenaOrNull();
 		return arena == null || arena.limits == null || arena.limits.initialRaftSide <= 0

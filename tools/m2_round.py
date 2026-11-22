@@ -167,7 +167,7 @@ def main():
     expect(raft_name(p, 0) in info and raft_name(p, 1) in info,
            "两队筏按 nbw_raft_<队>_<局> 唯一名可查：%s" % info[:120])
     allst = p("cww raft all")
-    expect(allst.count("质量=9.5") == 2,
+    expect(allst.count("质量=10.5") == 2,
            "两艘初始筏质量都是 9.5（16 甲板×0.5 + 筏心 1.0 + 物资箱 0.5）：%s" % allst[:140])
     tickets = p("sable forceload query")
     expect("nbw:round_active" in tickets and ("2 force-loading" in tickets or "2 sub-level" in tickets),

@@ -173,6 +173,25 @@ class RaftLayoutTest {
 	}
 
 	@Test
+	void rectangularDeckIsFourByFive() {
+		int w = 4;
+		int len = 5;
+		assertEquals(20, RaftLayout.deckCells(w, len), "4x5 应当是 20 格");
+		assertEquals(-2, RaftLayout.deckStartX(w));
+		assertEquals(1, RaftLayout.deckEndX(w));
+		assertEquals(-2, RaftLayout.deckStartZ(len));
+		assertEquals(2, RaftLayout.deckEndZ(len), "长度 5 的长轴是 z∈[-2,2]");
+		double[] e = RaftLayout.entryLocal(w, len);
+		assertTrue(RaftLayout.onDeck(w, len, e[0], e[2]), "4x5 的落位格必须在甲板上");
+		int bx = (int) Math.floor(e[0]);
+		int bz = (int) Math.floor(e[2]);
+		for (int i = 0; i < RaftLayout.sailCapacity(w, len); i++) {
+			int[] c = RaftLayout.sailCell(w, len, i);
+			assertTrue(!(c[0] == bx && c[2] == bz), "4x5 的落位格撞上第 " + i + " 面帆");
+		}
+	}
+
+	@Test
 	void degenerateDeckStillHasAStandingCell() {
 		// 边长 2：中心右边一格已经在甲板外了，必须退回起始格，而不是给出甲板外的坐标
 		double[] e = RaftLayout.entryLocal(2);
