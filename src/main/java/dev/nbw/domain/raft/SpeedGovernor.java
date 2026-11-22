@@ -36,7 +36,7 @@ public final class SpeedGovernor {
 	 * 所以 0.22 这一档追到 90% 时要 dv≈0.4，必须低于 {@link #MAX_DV_PER_TICK}。
 	 * 抬上限不抬限幅，上限就成了摆设（之前取 0.02 的限幅就亲手造出过这个假象）。
 	 */
-	public static final double MAX_TRAVEL_SPEED = 0.22;
+	public static final double MAX_TRAVEL_SPEED = 0.28;
 
 	/**
 	 * 一名划桨者的目标位移速度：0.022 格/tick ≈ 0.44 格/秒。
@@ -44,7 +44,7 @@ public final class SpeedGovernor {
 	 * <p><b>2026-11-22 随上限一起下调</b>（原 0.0333）。满编 5 人 ≈ 2.2 格/秒，
 	 * 仍然"看得见在走"，但不再比步行还快地擦着水面飞。
 	 */
-	public static final double ROW_SPEED_PER_ROWER = 0.022;
+	public static final double ROW_SPEED_PER_ROWER = 0.030;
 
 	/**
 	 * 一块帆在单位风强下的目标位移速度：0.0165 格/tick。
@@ -53,7 +53,7 @@ public final class SpeedGovernor {
 	 * （0.64 格/秒），7 帆满配 + 常态风 = 0.231，正好越过 {@link #MAX_TRAVEL_SPEED}；
 	 * 风暴 4.0 时 3 帆就顶到上限 —— 顺风满帆仍是天花板，但天花板本身降下来了。
 	 */
-	public static final double SAIL_SPEED_PER_SAIL_PER_WIND = 0.0165;
+	public static final double SAIL_SPEED_PER_SAIL_PER_WIND = 0.0225;
 
 	/**
 	 * 遥控器的马达目标位移速度：0.11 格/tick ≈ 2.2 格/秒。
@@ -62,7 +62,7 @@ public final class SpeedGovernor {
 	 * <b>2026-11-22 下调</b>（原 0.1665 = 3.33 格/秒）：用户反馈开起来太快、不稳。
 	 * 现在 2.2 格/秒，与 5 人划桨档一致，仍比"漂"明显快。
 	 */
-	public static final double REMOTE_SPEED = 0.11;
+	public static final double REMOTE_SPEED = 0.15;
 
 	/**
 	 * 比例增益。取 <b>10</b>（2026-11-22 由 18 下调）。
@@ -101,7 +101,7 @@ public final class SpeedGovernor {
 	 * 起作用的是 {@link #DV_CAP_RATIO}；这条只防"目标值被算成天文数字"时的一记猛踢
 	 * （历史事故：GAIN=20 且无限幅时，筏子 8.4 秒飞了 1475 格）。
 	 */
-	public static final double MAX_DV_PER_TICK = 0.45;
+	public static final double MAX_DV_PER_TICK = 0.55;
 
 	/** 这一 tick 对给定目标允许的最大速度增量。 */
 	public static double dvCap(double target) {
