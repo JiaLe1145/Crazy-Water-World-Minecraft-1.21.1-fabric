@@ -7,16 +7,17 @@
 #
 # Usage:
 #   iex (Get-Content ".\tools\mc-window.ps1" -Raw -Encoding utf8)
-#   $h = [McWin]::Find("Minecraft* 1.21.1")
+#   $h = [McWin]::FindRegex("^Minecraft\*? 1\.21\.1(?!\d)")
 #   [McWin]::Rect($h)        # physical pixels (call SetProcessDPIAware first!)
 #   [McWin]::Pid($h)
 #
 # Never match on plain "*Minecraft*": another Minecraft (e.g. a Forge 1.20.1
 # instance someone else left running) would match too, and you would screenshot
-# or kill the wrong game.
+# or kill the wrong game. A literal substring is not enough either - see
+# FindRegex(): "Minecraft* 1.21.1" is a prefix of "Minecraft* 1.21.11".
 param()
 
-Add-Type -TypeDefinition @'
+Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
 using System;
 using System.Text;
 using System.Collections.Generic;
@@ -40,6 +41,36 @@ public class McWin {
     [DllImport("user32.dll")] public static extern uint MapVirtualKey(uint code, uint mapType);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
 
+    [DllImport("user32.dll")]
+    public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
+
+    /**
+     * Render one window into a bitmap **without** touching z-order / focus / cursor.
+     *
+     * This exists because CopyFromScreen captures whatever happens to be on top:
+     * with someone else's maximized Minecraft on the desktop, every capture of our
+     * dev client silently came back as a picture of *their* game. PW_RENDERFULLCONTENT
+     * (2) asks the window to draw itself into the DC even when it is occluded.
+     *
+     * @return the saved path, or null when PrintWindow produced nothing usable
+     */
+    public static string PrintWindowToPng(IntPtr h, string path) {
+        RECT r;
+        if (!GetWindowRect(h, out r)) return null;
+        int w = r.Right - r.Left, hh = r.Bottom - r.Top;
+        if (w < 64 || hh < 64) return null;
+        using (var bmp = new System.Drawing.Bitmap(w, hh)) {
+            using (var g = System.Drawing.Graphics.FromImage(bmp)) {
+                IntPtr hdc = g.GetHdc();
+                bool ok = PrintWindow(h, hdc, 2);
+                g.ReleaseHdc(hdc);
+                if (!ok) return null;
+            }
+            bmp.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+        }
+        return path;
+    }
+
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
 
@@ -59,6 +90,28 @@ public class McWin {
         return hits.ToArray();
     }
 
+    /**
+     * First visible window whose title matches `pattern` (.NET regex, case-insensitive).
+     *
+     * The substring Find() below cannot express "1.21.1 but NOT 1.21.11": the plain
+     * substring "Minecraft* 1.21.1" is a prefix of "Minecraft* 1.21.11", so a real
+     * 1.21.11 client sitting on the desktop got screenshotted (and keys posted into it)
+     * instead of our dev client. Use a regex with a (?!\d) guard.
+     */
+    public static IntPtr FindRegex(string pattern) {
+        var re = new System.Text.RegularExpressions.Regex(
+            pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        IntPtr found = IntPtr.Zero;
+        EnumWindows(delegate(IntPtr h, IntPtr l) {
+            if (!IsWindowVisible(h)) return true;
+            var sb = new StringBuilder(512);
+            GetWindowTextW(h, sb, 512);
+            if (found == IntPtr.Zero && re.IsMatch(sb.ToString())) found = h;
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+
     public static IntPtr Find(string like) {
         Titles = new List<string>();
         IntPtr found = IntPtr.Zero;
@@ -72,6 +125,23 @@ public class McWin {
             return true;
         }, IntPtr.Zero);
         return found;
+    }
+
+    /**
+     * Move the real OS cursor and post one mouse-wheel notch.
+     *
+     * Needed for UIs that scroll: the creative tab strip hides every tab past the
+     * panel edge, and MC derives the hovered widget from the OS cursor position,
+     * so a PostMessage-only wheel is not enough - the cursor has to be there.
+     */
+    public static void Wheel(IntPtr h, int screenX, int screenY, int notches) {
+        SetCursorPos(screenX, screenY);
+        System.Threading.Thread.Sleep(120);
+        IntPtr lp = (IntPtr)((screenY << 16) | (screenX & 0xFFFF));
+        PostMessage(h, 0x0200, IntPtr.Zero, lp);              // WM_MOUSEMOVE
+        int delta = notches * 120;
+        IntPtr wp = (IntPtr)((delta << 16) & unchecked((int)0xFFFF0000));
+        PostMessage(h, 0x020A, wp, lp);                       // WM_MOUSEWHEEL
     }
 
     /** Physical-pixel rect. Call SetProcessDPIAware() first or you get logical pixels. */

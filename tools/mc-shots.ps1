@@ -50,12 +50,16 @@ $script:DshTitle = "DeepSeek Harness"
 # ★ 不能只匹配 "Minecraft"：这台机器上可能同时开着**别人的** Minecraft
 #   （实测出现过 `Minecraft* Forge 1.20.1 - 多人游戏（第三方服务器）`）。
 #   模糊匹配会同时导致两个事故：截图截到别人的游戏、Stop-McClient 直接把别人的游戏杀掉。
-#   我们的 dev 客户端标题是 `Minecraft* 1.21.1 - …`，用版本号收紧才是安全的。
+#   ★★ 2026-11-22 又踩一次：光靠"版本号子串"也不够。桌面上同时开着用户的
+#   `Minecraft* 1.21.11 - …` 时，子串 "Minecraft* 1.21.1" 是它的**前缀**，
+#   IndexOf 照样命中 → 截图截到用户那一局，按键也发进了用户那一局。
+#   所以这里改用正则 + (?!\d) 尾巴：1.21.1 后面不许再跟数字。
 $script:McTitle = "Minecraft* 1.21.1"
+$script:McTitlePattern = '^Minecraft\*? 1\.21\.1(?!\d)'
 $script:McTitleFallback = "Minecraft"
 $script:McShotDir = $null
 
-function Find-Mc { [McWin]::Find($script:McTitle) }
+function Find-Mc { [McWin]::FindRegex($script:McTitlePattern) }
 function Find-Dsh { [McWin]::Find($script:DshTitle) }
 
 # 窗口矩形健全性：最小化的窗口会返回 -21333 这种哨兵坐标，
@@ -77,7 +81,7 @@ function Show-Mc {
     # CopyFromScreen returns physical pixels, so every capture is cropped/skewed.
     # That is exactly why the first screenshots showed a 1280x720 slice of a 1707x1067 window.
     [void][McWin]::SetProcessDPIAware()
-    $mc = [McWin]::Find($script:McTitle)
+    $mc = Find-Mc
     if ($mc -eq [IntPtr]::Zero) {
         Write-Output "没找到 dev 客户端窗口（标题需含 '$($script:McTitle)'）—— 先 Start-McClient"
         Write-Output ("当前可见窗口：" + ([McWin]::Titles -join " | "))
@@ -102,6 +106,12 @@ function Restore-Dsh {
 }
 
 function Capture-Mc([string]$path, $mc = $null) {
+    # 相对路径按仓库根解析：.NET 静态调用（Bitmap::Save / File::ReadAllText）
+    # 看到的是**进程 cwd**，不是 PowerShell 的 $PWD，两者在 iex 场景下会不一致 ——
+    # 实测传相对路径时 Save 抛 "GDI+ 中发生一般性错误"，换绝对路径立刻正常。
+    if ($path -and -not [System.IO.Path]::IsPathRooted($path)) {
+        $path = Join-Path $script:RepoRoot $path
+    }
     if ($null -eq $mc -or $mc -eq [IntPtr]::Zero) { $mc = Show-Mc }
     if ($mc -eq [IntPtr]::Zero) { return $false }
     Add-Type -AssemblyName System.Drawing
@@ -158,7 +168,7 @@ function Stop-McClient {
     # 只按"我们那个窗口所属的 PID"杀，不按进程名/内存筛。
     # 教训：这台机器上可能同时开着别人的 Minecraft（实测出现过 Forge 1.20.1），
     # `Get-Process java | ? MainWindowTitle -like '*Minecraft*' | Stop-Process` 会把手游一起杀掉。
-    $h = [McWin]::Find($script:McTitle)
+    $h = Find-Mc
     if ($h -eq [IntPtr]::Zero) {
         Write-Output "没有找到 dev 客户端窗口（$($script:McTitle)），不杀任何进程"
         return 0
@@ -208,7 +218,7 @@ function Start-McClient {
     $deadline = (Get-Date).AddSeconds($TimeoutSec)
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 3
-        $h = [McWin]::Find($script:McTitle)
+        $h = Find-Mc
         if ($h -ne [IntPtr]::Zero) {
             Write-Output "窗口已出现，等待进服…"
             if (Wait-McJoined $null 90) { return $true }
