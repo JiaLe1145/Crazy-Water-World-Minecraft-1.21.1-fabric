@@ -1,4 +1,6 @@
 {
+  "itemGroup.nbw.tools": "工具与消耗品",
+  "itemGroup.nbw.blocks": "水世界方块",
   "block.nbw.raft_core": "筏心",
   "death.attack.nbw_raft_core": "%1$s 的筏心被摧毁了",
   "block.nbw.sail": "帆",
