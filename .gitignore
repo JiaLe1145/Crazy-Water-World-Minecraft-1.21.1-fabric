@@ -42,3 +42,5 @@ libs/
 build-*.log
 docs/dev/wip-parked/
 client-console*.log
+# jar xf 解包 Sable 数据的落点（别提交）
+/data/sable/
