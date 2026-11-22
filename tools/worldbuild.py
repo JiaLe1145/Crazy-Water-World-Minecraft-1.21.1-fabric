@@ -125,6 +125,50 @@ def build_flat_test(run, log=print):
     log("  完成（水面 y=149，海床 y=139）")
 
 
+def build_walls(run, log=print):
+    """给每张图的海域边缘砌一圈围墙（测试用：防止木筏被划出场地）。
+
+    形状是**方环**（四条直墙），不是圆环：/fill 只能填盒子，四条直墙刚好把海域围住，
+    而且比圆环省一半方块。墙放在 `radius+1` 那一列，不占水体本体。
+
+    高度覆盖"从水下到水面上方"：`waterLevel-20 .. waterLevel+25`，
+    这样即使筏子被顶起来也翻不过去；墙顶不放灯，避免夜里看不见。
+
+    幂等：重复执行就是把同样的方块再填一遍。
+    """
+    import json
+    import glob
+    arena_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                             "src", "main", "resources", "data", "nbw", "arena")
+    log("== 建海域围墙 ==")
+    built = 0
+    for path in sorted(glob.glob(os.path.join(arena_dir, "*.json"))):
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        sea = doc.get("sea") or {}
+        cx, cz = int(sea.get("centerX", 0)), int(sea.get("centerZ", 0))
+        r = int(sea.get("radius", 0))
+        wl = int(sea.get("waterLevel", 62))
+        if r <= 0:
+            continue
+        edge = r + 1
+        y0, y1 = wl - 20, wl + 25
+        run(f"forceload add {cx-edge-8} {cz-edge-8} {cx+edge+8} {cz+edge+8}")
+        time.sleep(0.3)
+        # 四条直墙：x=cx±edge（沿 z 走）与 z=cz±edge（沿 x 走），四角重叠无所谓
+        walls = [
+            (cx - edge, y0, cz - edge, cx - edge, y1, cz + edge),
+            (cx + edge, y0, cz - edge, cx + edge, y1, cz + edge),
+            (cx - edge, y0, cz - edge, cx + edge, y1, cz - edge),
+            (cx - edge, y0, cz + edge, cx + edge, y1, cz + edge),
+        ]
+        for (x0, yy0, z0, x1, yy1, z1) in walls:
+            fill_box(run, x0, yy0, z0, x1, yy1, z1, "minecraft:stone_bricks", log)
+        log(f"  {doc.get('id')}: 方墙 x/z=±{edge}（围绕 {cx},{cz}），y {y0}..{y1}")
+        built += 1
+    log(f"  共 {built} 张图")
+
+
 def build_template(run, log=print):
     log("== 建中心残骸模板 ==")
     log("  " + run("cww reset buildtemplate")[:120])
@@ -167,6 +211,8 @@ def main():
         build_flat_test(run)
     if what in ("arena", "all"):
         build_arenas(run)
+    if what in ("walls", "all"):
+        build_walls(run)
     print("\n完成。复查：cww lobby test / cww arena terrain default_sea / cww arena terrain test_sea")
 
 
