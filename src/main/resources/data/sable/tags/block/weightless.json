@@ -1,0 +1,17 @@
+{
+  "replace": false,
+  "values": [
+    "nbw:raft_core",
+    "nbw:sail",
+    "nbw:oar",
+    "nbw:seawater_filter",
+    "nbw:medical_kit",
+    "nbw:compost_farm",
+    "nbw:kitchen",
+    "nbw:generator",
+    "nbw:repair_table",
+    "nbw:ballista",
+    "nbw:catapult",
+    "nbw:ram"
+  ]
+}
