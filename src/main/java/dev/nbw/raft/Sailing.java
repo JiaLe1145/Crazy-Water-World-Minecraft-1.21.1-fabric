@@ -129,6 +129,20 @@ public final class Sailing {
 	}
 
 	/** 局后清理：忘掉记录。帆方块本身随筏一起销毁，不需要逐个拆。 */
+	/**
+	 * 本队"前进方向"的局部朝向：取第一面帆的 {@code FACING}（用户 2026-11-23：
+	 * "船帆的方向即为木筏前进的正方向"）。没有帆时返回 null，调用方退回筏体位姿的前方。
+	 *
+	 * <p>为什么不再用"帆越多越快"：那条机制被废用了，帆现在是**航向参考物**，
+	 * 不再产生推力（{@code WindService.apply} 不再登记速度请求）。
+	 */
+	public static net.minecraft.util.math.Direction heading(int teamIndex) {
+		List<SailCell> cells = sailsByTeam.get(teamIndex);
+		if (cells == null || cells.isEmpty()) {
+			return null;
+		}
+		return cells.get(0).facing();
+	}
 	public static void forget(int teamIndex) {
 		sailsByTeam.remove(teamIndex);
 	}

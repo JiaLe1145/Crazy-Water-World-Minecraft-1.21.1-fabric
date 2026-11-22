@@ -93,6 +93,11 @@ public final class WindService {
 		if (current.calm()) {
 			return 0;
 		}
+		// 2026-11-23 用户决定：废用帆越多越快。帆现在只作**航向参考物**（Sailing.heading），
+		// 不再产生推力 —— 本方法保留只为兼容事件/读数，不再登记任何速度请求。
+		if (true) {
+			return 0;
+		}
 		int pushed = 0;
 		for (int team : java.util.List.of(0, 1, 2, 3, 4, 5, 6, 7)) {
 			UUID raft = RaftSpawner.raftOf(team);
