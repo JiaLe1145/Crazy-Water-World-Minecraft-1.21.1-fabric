@@ -161,6 +161,14 @@ class RaftLayoutTest {
 			// 物资箱固定在 (0, FACILITY_Y, deckStart+1) 那一格的正上方（见 RaftSpawner.supplyBoxLocal）
 			assertTrue(!(bx == 0 && bz == RaftLayout.deckStart(side) + 1),
 					"边长 " + side + " 的落位格正好是物资箱那一格");
+			// 落位格不能落在**帆**位上：帆是唯一会被自动放上去的设施（`/cww sail rig`、
+			// 以后的自动挂帆）。实测事故：7 帆挂满时第 7 面正好放进站在落位格上的玩家身体里，
+			// 人直接被顶下海。桨位没有自动放置路径，所以落位格放在桨族那一排。
+			for (int i = 0; i < RaftLayout.sailCapacity(side); i++) {
+				int[] c = RaftLayout.sailCell(side, i);
+				assertTrue(!(c[0] == bx && c[2] == bz),
+						"边长 " + side + " 的落位格 " + bx + "," + bz + " 是第 " + i + " 面帆的位置");
+			}
 		}
 	}
 

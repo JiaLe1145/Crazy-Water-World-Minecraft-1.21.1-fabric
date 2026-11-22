@@ -571,7 +571,95 @@ public final class SableRafts {
 	}
 
 	/**
-	 * 筏的竖直速度（世界 Y 分量）。给"筏停稳了没有"用。
+	 * 筏体姿态的倾斜角（度）：局部"上"方向与世界竖直的夹角。
+	 *
+	 * <p><b>为什么需要它：</b>用户 2026-11-22 反馈"速度过快，木筏会翻倒入水"。
+	 * "翻倒"是姿态问题，光看 Y/速度看不出来（筏子翻成 90° 时中心 Y 甚至可能没怎么变）。
+	 * 这条读数是唯一能客观判定"翻了没有"的量：0° = 完全水平，&gt;60° 基本就是翻了。
+	 *
+	 * <p>算法：把局部 up（0,1,0）用位姿四元数旋到世界系，取它与 (0,1,0) 的夹角。
+	 * 不含偏航（yaw）—— 筏子转圈是正常的，只有俯仰/横滚才算倾斜。
+	 *
+	 * @return 倾斜角（度）；筏不在场时返回 {@code NaN}
+	 */
+	public static double tiltDeg(ServerWorld world, UUID raftId) {
+		ServerSubLevel sl = resolve(world, raftId);
+		if (sl == null) {
+			return Double.NaN;
+		}
+		Vector3d up = new Vector3d(0.0, 1.0, 0.0);
+		up.rotate(new org.joml.Quaterniond(sl.logicalPose().orientation()));
+		double cos = Math.max(-1.0, Math.min(1.0, up.y));
+		return Math.toDegrees(Math.acos(cos));
+	}
+
+	/**
+	 * 姿态稳定（防翻）。每 tick 对每艘在场筏调一次：<b>夹住俯仰/横滚角速度</b>，
+	 * 并在倾斜超过阈值时给一个**回正角冲量**。
+	 *
+	 * <p><b>为什么需要这一层（用户 2026-11-22："速度过快…出现木筏翻倒入水"）。</b>
+	 * 我们给筏子的推力是<b>质心上的水平冲量</b>，而 Sable 的水阻作用在浸没的方块上（船底），
+	 * 两者不在同一条作用线上 —— 一加速就必然产生一个让船头点下去的力矩。
+	 * 速度越快、力矩越大；一旦倾斜到某个角度，浮心与重心错开，就会自己继续翻过去（失稳）。
+	 * 实测（7 帆 + 风暴 + 左转）：倾斜峰值 12.9°，稳态 8~9°。
+	 * 这不是靠"少推一点"能彻底解决的（风照样在推），所以补一层姿态控制。
+	 *
+	 * <p>做法刻意保守，只管两件"物理上一定会失控"的事：
+	 * <ol>
+	 *   <li><b>阻尼</b>：俯仰/横滚角速度超过 {@code maxTiltRate} 就反向补一记，把转速拉回上限内。</li>
+	 *   <li><b>回正</b>：倾斜超过 {@code maxTiltDeg} 后按超出量给回正角冲量（有单 tick 上限），
+	 *       相当于给筏子一个"扶正"的小力矩。偏航（yaw）完全不碰 —— 转向是玩法。</li>
+	 * </ol>
+	 *
+	 * @param maxTiltDeg   允许的自然倾斜（低于它不干预）；实测静止倾斜 2~3°，建议 8
+	 * @param rightGain    每超出 1° 施加的回正角冲量
+	 * @param maxRight     单 tick 回正角冲量上限（防止大角度时一记猛掰）
+	 * @param maxTiltRate  俯仰/横滚角速度上限（rad/s）
+	 * @return true = 本 tick 施加了修正
+	 */
+	public static boolean stabilize(ServerWorld world, UUID raftId, double maxTiltDeg,
+			double rightGain, double maxRight, double maxTiltRate) {
+		ServerSubLevel sl = resolve(world, raftId);
+		if (sl == null) {
+			return false;
+		}
+		ServerSubLevelContainer c = SubLevelContainer.getContainer(world);
+		if (c == null) {
+			return false;
+		}
+		RigidBodyHandle handle = c.physicsSystem().getPhysicsHandle(sl);
+		if (handle == null || !handle.isValid()) {
+			return false;
+		}
+		org.joml.Quaterniond q = new org.joml.Quaterniond(sl.logicalPose().orientation());
+		Vector3d up = new Vector3d(0.0, 1.0, 0.0).rotate(q);
+		Vector3d worldUp = new Vector3d(0.0, 1.0, 0.0);
+		double tiltDeg = Math.toDegrees(Math.acos(Math.max(-1.0, Math.min(1.0, up.y))));
+		Vector3d omega = new Vector3d();
+		handle.getAngularVelocity(omega);
+		// 俯仰/横滚分量 = 除竖直（偏航）以外的部分；倾斜很小时这个近似足够
+		Vector3d tiltRate = new Vector3d(omega.x, 0.0, omega.z);
+		Vector3d correction = new Vector3d();
+		// ① 角速度阻尼：把俯仰/横滚转速拉回上限
+		double rate = tiltRate.length();
+		if (rate > maxTiltRate && rate > 1e-9) {
+			correction.fma(-(rate - maxTiltRate) / rate, tiltRate);
+		}
+		// ② 回正：倾斜超过阈值时沿"up × worldUp"轴向反方向扶正
+		Vector3d axis = new Vector3d(up).cross(worldUp);
+		if (tiltDeg > maxTiltDeg && axis.lengthSquared() > 1e-9) {
+			axis.normalize();
+			double strength = Math.min(maxRight, (tiltDeg - maxTiltDeg) * rightGain);
+			correction.fma(strength, axis);
+		}
+		if (correction.lengthSquared() < 1e-12) {
+			return false;
+		}
+		handle.applyAngularImpulse(correction);
+		return true;
+	}
+
+	/** 筏的竖直速度（世界 Y 分量）。给"筏停稳了没有"用。
 	 *
 	 * <p>开局入图闸门要等筏停稳再放人：发筏那一刻筏是"凭空出现在目标坐标"的，
 	 * 目标坐标只要比水面高一点，它就会先自由落体、再被浮力顶回来。

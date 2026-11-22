@@ -98,15 +98,20 @@ public final class RaftLayout {
 	 * <p>纯函数：能直接单测"落位格在甲板范围内且不是筏心那一格"。
 	 */
 	public static double[] entryLocal(int side) {
-		double x = 1.5;
-		double z = 0.5;
-		if (side > 0) {
-			double maxX = deckEnd(side) + 1.0;    // 该轴的最外边界（开区间）
-			if (x >= maxX) {
-				x = deckStart(side) + 0.5;
+		// 取**桨族**（奇数排）里、不在中线上的第一格：
+		//   · 桨族不会被自动放置（遥控器取代了多人划桨，oarCell 现在只有单测在用），
+		//     所以不会出现"帆被放进玩家身体里"那种事故（实测：7 帆挂满时人直接被顶下海）；
+		//   · 避开 x=0 中线，是因为物资箱就压在 (0, FACILITY_Y, deckStart+1) 那一格上；
+		//   · 用 oarCell 而不是手写坐标：奇数边长与偶数边长的排奇偶性不一样（7×7 的 z=-1 是帆排），
+		//     手写 z 一定会在某张图上撞进帆位 —— 单测就是这么抓住第一版的。
+		for (int i = 0; i < oarCapacity(side); i++) {
+			int[] c = oarCell(side, i);
+			if (c != null && c[0] != CORE_X) {
+				return new double[]{c[0] + 0.5, DECK_SURFACE_Y + ENTRY_CLEARANCE, c[2] + 0.5};
 			}
 		}
-		return new double[]{x, DECK_SURFACE_Y + ENTRY_CLEARANCE, z};
+		// 退化甲板（1×1，整张就剩筏心那一格）：只能站中心
+		return new double[]{0.5, DECK_SURFACE_Y + ENTRY_CLEARANCE, 0.5};
 	}
 
 	/** 局部 XZ 是否落在甲板格内（含边界判定用格子中心，不含"正好踩在边上"）。 */

@@ -57,6 +57,22 @@ public final class RaftMotionService {
 
 	private static long samples;
 	private static int pushed;
+	/** 本 tick 施加了姿态修正的筏数（诊断用；稳态 0 = 没有筏需要扶）。 */
+	private static int stabilized;
+
+	/**
+	 * 姿态稳定的参数（用户 2026-11-22："速度过快、木筏翻倒入水"）。
+	 *
+	 * <p>阈值取 8°：实测静止倾斜 2~3°、全速直航 6~7°、满帆转向峰值 12.9°。
+	 * 8° 正好"不影响正常航行，只压真正要翻的那一段"。
+	 */
+	private static final double STABILIZE_MAX_TILT_DEG = 8.0;
+	/** 每超出 1° 的回正角冲量。 */
+	private static final double STABILIZE_GAIN = 0.05;
+	/** 单 tick 回正角冲量上限（与 TURN_IMPULSE 同量纲，1.5 ≈ 30°/s 偏航）。 */
+	private static final double STABILIZE_MAX_IMPULSE = 0.50;
+	/** 俯仰/横滚角速度上限（rad/s）：约 46°/s，超过就阻尼。 */
+	private static final double STABILIZE_MAX_TILT_RATE = 0.8;
 
 	private RaftMotionService() {
 	}
@@ -142,12 +158,17 @@ public final class RaftMotionService {
 		// 否则一个队划划停停时，下一 tick 的差值会跨过多拍，把实测航速算低、控制器就过冲。
 		for (Map.Entry<Integer, UUID> e : RaftSpawner.current().entrySet()) {
 			double[] p = SableRafts.position(world, e.getValue());
-			if (Double.isNaN(p[0]) || Double.isNaN(p[2])) {
-				continue;
+			if (!Double.isNaN(p[0]) && !Double.isNaN(p[2])) {
+				// 与 SableRafts.position 同形的 {x, y, z}，读侧只用索引 0 与 2。
+				// 上一版在这里存两个分量、读三个索引，有请求的第二 tick 就把服务端整个崩掉。
+				lastPose.put(e.getKey(), p);
 			}
-			// 与 SableRafts.position 同形的 {x, y, z}，读侧只用索引 0 与 2。
-			// 上一版在这里存两个分量、读三个索引，有请求的第二 tick 就把服务端整个崩掉。
-			lastPose.put(e.getKey(), p);
+			// 姿态稳定每 tick 都要跑（不只是有推力的那些）：漂着被浪顶歪、被撞歪也要扶回来。
+			// 数值刻意保守，只压"会失控"的部分，偏航（转向）完全不碰。
+			if (SableRafts.stabilize(world, e.getValue(), STABILIZE_MAX_TILT_DEG, STABILIZE_GAIN,
+					STABILIZE_MAX_IMPULSE, STABILIZE_MAX_TILT_RATE)) {
+				stabilized++;
+			}
 		}
 		measured.clear();
 		measured.putAll(now_measured);
@@ -184,9 +205,9 @@ public final class RaftMotionService {
 		double[] m = measured.get(team);
 		double[] v = m == null ? new double[]{0.0, 0.0} : m;
 		return String.format(Locale.ROOT,
-				"速度=(%.4f, %.4f) 速率=%.4f 目标=%.4f 峰值=%.4f 上限=%.3f 采样=%d 施力=%d",
+				"速度=(%.4f, %.4f) 速率=%.4f 目标=%.4f 峰值=%.4f 上限=%.3f 采样=%d 施力=%d 稳姿=%d",
 				v[0], v[1], Math.hypot(v[0], v[1]), targetSpeed.getOrDefault(team, 0.0),
-				peak.getOrDefault(team, 0.0), SpeedGovernor.MAX_TRAVEL_SPEED, samples, pushed);
+				peak.getOrDefault(team, 0.0), SpeedGovernor.MAX_TRAVEL_SPEED, samples, pushed, stabilized);
 	}
 
 	/** 最近一次实测位移速度矢量（格/tick）；没测过就返回零向量。 */
@@ -209,6 +230,7 @@ public final class RaftMotionService {
 		peak.clear();
 		samples = 0;
 		pushed = 0;
+		stabilized = 0;
 		NBW.LOGGER.debug("[sailing] 航行控制器状态已清空");
 	}
 }

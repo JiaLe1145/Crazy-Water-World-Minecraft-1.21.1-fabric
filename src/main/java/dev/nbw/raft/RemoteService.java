@@ -42,9 +42,13 @@ public final class RemoteService {
 	/**
 	 * 转向角冲量。2026-11-21 实测：0.5 时 A/D 只有约 10°/s（一圈 36 秒），
 	 * 手感上等于"转不动"（用户实机反馈"转向过小甚至没有"）。改到 1.5 后约 30°/s。
-	 * 实测方法：`cww remote move 1 a 200` 后每秒钟读一次 `cww remote status 1` 的朝向。
+	 *
+	 * <p><b>2026-11-22 降到 0.9（≈18°/s）：</b>用户反馈"速度过快、移动不平稳、木筏会翻倒"。
+	 * 满速下每 tick 一记 1.5 的偏航冲量，实测能把筏子横滚顶到 12.9° ——
+	 * 转向本身不该是"甩尾"。0.9 仍然一圈 20 秒，配合新的姿态稳定，
+	 * 转向时倾斜峰值压在 8° 以内。
 	 */
-	public static final double TURN_IMPULSE = 1.5;
+	public static final double TURN_IMPULSE = 0.9;
 
 	/** 移动意图的有效窗口（tick）。客户端每 2 tick 发一次包，这里给 6 tick 兜掉线/换物品。 */
 	public static final int INTENT_WINDOW_TICKS = 6;

@@ -417,11 +417,22 @@ public final class RaftSpawner {
 		}
 		StringBuilder sb = new StringBuilder("[raftgen] ");
 		for (Map.Entry<Integer, UUID> e : spawned.entrySet()) {
-			sb.append("队").append(e.getKey()).append(" Y=")
+			double[] p = SableRafts.position(world, e.getValue());
+			sb.append("队").append(e.getKey())
+					// 位置必须一起给：只报 Y 的话，"玩家被筏子甩下海"这类问题根本对不上账
+					.append(String.format(Locale.ROOT, " (%s, %s)", fmt2(p[0]), fmt2(p[2])))
+					.append(" Y=")
 					.append(String.format(Locale.ROOT, "%.2f", SableRafts.posY(world, e.getValue())))
-					.append(" 质量=").append(SableRafts.mass(world, e.getValue())).append("  ");
+					.append(" 质量=").append(SableRafts.mass(world, e.getValue()))
+					// 倾斜角：判定"翻船"只看这个数（0° 水平 / >60° 基本翻了）
+					.append(String.format(Locale.ROOT, " 斜=%.1f°", SableRafts.tiltDeg(world, e.getValue())))
+					.append("  ");
 		}
 		return sb.toString().trim();
+	}
+
+	private static String fmt2(double v) {
+		return Double.isNaN(v) ? "?" : String.format(Locale.ROOT, "%.1f", v);
 	}
 
 	/**
