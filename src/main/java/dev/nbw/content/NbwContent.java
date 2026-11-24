@@ -195,6 +195,21 @@ public final class NbwContent {
 				net.fabricmc.fabric.api.object.builder.v1.block.entity.FabricBlockEntityTypeBuilder
 						.create(RaftCoreBlockEntity::new, raftCore).build());
 
+		// 船帆下面的方块也不许拆（用户 2026-11-25）：
+		// 帆自己已经 strength(-1) 不可破坏，但玩家还能从下面把甲板掏掉 —— 帆会浮空、筏体缺角。
+		// 这里在"破坏之前"拦一道：正上方是帆就拒绝，并给玩家一句人话提示。
+		net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents.BEFORE.register(
+				(world, player, pos, state, blockEntity) -> {
+					if (world.getBlockState(pos.up()).getBlock() instanceof SailBlock) {
+						if (player != null) {
+							player.sendMessage(net.minecraft.text.Text.literal(
+									"§c[cww] 船帆下面的方块不能拆（先处理上面的船帆）"), true);
+						}
+						return false;
+					}
+					return true;
+				});
+
 		NBW.LOGGER.info("[content] registered block={} be={} sail={} oar={} remote={}",
 				Registries.BLOCK.getId(raftCore), Registries.BLOCK_ENTITY_TYPE.getId(raftCoreEntity),
 				Registries.BLOCK.getId(sail), Registries.BLOCK.getId(oar),
