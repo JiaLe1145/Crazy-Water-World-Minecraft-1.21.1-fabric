@@ -661,7 +661,7 @@ public final class SableRafts {
 		if (correction.lengthSquared() < 1e-12) {
 			return false;
 		}
-		handle.applyAngularImpulse(correction);
+		handle.applyAngularImpulse(toBodyFrame(sl, correction.x, correction.y, correction.z));
 		return true;
 	}
 
@@ -688,6 +688,22 @@ public final class SableRafts {
 			return new double[]{Double.NaN, Double.NaN};
 		}
 		return new double[]{d.x / len, d.z / len};
+	}
+
+	/**
+	 * 世界矢量 → 该筏刚体所在坐标系（存储/局部系）的矢量：乘位姿四元数的逆。
+	 *
+	 * <p><b>这是 2026-11-25 查出的根因。</b>Sable 的 {@code RigidBodyHandle.applyLinearImpulse}
+	 * 吃的是**子层级局部系**的矢量，而我们一直按世界矢量传 —— 刚体会再按自身朝向转一次，
+	 * 等效于施加了 {@code R²·v}。实测（船体偏航 -23.4°、帆朝 south）：
+	 * 航向 {@code (-0.397, 0.918)}，而实际位移方向 {@code (-0.74, 0.67)}，
+	 * 正好等于 {@code R²·(0,1) = (-0.729, 0.685)} —— 转向越多、偏差越大，
+	 * 用户报的"A/D 转向后 W 方向严重偏移"就是它。
+	 */
+	private static Vector3d toBodyFrame(ServerSubLevel sl, double x, double y, double z) {
+		Vector3d v = new Vector3d(x, y, z);
+		v.rotate(new org.joml.Quaterniond(sl.logicalPose().orientation()).invert());
+		return v;
 	}
 
 	/** 筏的竖直速度（世界 Y 分量）。给"筏停稳了没有"用。
@@ -757,7 +773,7 @@ public final class SableRafts {
 		Vector3d gravity = DimensionPhysicsData.getGravity(world, sl.logicalPose().position(), new Vector3d());
 		// 向下"补充"的重力 = 质量 × 重力 × (倍数 - 1)；gravity 本身已是负 Y
 		gravity.mul(sl.getMassTracker().getMass() * (weightMultiplier - 1.0));
-		handle.applyLinearImpulse(gravity);
+		handle.applyLinearImpulse(toBodyFrame(sl, gravity.x, gravity.y, gravity.z));
 		return true;
 	}
 
@@ -786,7 +802,7 @@ public final class SableRafts {
 		if (handle == null || !handle.isValid()) {
 			return false;
 		}
-		handle.applyLinearImpulse(new Vector3d(forceX, forceY, forceZ));
+		handle.applyLinearImpulse(toBodyFrame(sl, forceX, forceY, forceZ));
 		return true;
 	}
 
@@ -815,7 +831,7 @@ public final class SableRafts {
 			return false;
 		}
 		// 绕世界 Y 轴（上）旋转；正负号约定由 RemoteService 负责，这里保持 joml 的原样。
-		handle.applyAngularImpulse(new Vector3d(0.0, yawImpulse, 0.0));
+		handle.applyAngularImpulse(toBodyFrame(sl, 0.0, yawImpulse, 0.0));
 		return true;
 	}
 
