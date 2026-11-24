@@ -100,40 +100,6 @@ public class SailBlock extends Block implements BlockSubLevelLiftProvider {
 	}
 
 	/**
-	 * 右键转帆：在 4 个水平朝向里循环（**方块局部**朝向，不是世界东南西北）。
-	 *
-	 * <p>2026-11-23 起帆是<b>航向参考物</b>：它面对的方向就是遥控器 W 的前进方向，
-	 * 所以"转帆"等于"改船头"。转完必须同步 {@link Sailing} 的登记表，
-	 * 否则 {@code Sailing.heading} 还按旧朝向给方向。
-	 */
-	@Override
-	public ActionResult onUse(BlockState state, World world, BlockPos pos, PlayerEntity player,
-			BlockHitResult hit) {
-		if (world.isClient()) {
-			return ActionResult.SUCCESS;   // 客户端只负责挥手，真正的状态改在服务端
-		}
-		Direction next = state.get(FACING).rotateYClockwise();
-		world.setBlockState(pos, state.with(FACING, next), Block.NOTIFY_ALL);
-		if (world instanceof ServerWorld sw) {
-			UUID raftId = SableRafts.raftAt(sw, pos);
-			BlockPos origin = raftId == null ? null : SableRafts.accessorOrigin(sw, raftId);
-			if (raftId != null && origin != null) {
-				int team = RaftSpawner.teamOf(raftId);
-				int lx = pos.getX() - origin.getX();
-				int ly = pos.getY() - origin.getY();
-				int lz = pos.getZ() - origin.getZ();
-				Sailing.unregisterPlaced(team, lx, ly, lz);
-				Sailing.registerPlaced(team, lx, ly, lz, next);
-				NBW.LOGGER.info("[sail] 队 {} 转帆 {} -> {}（这是该筏现在的前进方向）",
-						team, state.get(FACING).asString(), next.asString());
-				player.sendMessage(net.minecraft.text.Text.literal(
-						"§b[cww] 船帆已转向 " + next.asString() + "（= 前进方向）"), true);
-			}
-		}
-		return ActionResult.CONSUME;
-	}
-
-	/**
 	 * 玩家手动放帆：登记进 {@link Sailing} 的队表，风才算得到这一面。
 	 *
 	 * <p>2026-11-21 补。此前帆只能由 {@code /cww sail rig}（权限 2）挂上，

@@ -153,8 +153,9 @@ public final class Sailing {
 		if (facing == null) {
 			return null;
 		}
-		double[] dir = SableRafts.directionToWorld(world, raftId, facing);
-		return Double.isNaN(dir[0]) ? null : dir;
+		// 2026-11-25 用户决定：删掉转帆功能，航向**固定为 local +Z（south）**。
+		// （其余三个朝向实测仍有偏移，直接锁死最简单可靠。）
+		return SableRafts.forward(world, raftId);
 	}
 
 	/** 甲板上第一面帆的真实朝向（读 plot 方块状态，不信内存表）。没有帆返回 null。 */

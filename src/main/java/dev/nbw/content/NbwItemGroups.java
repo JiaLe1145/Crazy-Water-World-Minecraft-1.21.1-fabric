@@ -72,7 +72,6 @@ public final class NbwItemGroups {
 						.icon(() -> new ItemStack(iconBlock()))
 						.entries((context, entries) -> {
 							entries.add(new ItemStack(NbwContent.raftCore.asItem()));
-							entries.add(new ItemStack(NbwContent.sail.asItem()));
 							entries.add(new ItemStack(NbwContent.oar.asItem()));
 							entries.add(new ItemStack(NbwContent.seawaterFilter.asItem()));
 							entries.add(new ItemStack(NbwContent.medicalKit.asItem()));

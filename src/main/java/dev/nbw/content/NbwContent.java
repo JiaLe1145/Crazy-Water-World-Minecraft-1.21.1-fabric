@@ -83,7 +83,7 @@ public final class NbwContent {
 
 		sail = Registry.register(Registries.BLOCK, Identifier.of(NBW.MOD_ID, SAIL),
 				new SailBlock(AbstractBlock.Settings.create()
-						.strength(1.5f).requiresTool().nonOpaque().noCollision()));
+						.strength(-1.0f, 3600000.0f).nonOpaque().noCollision()));
 		Registry.register(Registries.ITEM, Identifier.of(NBW.MOD_ID, SAIL),
 				new BlockItem(sail, new Item.Settings()));
 
