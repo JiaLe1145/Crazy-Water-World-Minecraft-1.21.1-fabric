@@ -432,6 +432,8 @@ public final class RaftSpawner {
 					.append(" 质量=").append(SableRafts.mass(world, e.getValue()))
 					// 倾斜角：判定"翻船"只看这个数（0° 水平 / >60° 基本翻了）
 					.append(String.format(Locale.ROOT, " 斜=%.1f°", SableRafts.tiltDeg(world, e.getValue())))
+					// 偏航角速度：判定"松手后还在转"（= W 方向偏移）的直接读数
+					.append(String.format(Locale.ROOT, " 转=%.2f", SableRafts.angularVelocity(world, e.getValue())[1]))
 					.append("  ");
 		}
 		return sb.toString().trim();

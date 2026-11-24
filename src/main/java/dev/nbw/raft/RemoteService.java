@@ -63,6 +63,13 @@ public final class RemoteService {
 	/** 玩家 → 上次"被拒"提示的 tick，节流用，避免每 tick 刷屏。 */
 	private static final Map<UUID, Integer> lastRejectNotice = new LinkedHashMap<>();
 	private static int tick;
+	/** 本 tick 正在转向的队（RaftMotionService 用它决定偏航阻尼强弱）。 */
+	private static final java.util.Set<Integer> turning = new java.util.LinkedHashSet<>();
+
+	/** 本 tick 该队有没有转向输入（A/D）。 */
+	public static boolean isTurning(int team) {
+		return turning.contains(team);
+	}
 
 	private RemoteService() {
 	}
@@ -121,6 +128,7 @@ public final class RemoteService {
 	 */
 	public static int onEndTick(MinecraftServer server) {
 		tick++;
+		turning.clear();
 		intents.entrySet().removeIf(e -> {
 			if (e.getValue().untilTick() < tick) {
 				pilots.remove(e.getKey());   // 断输入自动脱手，也放掉驾驶席
@@ -158,6 +166,7 @@ public final class RemoteService {
 				moved++;
 			}
 			if (intent.turn() != 0) {
+				turning.add(team);
 				SableRafts.applyYawImpulse(world, raft,
 						intent.turn() * HelmsmanRule.turnImpulse(TURN_IMPULSE, hasHelmsman));
 				moved++;

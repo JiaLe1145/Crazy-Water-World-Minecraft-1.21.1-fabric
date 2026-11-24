@@ -59,6 +59,8 @@ public final class RaftMotionService {
 	private static int pushed;
 	/** 本 tick 施加了姿态修正的筏数（诊断用；稳态 0 = 没有筏需要扶）。 */
 	private static int stabilized;
+	/** 本 tick 施加了偏航阻尼的筏数（诊断用）。 */
+	private static int yawDamped;
 
 	/**
 	 * 姿态稳定的参数（用户 2026-11-22："速度过快、木筏翻倒入水"）。
@@ -73,6 +75,20 @@ public final class RaftMotionService {
 	private static final double STABILIZE_MAX_IMPULSE = 0.50;
 	/** 俯仰/横滚角速度上限（rad/s）：约 46°/s，超过就阻尼。 */
 	private static final double STABILIZE_MAX_TILT_RATE = 0.8;
+
+	/**
+	 * 偏航（yaw）阻尼：松手后要立刻停转。
+	 *
+	 * <p>单位换算：{@code TURN_IMPULSE=0.9} 实测约 30°/s（0.52 rad/s），
+	 * 即 1 单位角冲量 ≈ 0.58 rad/s。所以要"一 tick 内吃掉 90% 转速"，增益取 1.6。
+	 * 转向中用小增益（0.25），免得把手感拖死；松手后（含无输入）用大增益把转速压到 0。
+	 *
+	 * <p>改动理由（用户 2026-11-24）：A/D 是每 tick 一记角冲量，而 Sable 角阻尼很小，
+	 * 松手后筏子还会继续转 —— 于是"帆朝向"一直在变，玩家就会觉得 W 的正方向偏移。
+	 */
+	private static final double YAW_DAMP_WHILE_TURNING = 0.25;
+	private static final double YAW_DAMP_RELEASED = 1.6;
+	private static final double YAW_DAMP_MAX_IMPULSE = 2.5;
 
 	private RaftMotionService() {
 	}
@@ -169,6 +185,17 @@ public final class RaftMotionService {
 					STABILIZE_MAX_IMPULSE, STABILIZE_MAX_TILT_RATE)) {
 				stabilized++;
 			}
+			// 偏航阻尼：松手即停转（见 YAW_DAMP_* 的注释）
+			double[] ang = SableRafts.angularVelocity(world, e.getValue());
+			if (!Double.isNaN(ang[1]) && Math.abs(ang[1]) > 1e-3) {
+				double gain = RemoteService.isTurning(e.getKey())
+						? YAW_DAMP_WHILE_TURNING : YAW_DAMP_RELEASED;
+				double damp = -ang[1] * gain;
+				damp = Math.max(-YAW_DAMP_MAX_IMPULSE, Math.min(YAW_DAMP_MAX_IMPULSE, damp));
+				if (SableRafts.applyYawImpulse(world, e.getValue(), damp)) {
+					yawDamped++;
+				}
+			}
 		}
 		measured.clear();
 		measured.putAll(now_measured);
@@ -207,7 +234,8 @@ public final class RaftMotionService {
 		return String.format(Locale.ROOT,
 				"速度=(%.4f, %.4f) 速率=%.4f 目标=%.4f 峰值=%.4f 上限=%.3f 采样=%d 施力=%d 稳姿=%d",
 				v[0], v[1], Math.hypot(v[0], v[1]), targetSpeed.getOrDefault(team, 0.0),
-				peak.getOrDefault(team, 0.0), SpeedGovernor.MAX_TRAVEL_SPEED, samples, pushed, stabilized);
+				peak.getOrDefault(team, 0.0), SpeedGovernor.MAX_TRAVEL_SPEED, samples, pushed, stabilized)
+				+ " 偏航阻尼=" + yawDamped;
 	}
 
 	/** 最近一次实测位移速度矢量（格/tick）；没测过就返回零向量。 */
@@ -231,6 +259,7 @@ public final class RaftMotionService {
 		samples = 0;
 		pushed = 0;
 		stabilized = 0;
+		yawDamped = 0;
 		NBW.LOGGER.debug("[sailing] 航行控制器状态已清空");
 	}
 }
