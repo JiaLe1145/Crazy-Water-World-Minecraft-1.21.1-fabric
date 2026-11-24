@@ -63,6 +63,19 @@ public final class RemoteService {
 	/** 玩家 → 上次"被拒"提示的 tick，节流用，避免每 tick 刷屏。 */
 	private static final Map<UUID, Integer> lastRejectNotice = new LinkedHashMap<>();
 	private static int tick;
+	/**
+	 * 队号 → 巡航航向锁（世界单位矢量）。
+	 *
+	 * <p>用户 2026-11-25："AD 转完再只按 W，路线不是直线、略偏"。
+	 * 根因是残余偏航 + 船体不对称阻力，让船头在巡航中缓慢漂 —— 而推力方向每 tick 都跟着
+	 * 帆（= 船头）走，漂多少、航线就弯多少。这里在"只前进、不转向"时把航向锁在
+	 * 松手那一刻，用 P 控制打角冲量把它拉回来，航线因此是直的。
+	 */
+	private static final Map<Integer, double[]> courseLock = new LinkedHashMap<>();
+	/** 航向锁的 P 增益（角冲量 / 弧度）与单 tick 上限。 */
+	private static final double COURSE_HOLD_GAIN = 3.0;
+	private static final double COURSE_HOLD_MAX = 0.6;
+
 	/** 本 tick 正在转向的队（RaftMotionService 用它决定偏航阻尼强弱）。 */
 	private static final java.util.Set<Integer> turning = new java.util.LinkedHashSet<>();
 
@@ -167,9 +180,36 @@ public final class RemoteService {
 			}
 			if (intent.turn() != 0) {
 				turning.add(team);
+				// 转向过程中锁跟随当前帆向：松手时"新船头"自然是锁
+				double[] cur = Sailing.forwardOf(world, raft, team);
+				if (cur != null) {
+					courseLock.put(team, cur);
+				}
 				SableRafts.applyYawImpulse(world, raft,
 						intent.turn() * HelmsmanRule.turnImpulse(TURN_IMPULSE, hasHelmsman));
 				moved++;
+			}
+			// 只前进、不转向：把船头锁在松手时那一刻，防止残余偏航把航线带弯
+			if (intent.turn() == 0 && intent.linear() != 0) {
+				double[] cur = Sailing.forwardOf(world, raft, team);
+				if (cur != null) {
+					double[] lock = courseLock.get(team);
+					if (lock == null) {
+						courseLock.put(team, cur);
+					} else {
+						// err = 锁 → 当前 的偏角（正是 R(δ) 的 -δ，配合正号冲量可回正）
+						double cross = lock[0] * cur[1] - lock[1] * cur[0];
+						double dot = lock[0] * cur[0] + lock[1] * cur[1];
+						double err = Math.atan2(cross, dot);
+						if (Math.abs(err) > 0.004) {   // 约 0.23°，小于它是噪声
+							double hold = Math.max(-COURSE_HOLD_MAX,
+									Math.min(COURSE_HOLD_MAX, err * COURSE_HOLD_GAIN));
+							SableRafts.applyYawImpulse(world, raft, hold);
+						}
+					}
+				}
+			} else if (intent.linear() == 0) {
+				courseLock.remove(team);   // 松油门：下次按 W 重新取锁
 			}
 		}
 		return moved;
@@ -232,6 +272,8 @@ public final class RemoteService {
 	public static void reset() {
 		intents.clear();
 		pilots.clear();
+		courseLock.clear();
+		turning.clear();
 		lastRejectNotice.clear();
 		tick = 0;
 		NBW.LOGGER.debug("[remote] 遥控器意图与驾驶席已清空");
