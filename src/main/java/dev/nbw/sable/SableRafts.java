@@ -665,6 +665,31 @@ public final class SableRafts {
 		return true;
 	}
 
+	/**
+	 * 把**方块局部朝向**（{@link Direction}，例如帆的 FACING）旋到世界系的水平单位矢量。
+	 *
+	 * <p>为什么单独有这一条：帆决定航向时，必须用"甲板上那块方块的朝向"，
+	 * 而不是"体 +Z 再按角度转"——后者依赖 {@link #forward} 的符号约定，
+	 * 一旦约定不一致，玩家就会看到"转帆没反应/方向是世界方向"（2026-11-24 实机踩到）。
+	 * 这里直接用位姿四元数把方向矢量旋过去，语义只有一条：方块朝哪、世界就朝哪。
+	 *
+	 * @return {@code {dx, dz}} 水平单位矢量；筏不在场时返回 NaN 二元组
+	 */
+	public static double[] directionToWorld(ServerWorld world, UUID raftId,
+			net.minecraft.util.math.Direction dir) {
+		ServerSubLevel sl = resolve(world, raftId);
+		if (sl == null) {
+			return new double[]{Double.NaN, Double.NaN};
+		}
+		Vector3d d = new Vector3d(dir.getOffsetX(), 0.0, dir.getOffsetZ());
+		d.rotate(new org.joml.Quaterniond(sl.logicalPose().orientation()));
+		double len = Math.hypot(d.x, d.z);
+		if (Double.isNaN(len) || len < 1e-9) {
+			return new double[]{Double.NaN, Double.NaN};
+		}
+		return new double[]{d.x / len, d.z / len};
+	}
+
 	/** 筏的竖直速度（世界 Y 分量）。给"筏停稳了没有"用。
 	 *
 	 * <p>开局入图闸门要等筏停稳再放人：发筏那一刻筏是"凭空出现在目标坐标"的，

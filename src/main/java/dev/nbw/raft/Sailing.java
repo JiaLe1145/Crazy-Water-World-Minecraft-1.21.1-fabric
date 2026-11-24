@@ -72,10 +72,11 @@ public final class Sailing {
 		List<SailCell> cells = sailsByTeam.computeIfAbsent(teamIndex, k -> new ArrayList<>());
 		// 帆位不再写死 (i,1,-3)：4×4 的筏上 z=-3 那一圈根本不在甲板上，
 		// 挂上去的帆只是贴在空气里的方块。格子一律由 RaftLayout 按边长推导。
-		int side = RaftSpawner.deckSide();
-		int capacity = RaftLayout.sailCapacity(side);
+		int width = RaftSpawner.deckWidth();
+		int length = RaftSpawner.deckLength();
+		int capacity = RaftLayout.sailCapacity(width, length);
 		if (cells.size() + count > capacity) {
-			return "这张筏（边长 " + side + "）最多摆 " + capacity + " 面帆，现有 " + cells.size()
+			return "这张筏（" + width + "x" + length + "）最多摆 " + capacity + " 面帆，现有 " + cells.size()
 					+ " 面，再加 " + count + " 面塞不下";
 		}
 		int placed = 0;
@@ -85,9 +86,9 @@ public final class Sailing {
 		int base = cells.size();
 		for (int i = 0; i < count; i++) {
 			int slot = base + i;
-			int[] cell = RaftLayout.sailCell(side, slot);
+			int[] cell = RaftLayout.sailCell(width, length, slot);
 			if (cell == null) {
-				firstError = "帆位 " + slot + " 算不出格子（边长 " + side + " 的甲板铺不下）";
+				firstError = "帆位 " + slot + " 算不出格子（" + width + "x" + length + " 的甲板铺不下）";
 				break;
 			}
 			if (SableRafts.setPlotBlock(world, raftId, cell[0], cell[1], cell[2],
@@ -136,6 +137,52 @@ public final class Sailing {
 	 * <p>为什么不再用"帆越多越快"：那条机制被废用了，帆现在是**航向参考物**，
 	 * 不再产生推力（{@code WindService.apply} 不再登记速度请求）。
 	 */
+	/**
+	 * 本队**前进方向的世界单位矢量**：取甲板上那面帆的**方块朝向**，
+	 * 经筏体位姿旋到世界（{@link SableRafts#directionToWorld}）。
+	 *
+	 * <p>优先按登记表里的格子去 plot 里读**真实方块状态**（这样右键转帆、
+	 * {@code /setblock} 改朝向、甚至重载后登记表过期，都能读到玩家眼前那一面）；
+	 * 登记表没命中时按帆位顺序扫一遍 plot。没有帆返回 null（调用方退回体前方）。
+	 */
+	public static double @Nullable [] forwardOf(ServerWorld world, @Nullable UUID raftId, int teamIndex) {
+		if (raftId == null || NbwContent.sail == null) {
+			return null;
+		}
+		net.minecraft.util.math.Direction facing = sailFacing(world, raftId, teamIndex);
+		if (facing == null) {
+			return null;
+		}
+		double[] dir = SableRafts.directionToWorld(world, raftId, facing);
+		return Double.isNaN(dir[0]) ? null : dir;
+	}
+
+	/** 甲板上第一面帆的真实朝向（读 plot 方块状态，不信内存表）。没有帆返回 null。 */
+	public static net.minecraft.util.math.Direction sailFacing(ServerWorld world, UUID raftId, int teamIndex) {
+		List<SailCell> cells = sailsByTeam.get(teamIndex);
+		if (cells != null) {
+			for (SailCell c : cells) {
+				net.minecraft.block.BlockState st = SableRafts.plotBlock(world, raftId, c.x(), c.y(), c.z());
+				if (st != null && st.getBlock() == NbwContent.sail) {
+					return st.get(SailBlock.FACING);
+				}
+			}
+		}
+		int w = RaftSpawner.deckWidth();
+		int l = RaftSpawner.deckLength();
+		for (int i = 0; i < RaftLayout.sailCapacity(w, l); i++) {
+			int[] cell = RaftLayout.sailCell(w, l, i);
+			if (cell == null) {
+				continue;
+			}
+			net.minecraft.block.BlockState st = SableRafts.plotBlock(world, raftId, cell[0], cell[1], cell[2]);
+			if (st != null && st.getBlock() == NbwContent.sail) {
+				return st.get(SailBlock.FACING);
+			}
+		}
+		return null;
+	}
+
 	public static net.minecraft.util.math.Direction heading(int teamIndex) {
 		List<SailCell> cells = sailsByTeam.get(teamIndex);
 		if (cells == null || cells.isEmpty()) {

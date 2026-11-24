@@ -145,12 +145,12 @@ public final class RemoteService {
 			boolean hasHelmsman = SurvivorService.hasJob(team, SurvivorJob.HELMSMAN);
 			if (intent.linear() != 0) {
 				double[] fwd = SableRafts.forward(world, raft);
-				// 2026-11-23：帆成为航向参考物 —— 有帆时"前进"就是帆面对的方向
-				// （帆的 FACING 是**方块局部**朝向，经筏体偏航旋到世界系）。
-				// 这条同时修掉用户报的"遥控方向偏移"：不再依赖筏体位姿里那个隐含的前方。
-				net.minecraft.util.math.Direction heading = Sailing.heading(team);
-				if (heading != null) {
-					fwd = rotateToHeading(fwd, heading);
+				// 2026-11-24 修：航向直接取"甲板上那面帆的**方块朝向**"经位姿旋到世界。
+				// 上一版用体前方再按 heading 旋转，方向依赖 forward 的符号约定，实机上表现为
+				// "转帆不改变方向 / 走的是世界方向"。现在只有一条语义：帆朝哪，船头朝哪。
+				double[] sailFwd = Sailing.forwardOf(world, raft, team);
+				if (sailFwd != null) {
+					fwd = sailFwd;
 				}
 				double speed = SpeedGovernor.clampSpeed(
 						HelmsmanRule.speed(SpeedGovernor.REMOTE_SPEED, hasHelmsman));
@@ -202,37 +202,24 @@ public final class RemoteService {
 				+ " 右转=" + right + " 共 " + ticks + " tick";
 	}
 
-	/**
-	 * 把"筏体前方"（局部 +Z 在世界里的方向）旋到帆面对的方向。
-	 *
-	 * <p>推导：局部 +Z（南）在世界里是 {@code (fx, fz)}；MC 的偏航是
-	 * {@code world = R(yaw)·local}，于是局部 +X（东）在世界里是 {@code (fz, -fx)}。
-	 * 四个朝向都是轴对齐的，所以只需要这两组基来回换。
-	 */
-	private static double[] rotateToHeading(double[] fwd, net.minecraft.util.math.Direction heading) {
-		double fx = fwd[0], fz = fwd[1];
-		return switch (heading) {
-			case NORTH -> new double[]{-fx, -fz};
-			case EAST -> new double[]{fz, -fx};
-			case WEST -> new double[]{-fz, fx};
-			default -> new double[]{fx, fz};   // SOUTH = 局部 +Z，与筏体前方一致
-		};
-	}
-
-	/** 一行读数：每队当前意图 + 朝向。探针靠它判断"遥控器到底改变了什么"。 */
+	/** 一行读数：每队当前意图 + 帆的真实朝向 + 实际用于推进的世界航向。 */
 	public static String readout(MinecraftServer server, int teamIndex) {
 		HeldIntent held = intents.get(teamIndex);
 		Intent intent = held == null ? Intent.NONE : held.intent();
 		UUID raft = RaftSpawner.raftOf(teamIndex);
-		double[] fwd = raft == null ? new double[]{0.0, 1.0}
-				: SableRafts.forward(server.getOverworld(), raft);
+		net.minecraft.server.world.ServerWorld world = server.getOverworld();
+		net.minecraft.util.math.Direction facing = raft == null ? null
+				: Sailing.sailFacing(world, raft, teamIndex);
+		double[] sailFwd = raft == null ? null : Sailing.forwardOf(world, raft, teamIndex);
+		double[] fwd = sailFwd != null ? sailFwd
+				: (raft == null ? new double[]{0.0, 1.0} : SableRafts.forward(world, raft));
 		return String.format(Locale.ROOT,
-				"[remote] 队%d 意图 前进=%s 后退=%s 左转=%s 右转=%s | 朝向=(%.3f,%.3f) | %s",
+				"[remote] 队%d 意图 前进=%s 后退=%s 左转=%s 右转=%s | 帆=%s 航向=(%.3f,%.3f) | %s",
 				teamIndex, intent.linear() > 0, intent.linear() < 0, intent.turn() > 0, intent.turn() < 0,
-				fwd[0], fwd[1], RaftMotionService.travelReadout(teamIndex));
+				facing == null ? "无" : facing.asString(), fwd[0], fwd[1],
+				RaftMotionService.travelReadout(teamIndex));
 	}
 
-	/** 局后清理：意图、驾驶席、提示节流都是局内状态，跨局不许残留成"上一局还在开船"。 */
 	public static void reset() {
 		intents.clear();
 		pilots.clear();
