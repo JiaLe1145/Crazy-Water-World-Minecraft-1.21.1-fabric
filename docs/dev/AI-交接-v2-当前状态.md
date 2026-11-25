@@ -114,7 +114,7 @@ src/main/java/dev/nbw/
 │   ├── survivor/    SurvivorJob / SurvivorFormation / CraftsmanRule
 │   ├── survival/    SurvivalRule / HypothermiaRule
 │   ├── arena/       ArenaGeometry / SeaAudit / HazardRule / ChunkPacing
-│   ├── loot/        LootRoll / LootExclusion
+│   ├── loot/        LootRoll / LootExclusion / FlotsamMotion（洋流+起伏，纯函数）
 │   ├── construct/   BuildRules / ExpansionRule
 │   └── net/         HoldPolicy / PacketRateLimit
 ├── sable/           ★ 唯一允许 import Sable 的包（SableRafts 652 行）
@@ -123,18 +123,19 @@ src/main/java/dev/nbw/
 │   ├── ZoneService / LootService / EventService / SurvivorService
 │   ├── GuardService / PowerService / MetricsService
 │   └── RoundStateStore(248) 落盘/恢复
+├── loot/            LootService(436) / FloatingCrate(241) 海面补给箱实体（2026-11-25 新增）
 ├── raft/            RaftSpawner(451) / RaftCoreService(346) / RaftSinking(252)
 │                    RemoteService / WindService / RaftMotionService
 ├── rescue/          RescueService(578) / RopeService(171)
 ├── construct/       BuildService(483)
 ├── combat/          WeaponService(286) / CombatStats(195)
 ├── survival/        SurvivalService(256)
-├── content/         NbwContent(161) / RangedWeaponItem(162) / 各 Block
+├── content/         NbwContent(161) / NbwEntities(实体类型) / RangedWeaponItem(162) / 各 Block
 ├── cfg/             ConfigService(343) / ConfigModels(181) / WeaponConfig(102)
 ├── cmd/             NbwCommands(1159) 命令树
 ├── arena/           MapResetService / ArenaChunkLoader / SeaTerrain / ArenaPool
 ├── net/             NbwNetworking(246) / 各 Payload
-└── client/          StatusHudClient / HoldInputClient / MoveInputClient
+└── client/          StatusHudClient / HoldInputClient / MoveInputClient / FloatingCrateRenderer
 ```
 
 **权威文件（改之前先读）**：
