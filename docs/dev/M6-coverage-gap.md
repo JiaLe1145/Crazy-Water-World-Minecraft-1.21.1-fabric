@@ -3,6 +3,12 @@
 > 审计对象：`docs/dev/M6-FULL-TEST-PLAN.md`（A–S 共 19 域、**153 项**，截至本审计全部未勾选）
 > 审计快照：**2026-11-21 03:14 +08:00**，`git HEAD = f9d202e`
 > 覆盖判据与行号约定见 §1 前的"审计口径"。本文件只做审计与方案，**未运行 RCON、未起停服、未改任何源码/探针**。
+>
+> **2026-11-25 追加**：补给箱已从 `minecraft:barrel` 方块改为实体 `nbw:floating_crate`
+> （会随洋流漂、贴水面起伏，见 `M6-REMAINING-TEST-PLAN.md` §0 与 §3.13）。因此下面 H 域里
+> 凡是用 `execute if block … minecraft:barrel` / `data get block … Items` 定的判据都已失效，
+> 等价的写法是 `@e[type=nbw:floating_crate,distance=..N]` 与 `data get entity <uuid> Items`
+> （uuid 取自 `cww loot status` 尾部的 `last=<uuid>`）。
 
 ---
 

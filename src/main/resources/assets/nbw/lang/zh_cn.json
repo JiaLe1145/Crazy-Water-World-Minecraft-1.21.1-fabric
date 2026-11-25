@@ -29,5 +29,7 @@
   "item.nbw.musket": "火铳",
   "item.nbw.javelin": "标枪",
   "item.nbw.bandage": "绷带",
-  "item.nbw.water_pistol": "水弹枪"
+  "item.nbw.water_pistol": "水弹枪",
+  "entity.nbw.floating_crate": "漂浮补给箱",
+  "container.nbw.floating_crate": "补给箱"
 }

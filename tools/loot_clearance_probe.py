@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""预铺补给箱离筏体净空探针（2026-11-14）。
+"""预铺补给箱离筏体净空探针（2026-11-14；2026-11-25 随"箱子改实体"更新）。
 
 背景：test_sea 队 1 的筏曾被 3 个预铺 barrel 顶住——目标速度/施力都有、位置不动、朝向倾斜。
-修复是 `LootService` 跳过任意在场筏中心 4 格内的候选点。
+修复是 `LootService` 跳过任意在场筏中心 5 格内的候选点。
+
+2026-11-25 起补给箱是 `nbw:floating_crate` 实体（会随洋流漂、会在水面上起伏），
+所以这里改用实体半径查询，而不是逐格 `execute if block ... minecraft:barrel`。
 
 要回答：
-  1. 开局预铺后，两队筏中心 4 格内没有 barrel（距离 < 4.0）。
+  1. 开局预铺后，两队筏中心 5 格内没有补给箱实体（距离 < 5.0）。
   2. 队 1 遥控前进是否恢复；当前 test_sea 队 1 出生点仍有独立的物理卡住问题，
      失败时按 INCONCLUSIVE 报告（见 AI 交接 P2），不要让本探针误报成“箱子净空失败”。
 """
@@ -46,18 +49,18 @@ def raft_pos(p, team):
     return tuple(float(x) for x in m.groups()) if m else None
 
 
-def barrels_near(p, center):
-    """返回距筏中心 < CLEARANCE 的 barrel 坐标；y=62 是 test_sea 的水面/预铺层。"""
-    cx, cz = int(round(center[0])), int(round(center[2]))
-    hits = []
-    for dx in range(-5, 6):
-        for dz in range(-5, 6):
-            x, z = cx + dx, cz + dz
-            out = p("execute if block %d 62 %d minecraft:barrel" % (x, z))
-            if "Test passed" in out or "测试通过" in out or out.strip() == "":
-                if math.hypot(x + 0.5 - center[0], z + 0.5 - center[2]) < CLEARANCE:
-                    hits.append((x, 62, z))
-    return hits
+def crate_near_raft(p, center):
+    """筏中心 CLEARANCE 格内有没有补给箱实体；有就返回一句命中证据。
+
+    箱子是实体（会漂），所以用 `@e[type=nbw:floating_crate,distance=..N]` 一次查完，
+    不再逐格 `execute if block`。执行位置取筏中心、y 用水面（垂直距离 < 1 格，不影响判定）。
+    """
+    cmd = ("execute positioned %.2f %.2f %.2f run execute if entity "
+           "@e[type=nbw:floating_crate,distance=..%.1f]" % (center[0], center[1], center[2], CLEARANCE))
+    out = p(cmd)
+    if "Test passed" in out or "测试通过" in out:
+        return out.strip()[:120]
+    return None
 
 
 def main():
@@ -91,13 +94,13 @@ def main():
         return 1
     p.sleep(3)   # 等预铺完成
 
-    print("== 1. 两艘筏 4 格内无预铺 barrel")
+    print("== 1. 两艘筏 %.0f 格内无预铺补给箱（实体）" % CLEARANCE)
     for team in (0, 1):
         rp = raft_pos(p, team)
-        hits = barrels_near(p, rp) if rp else []
-        print("      队%d 筏=%s 近距 barrel=%s" % (team, rp, hits[:10]))
+        hit = crate_near_raft(p, rp) if rp else None
+        print("      队%d 筏=%s 近距箱子=%s" % (team, rp, hit))
         expect(rp is not None, "队%d 能读到筏位置" % team)
-        expect(not hits, "队%d 筏 4 格内无 barrel（实际 %d 个）" % (team, len(hits)))
+        expect(hit is None, "队%d 筏 %.0f 格内无补给箱（命中：%s）" % (team, CLEARANCE, hit))
 
     print("== 2. 队 1 遥控前进回归")
     r0 = raft_pos(p, 1)

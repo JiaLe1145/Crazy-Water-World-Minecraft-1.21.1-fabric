@@ -8,8 +8,9 @@
   3. M6-Q-RESOURCES §6.1 那 10 件「局内拿不到」的物品，现在真的能从箱子里开出来。
   4. 设施件的实测出现率与 `LootRoll.FACILITY_CHANCE`（0.22/件）同一量级。
 
-做法：一格一格撒（`cww loot spawn 1`）→ 读 `cww loot status` 最后一个坐标 →
-`data get block <x> <y> <z> Items` 拿内容。撒多了就定位不到具体箱子，
+做法（2026-11-25 起改为实体）：一次撒一个（`cww loot spawn 1`）→ 读 `cww loot status` 尾部的
+`last=<uuid>` → `data get entity <uuid> Items` 拿内容。**不能再用坐标当标识**：补给箱现在会随
+洋流漂移（实体），同一只箱子每 tick 的 x/z 都在变；UUID 才是稳定键。撒多了就定位不到具体箱子，
 所以这里坚持"一次一个"（40 次约 10 秒，比扫 121×121 的海面快两个数量级）。
 
 跑法（服务端已起、RCON 在 25576、当前图 flat_test）：
@@ -53,13 +54,18 @@ def info(msg):
     print("  INFO - %s" % msg)
 
 
-def crate_pos(status_out):
-    """从 `cww loot status` 的最后一行拿最后一个坐标 (x,y,z)。"""
-    coords = re.findall(r"(-?\d+),(-?\d+),(-?\d+)", status_out)
-    if not coords:
+def crate_last(status_out):
+    """从 `cww loot status` 里拿最新箱子的 (uuid, (x,y,z))。
+
+    箱子会漂，坐标只用来打印；取值要用 UUID（`last=<uuid>` 是本探针与 LootService 的约定）。
+    """
+    m = re.search(r"last=([0-9a-fA-F-]{36})", status_out)
+    if not m:
         return None
-    x, y, z = coords[-1]
-    return int(x), int(y), int(z)
+    uuid = m.group(1)
+    coords = re.findall(r"(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)", status_out)
+    pos = tuple(float(v) for v in coords[-1]) if coords else None
+    return uuid, pos
 
 
 def item_ids(raw):
@@ -87,32 +93,34 @@ def main():
     expect(wl is not None, "能读出水面高度（%s）" % terrain.replace("\n", " ")[:120])
 
     print("== 1. 清掉旧箱子，然后一次一个地撒 %d 个" % crates)
+    p("kill @e[type=nbw:floating_crate]")
     p("fill -60 %d -60 60 %d 60 minecraft:air replace minecraft:barrel"
-      % (water_y - 1, water_y + 3))
+      % (water_y - 1, water_y + 3))   # 旧方块版残留（2026-11-25 之前的世界）
     p("kill @e[type=minecraft:item]")
 
     seen_ids = []
     empty = 0
     unparsed = 0
-    positions = set()
+    seen = set()
     bodies = {}
 
-    # 注意：撒失败时 `cww loot status` 仍会报上一次成功的坐标，如果每次都计数
+    # 注意：撒失败时 `cww loot status` 仍会报上一次成功的那只箱子，如果每次都计数
     # 就会把同一只箱子数很多遍（第一版实测因此算出 79% 的"设施率"）。
-    # 所以这里按坐标去重，每只箱子只统计一次。
+    # 所以这里按 **UUID** 去重（箱子会漂，坐标不是稳定标识）。
     guard = 0
-    while len(positions) < crates and guard < crates * 6:
+    while len(seen) < crates and guard < crates * 6:
         guard += 1
         p("cww loot spawn 1")
         status = p("cww loot status")
-        pos = crate_pos(status)
-        if pos is None:
+        info = crate_last(status)
+        if info is None:
             unparsed += 1
             continue
-        if pos in positions:
+        uuid, pos = info
+        if uuid in seen:
             continue          # 这次没撒成功，读到的是旧箱子，跳过
-        positions.add(pos)
-        raw = p("data get block %d %d %d Items" % pos)
+        seen.add(uuid)
+        raw = p("data get entity %s Items" % uuid)
         if "has no" in raw or "没有" in raw:
             empty += 1
             continue
@@ -120,11 +128,11 @@ def main():
         if not ids:
             empty += 1
             continue
-        bodies[pos] = ids
+        bodies[uuid] = ids
         seen_ids.extend(ids)
 
     print("      唯一箱子 %d 个（尝试 %d 次）；解析失败 %d；空箱 %d"
-          % (len(positions), guard, unparsed, empty))
+          % (len(seen), guard, unparsed, empty))
     print("      共开出 %d 件物品，平均 %.1f 件/箱"
           % (len(seen_ids), len(seen_ids) / max(1, len(bodies))))
 
@@ -165,6 +173,7 @@ def main():
     info("武器出现种类 %d（样本 %d 件，仅供观察，不作为判据）" % (len(wseen), total))
 
     # 7) 收尾：把箱子清掉（别把夹具留在地图上）
+    p("kill @e[type=nbw:floating_crate]")
     p("fill -60 %d -60 60 %d 60 minecraft:air replace minecraft:barrel"
       % (water_y - 1, water_y + 3))
     p("kill @e[type=minecraft:item]")

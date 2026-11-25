@@ -27,6 +27,42 @@
 
 ## 0. 上一次执行的结论（作为本轮起点）
 
+> ### ✅ 2026-11-25：刷新的物资箱「水面物理化」——方块变实体，全图同向漂移
+>
+> 用户："对刷新的物资箱加入水面物理化，并且所有箱子会存在漂动行为，所有箱子漂动方向相同。"
+> 本轮按用户要求**只写代码，不起服务端/客户端**（用户后台在玩自己的 MC），所以下面写的都是
+> 代码级证据 + 单测，**实机观感留给 §3.13**。
+>
+> **旧实现的毛病**：补给箱是 `minecraft:barrel` **方块**，钉在 `sea.waterLevel` 那一格——
+> 不随浪起伏、不会漂，看起来像"插在水里的桶"；方块还是实心的，刷在筏底会顶住筏子
+> （2026-11-14 test_sea 队1 就是这么被卡的，`RAFT_CLEARANCE=5.0` 只是绕开，不是治本）。
+>
+> **改法（4 个新文件 + 2 处改造）**：
+>
+> | 文件 | 作用 |
+> |---|---|
+> | `loot/FloatingCrate.java`（新） | 补给箱实体：贴水面起伏、按洋流写位置、撞岸/筏/墙停住、120s 后下沉 1s 再 `discard`；3×9 容器界面；NBT 存寿命/水面线/相位/物品 |
+> | `domain/loot/FlotsamMotion.java`（新） | 纯函数洋流：水平速度**不接收相位**（"所有箱子同向同速"的唯一实现点）、起伏/横滚/纵摇、8 方位读数 |
+> | `content/NbwEntities.java`（新） | 注册 `nbw:floating_crate`（0.8×0.8，追踪 8 区块 = 128 格） |
+> | `client/FloatingCrateRenderer.java`（新） | 用 `renderBlockAsEntity(barrel)` 复用原外观 + 绕箱心摇晃；不新增贴图 |
+> | `loot/LootService.java`（改） | 撒箱改成撒实体；同屏上限 / 防蹲点 / 排除区 / 环带品质 / 物资抽卡全部沿用；重启扫场接管、开局与局后清场 |
+> | `NBW.java` / `NBWClient.java`（改） | 注册实体类型与渲染器；`lang` 补 `entity/container.nbw.floating_crate` |
+>
+> **参数与口径**：洋流 **东（+X）0.30 格/秒**（±12% 阵性，所有箱子同步）→ 一分钟漂 18 格、
+> 一个 120s 生命周期漂 36 格；起伏 ±0.06 格（周期 44 tick）、横滚 ±4.5°、纵摇 ±2.0°——
+> **只有相位每箱不同，水平方向与速率完全一致**。改方向只改 `FlotsamMotion.FLOW_X/FLOW_Z`。
+>
+> **自动化验证**：`gradlew test` **333 条全绿**（新增 `FlotsamMotionTest` 8 条：同向、速度在
+> 阵性带内、一分钟漂移 15–21 格、起伏均值≈0、摇晃 ≤10°、相位不影响水平方向、默认方位=东）。
+>
+> **探针同步改了**（否则旧探针会全线误报）：
+> - `tools/loot_pool_probe.py`：`data get block <坐标>` → 按 UUID `data get entity <uuid>`
+>   （箱子会漂，坐标不再是稳定标识；`cww loot status` 尾部新增 `last=<uuid>` 专供探针）；
+> - `tools/loot_clearance_probe.py`：逐格 `execute if block ... barrel` → `@e[type=nbw:floating_crate,distance=..5]`。
+>
+> **未验证（必须人工）**：本轮没有实机画面，渲染原点/摇晃幅度/开箱/撞岸/下沉五项都没人眼确认过；
+> 见 §3.13。旧方块版遗留在世界里的 barrel 会在开局/重启时按 `clearLegacyBarrels` 清掉，不会再顶筏。
+
 > ### ✅ 2026-11-22 21:4x：功能方块零质量——"摆设施把筏子压沉/压歪"修掉了
 >
 > 用户："功能方块重量问题：需要设为 0 重量，避免重量导致木筏出现下陷或者翻船。"
@@ -680,6 +716,31 @@ for ($i=0; $i -lt 11; $i++) { .\run\py-embed\python.exe -I -X utf8 tools\rcon.py
 
 - 连续 3 次 `Stop-McClient` + `Start-McClient -Fresh`，中间不做别的事。
 - **算过**：每次都能重连回原队席位（90s 内），不出现"重复登录/幽灵玩家/`list` 里两个人"。
+
+### 3.13 【新增】漂浮补给箱（**2026-11-25 新代码，一行实机都没跑过**）★最高优先
+
+> 本轮只做了代码级验证（编译 + 333 条单测）。箱子从"水面上的 barrel 方块"换成了
+> `nbw:floating_crate` 实体，渲染、开箱、撞岸、下沉都是新的，必须真人看一眼。
+
+```powershell
+# PLAY 里撒几个箱子，盯着看 10 秒
+.\run\py-embed\python.exe -I -X utf8 tools\rcon.py "cww loot spawn 5"
+.\run\py-embed\python.exe -I -X utf8 tools\rcon.py "cww loot status"   # 看 last=<uuid> 与坐标
+```
+
+- **算过**（6 条，缺一条就算没过）：
+  1. 箱子**浮在水面上**（不是半沉、也不是悬空），有上下小幅起伏 + 轻微摇晃；
+  2. 盯 5 秒能看出它在**朝东漂**；同屏 5 个时**方向一致**、互不穿插、不会自己拐弯；
+  3. 右键能开 3×9 箱子界面，里面 1–3 件物资能正常拿走（拿走后再开还是空）；
+  4. 漂到石墙 / 筏边会**停住**，不穿模、不卡进方块；
+  5. 120s 后原地**下沉约 1 秒再消失**（不是瞬间消失）；
+  6. `F3+B` 看碰撞箱：0.8×0.8，箱体不陷到水面以下、也不悬在水面之上。
+- **不通过怎么改**：把截图 + `cww loot status` 贴回来。高度 → `FloatingCrate.spawn` 里的
+  `surfaceY`（现在是 `waterLevel + 0.5`）；摇晃太大/太小 → `FlotsamMotion.ROLL_DEG` /
+  `PITCH_DEG`；漂太快/太慢 → `FLOW_SPEED_PER_SECOND`（0.30 格/秒 = 一分钟 18 格）；方向 →
+  `FLOW_X/FLOW_Z`。
+- **补测（可选）**：重启服务端后 `cww loot status` 应报"接管水面已有箱子 N 个"，且旧箱子还在漂
+  ——这条验的是 `LootService.resume` 的扫场接管。
 
 ---
 

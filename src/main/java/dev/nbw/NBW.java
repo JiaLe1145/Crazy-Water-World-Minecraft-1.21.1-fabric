@@ -5,6 +5,7 @@ import dev.nbw.combat.WeaponService;
 import dev.nbw.construct.BuildService;
 import dev.nbw.cmd.NbwCommands;
 import dev.nbw.content.NbwContent;
+import dev.nbw.content.NbwEntities;
 import dev.nbw.content.NbwItemGroups;
 import dev.nbw.content.NbwWeapons;
 import dev.nbw.net.NbwNetworking;
@@ -24,6 +25,7 @@ public class NBW implements ModInitializer {
 	@Override
 	public void onInitialize() {
 		NbwContent.register();
+		NbwEntities.register();     // 实体类型（海面补给箱）：注册要先于任何世界 tick / 存档读取
 		NbwWeapons.register();      // 首发 5 件近战武器（09 §2.1）：物品注册要在武器规则挂载之前
 		NbwItemGroups.register();   // 创造模式「武器」页：近战/远程/设施武器/弹药
 		NbwNetworking.register();   // 长按输入：codec 必须先于接收器注册，否则服务端解不出包
