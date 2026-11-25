@@ -63,6 +63,49 @@
 > **未验证（必须人工）**：本轮没有实机画面，渲染原点/摇晃幅度/开箱/撞岸/下沉五项都没人眼确认过；
 > 见 §3.13。旧方块版遗留在世界里的 barrel 会在开局/重启时按 `clearLegacyBarrels` 清掉，不会再顶筏。
 
+> ### ✅ 2026-11-25：新物品「石矛」——左键戳击 3 HP + 右键像三叉戟一样投掷 5 HP
+>
+> 用户："加入一个新物品，投掷石矛，可以像三叉戟一样投出，投掷伤害命中5点，也可以左键戳击3点伤害
+> （和我的世界最新版的矛一样），矛贴图和合成配方直接采用我的世界最新版的矛。"
+>
+> **贴图与配方是"抄"来的，不是画的**：本机装了 1.21.11（`猎人游戏1.21.11` 那个 version 目录），
+> 直接从客户端 jar 里取：
+> ```
+> assets/minecraft/textures/item/stone_spear.png   16×16   → nbw:item/stone_spear
+> data/minecraft/recipe/stone_spear.json           3×3     → nbw:stone_spear
+>   pattern ["  X"," # ","#  "]  #=minecraft:stick  X=#minecraft:stone_tool_materials
+> ```
+> 配方 JSON 只改了 result 的 id（`nbw:stone_spear`），其余逐字保留；`key` 从 1.21.11 的字符串写法
+> 换回 1.21.1 的 `{"item"}/{"tag"}` 写法（1.21.1 的 Ingredient codec 只吃对象形式）。
+>
+> **实现（3 个新 Java 文件 + 4 处改造）**：
+>
+> | 文件 | 作用 |
+> |---|---|
+> | `content/SpearItem.java`（新） | 右键投掷：PLAY 闸门 + 1s 冷却 + 生成投射物 + 扣 1 把（创造不扣） |
+> | `combat/SpearProjectileEntity.java`（新） | 真投射物（`PersistentProjectileEntity`）：固定 5 HP（原版会乘速度，必须覆盖）、同队穿透、入水 5 tick 后转成掉落物（整图都是海，不能让它沉底） |
+> | `client/SpearProjectileRenderer.java`（新） | 用物品模型按飞行方向摆正；两片十字避免正后方看不见 |
+> | `NbwWeapons` | 石矛实例化成 `SpearItem`（其余近战仍是 `WeaponItem`）；追加 `player.entity_interaction_range +1.5` → 4.5 格戳距 |
+> | `NbwEntities` / `NBWClient` | 注册 `nbw:stone_spear` 实体（0.5×0.5、每 tick 同步）与渲染器 |
+> | `weapons.json` | `stone_spear`：melee / 伤害 3.0 / 冷却 15 tick（原版石矛攻速 1.33 → 0.75s）/ 击退 1.0 |
+> | `LootRoll` | 加进 Common 池（配方要 3×3 合成台 + 圆石，海上不好凑；不放进池子局内就摸不到） |
+>
+> **数值口径（用户指定 vs 原版）**：戳击 **3 HP**（原版石矛 2 HP，用户要求 3，属性修饰 +2）；
+> 投掷 **5 HP**（原版没有投掷，参照三叉戟的投掷手感：初速 2.5 格/tick）；攻速/戳距仍贴原版
+> （1.33 → 15 tick、4.5 格）。
+>
+> **自动化验证**：`gradlew test` **339 条全绿**（新增 `StoneSpearResourceTest` 6 条：配方逐字、
+> 贴图 16×16 且非全透明、模型指向复制进来的贴图、近战表 3HP/15tick、投掷 5HP/20tick/2.5 初速、中文名）。
+>
+> **没做到的（说清楚，不吹成"和原版一样"）**：
+> - 原版矛的戳刺是"前方 4.5 格射线、命中射线上多个目标、且 2 格内打不到"。我们只做到了
+>   **4.5 格攻击距离**（属性）与 3 HP；**射线多目标**与**最小距离**没做——那两件事需要接管左键
+>   的射线判定，本版 Fabric 没有对应钩子（近战伤害仍由原版按物品属性结算）。
+> - 1.21.1 没有 1.21.11 的"按显示场景选模型"（`items/*.json` 的 select），所以手持/物品栏共用一张
+>   模型：手持是 1.21.1 的标准 `item/handheld` 变换，不是 1.21.11 那张 32×32 的"held"贴图。
+> - 实机一个字都没跑（用户当时在玩自己的客户端）：投放姿态、十字渲染、入水转物品、戳距是否真生效，
+>   全部见 §3.14。
+
 > ### ✅ 2026-11-22 21:4x：功能方块零质量——"摆设施把筏子压沉/压歪"修掉了
 >
 > 用户："功能方块重量问题：需要设为 0 重量，避免重量导致木筏出现下陷或者翻船。"
@@ -741,6 +784,33 @@ for ($i=0; $i -lt 11; $i++) { .\run\py-embed\python.exe -I -X utf8 tools\rcon.py
   `FLOW_X/FLOW_Z`。
 - **补测（可选）**：重启服务端后 `cww loot status` 应报"接管水面已有箱子 N 个"，且旧箱子还在漂
   ——这条验的是 `LootService.resume` 的扫场接管。
+
+### 3.14 【新增】石矛：戳击 3 / 投掷 5（**2026-11-25 新代码，一行实机都没跑过**）★最高优先
+
+> 贴图/配方是从 1.21.11 客户端 jar 里直接抄的（见 §0），但**手感与表现全部没验过**：
+> 手持姿势、投出去的矛长什么样、入水后能不能捡回来、4.5 格戳距在服务端是否真被放行。
+
+```powershell
+# PLAY 里给自己一把（近战走 weapons.json，走 /cww weapon give 才会计入攻速闸门）
+.\run\py-embed\python.exe -I -X utf8 tools\rcon.py "cww weapon give <你的ID> stone_spear"
+.\run\py-embed\python.exe -I -X utf8 tools\rcon.py "cww weapon list"      # 应看到 stone_spear 伤害=3.0HP 冷却=15tick
+```
+
+- **算过**（7 条，缺一条就算没过）：
+  1. 物品栏里的图标就是**原版石矛那张图**（不是缺图紫黑格、不是别的武器）；
+  2. 拿在手上姿势像矛（不会像剑一样横在手里），F3+H 看 tooltip：主手 3 攻击伤害 + 约 1.33 攻击速度；
+  3. **左键戳击**：对同一个假人挥一刀，掉血 **3 HP**（1.5 颗心）；命中距离明显比剑远（最远约 4.5 格）；
+  4. **右键投掷**：手里矛数量 −1，能看到一支矛**朝准星方向飞出去**（不是凭空消失）；
+  5. 投中假人 → 掉血 **5 HP**（2.5 颗心）；命中后 20s 内不能立刻再投（冷却条）；
+  6. 矛落进海里 → 不会沉底消失，**变成水面上浮着的一把矛**，游过去能捡回（数量 +1）；
+  7. 合成：4 木板 → 合成台放上甲板 → 2 木棍 + 1 圆石按原版排布（右上材料、两格木棍对角垫）→ 出 1 把石矛。
+- **不通过怎么改**：把截图 + `cww weapon list` 贴回来。伤害 → `weapons.json` 的 `stone_spear.damage`
+  （左键）与 `SpearItem.THROW_DAMAGE`（投掷）；戳距 → `NbwWeapons.SPEAR_REACH_BONUS`（+1.5 → 4.5 格）；
+  投掷初速/冷却 → `SpearItem.THROW_SPEED` / `THROW_COOLDOWN_TICKS`；投出去的矛太大/太小 →
+  `SpearProjectileRenderer.SCALE`；觉得"矛看起来像贴在脸上" → 同文件的 `translate(0, 0.25, 0)` 与
+  `ART_DIAGONAL_DEG`（贴图是斜的，45° 是把矛身转到本地 +Y 的关键）。
+- **明确没做**（别当 bug 报）：原版矛的"射线多目标"和"2 格内打不到"没实现，只有最远距离与伤害对齐；
+  1.21.1 也不支持 1.21.11 那种"按显示场景换模型"，所以手持用的是标准 handheld 变换 + 16×16 贴图。
 
 ---
 

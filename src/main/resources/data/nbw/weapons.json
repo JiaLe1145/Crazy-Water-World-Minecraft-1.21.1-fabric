@@ -5,6 +5,7 @@
     {"id": "cutlass", "kind": "melee", "damage": 6.0, "cooldownTicks": 12, "knockback": 1.0, "coreMultiplier": 1.0},
     {"id": "pike", "kind": "melee", "damage": 7.0, "cooldownTicks": 22, "knockback": 1.5, "coreMultiplier": 1.0},
     {"id": "warhammer", "kind": "melee", "damage": 10.0, "cooldownTicks": 32, "knockback": 1.0, "coreMultiplier": 2.5},
-    {"id": "twin_blade", "kind": "melee", "damage": 5.0, "cooldownTicks": 7, "knockback": 0.5, "coreMultiplier": 1.0}
+    {"id": "twin_blade", "kind": "melee", "damage": 5.0, "cooldownTicks": 7, "knockback": 0.5, "coreMultiplier": 1.0},
+    {"id": "stone_spear", "kind": "melee", "damage": 3.0, "cooldownTicks": 15, "knockback": 1.0, "coreMultiplier": 1.0}
   ]
 }

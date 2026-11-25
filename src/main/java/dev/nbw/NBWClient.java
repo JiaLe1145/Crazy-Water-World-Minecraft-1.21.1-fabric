@@ -3,6 +3,7 @@ package dev.nbw;
 import dev.nbw.client.FloatingCrateRenderer;
 import dev.nbw.client.HoldInputClient;
 import dev.nbw.client.MoveInputClient;
+import dev.nbw.client.SpearProjectileRenderer;
 import dev.nbw.client.StatusHudClient;
 import dev.nbw.content.NbwEntities;
 import net.fabricmc.api.ClientModInitializer;
@@ -16,6 +17,8 @@ public class NBWClient implements ClientModInitializer {
 		StatusHudClient.register();   // 生存状态 HUD：营养/水分两条（M4-1）
 		// 海面补给箱：实体本身只有位置/摇晃数据，外观复用 barrel 方块模型
 		EntityRendererRegistry.register(NbwEntities.FLOATING_CRATE, FloatingCrateRenderer::new);
-		NBW.LOGGER.info("NB-Water-World client side ready（长按输入 + 遥控器移动 + 生存 HUD + 漂浮补给箱已接）");
+		// 投出去的石矛：用物品模型（原版石矛贴图）按飞行方向摆正，画两片十字避免侧视消失
+		EntityRendererRegistry.register(NbwEntities.STONE_SPEAR, SpearProjectileRenderer::new);
+		NBW.LOGGER.info("NB-Water-World client side ready（长按输入 + 遥控器移动 + 生存 HUD + 漂浮补给箱 + 投矛已接）");
 	}
 }

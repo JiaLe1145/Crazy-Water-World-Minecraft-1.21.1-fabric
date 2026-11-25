@@ -39,7 +39,10 @@ public final class LootRoll {
 					new Item("nbw:fresh_water", 1, 2),
 					// 02 §4 / 09 §2.3：绳索与钩竿是 Common 控制工具，救援线全靠它们
 					new Item("nbw:rope", 1, 2),
-					new Item("nbw:grapnel", 1, 1)),
+					new Item("nbw:grapnel", 1, 1),
+					// 2026-11-25 石矛：配方要 3×3 合成台 + 圆石，海上都不好搞；
+					// 放进 Common 池保证"局内真能捡到一把石矛"，不靠合成台也能玩到。
+					new Item("nbw:stone_spear", 1, 1)),
 			Rarity.RARE, List.of(
 					new Item("minecraft:iron_ingot", 1, 2),
 					new Item("minecraft:coal", 2, 6),

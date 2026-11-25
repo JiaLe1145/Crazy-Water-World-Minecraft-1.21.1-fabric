@@ -128,14 +128,14 @@ src/main/java/dev/nbw/
 │                    RemoteService / WindService / RaftMotionService
 ├── rescue/          RescueService(578) / RopeService(171)
 ├── construct/       BuildService(483)
-├── combat/          WeaponService(286) / CombatStats(195)
+├── combat/          WeaponService(286) / CombatStats(195) / SpearProjectileEntity(投矛实体)
 ├── survival/        SurvivalService(256)
-├── content/         NbwContent(161) / NbwEntities(实体类型) / RangedWeaponItem(162) / 各 Block
+├── content/         NbwContent(161) / NbwEntities(实体类型) / SpearItem(石矛) / RangedWeaponItem(162) / 各 Block
 ├── cfg/             ConfigService(343) / ConfigModels(181) / WeaponConfig(102)
 ├── cmd/             NbwCommands(1159) 命令树
 ├── arena/           MapResetService / ArenaChunkLoader / SeaTerrain / ArenaPool
 ├── net/             NbwNetworking(246) / 各 Payload
-└── client/          StatusHudClient / HoldInputClient / MoveInputClient / FloatingCrateRenderer
+└── client/          StatusHudClient / HoldInputClient / MoveInputClient / FloatingCrateRenderer / SpearProjectileRenderer
 ```
 
 **权威文件（改之前先读）**：

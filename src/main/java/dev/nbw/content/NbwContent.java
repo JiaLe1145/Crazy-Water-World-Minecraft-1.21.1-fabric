@@ -43,6 +43,8 @@ public final class NbwContent {
 	public static final String HARPOON_GUN = "harpoon_gun";
 	public static final String MUSKET = "musket";
 	public static final String JAVELIN = "javelin";
+	/** 石矛（2026-11-25）：左键戳击 3HP + 右键投掷 5HP；贴图/配方取自 1.21.11 原版石矛。 */
+	public static final String STONE_SPEAR = "stone_spear";
 
 	public static RaftCoreBlock raftCore;
 	public static SailBlock sail;
@@ -67,6 +69,8 @@ public final class NbwContent {
 	public static RangedWeaponItem harpoonGun;
 	public static RangedWeaponItem musket;
 	public static RangedWeaponItem javelin;
+	/** 石矛：注册在 {@link NbwWeapons#register()}（近战表驱动），这里只留引用给投掷实体/物品组用。 */
+	public static SpearItem stoneSpear;
 	public static BlockEntityType<RaftCoreBlockEntity> raftCoreEntity;
 
 	private NbwContent() {

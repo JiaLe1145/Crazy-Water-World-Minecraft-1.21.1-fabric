@@ -12,7 +12,7 @@ import net.minecraft.item.Item;
  * <p>伤害与攻速走 attribute modifier（{@code NbwWeapons} 注册时从内置表算好）；
  * 外观与渲染失败绝不影响判定——逻辑权威在服务端。
  */
-public final class WeaponItem extends Item {
+public class WeaponItem extends Item {
 
 	private final String weaponId;
 

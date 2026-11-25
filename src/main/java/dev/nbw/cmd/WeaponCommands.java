@@ -99,7 +99,8 @@ public final class WeaponCommands {
 		String id = StringArgumentType.getString(ctx, "id");
 		WeaponItem item = NbwWeapons.item(id);
 		if (item == null) {
-			return CmdSupport.tell(ctx, "不认识武器 id：" + id + "（近战：paddle/cutlass/pike/warhammer/twin_blade）");
+			return CmdSupport.tell(ctx, "不认识武器 id：" + id
+					+ "（近战：paddle/cutlass/pike/warhammer/twin_blade/stone_spear）");
 		}
 		CombatRule.WeaponSpec spec = WeaponService.current().spec(id);
 		if (spec == null) {
