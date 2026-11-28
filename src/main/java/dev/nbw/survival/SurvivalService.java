@@ -179,7 +179,28 @@ public final class SurvivalService {
 
 	private static void sendStatus(ServerPlayerEntity p, double nutrition, double hydration) {
 		if (ServerPlayNetworking.canSend(p, StatusPayload.ID)) {
-			ServerPlayNetworking.send(p, new StatusPayload((float) nutrition, (float) hydration));
+			int now = server == null ? 0 : server.getTicks();
+			boolean bleeding = bleedingUntil.getOrDefault(p.getUuid(), 0) > now;
+			boolean fracture = fractureUntil.getOrDefault(p.getUuid(), 0) > now;
+			boolean hypothermic = HypothermiaRule.active(wetStates.get(p.getUuid()));
+			ServerPlayNetworking.send(p, new StatusPayload(true,
+					(float) nutrition, (float) hydration, bleeding, fracture, hypothermic));
+		}
+	}
+
+	/**
+	 * 非对局阶段通知客户端收起营养/水分条（2026-11-28 用户要求：未开局看不到两条）。
+	 * 只发一次，避免每 tick 广播。
+	 */
+	public static void hideAll(MinecraftServer srv) {
+		if (srv == null) {
+			return;
+		}
+		for (ServerPlayerEntity p : srv.getPlayerManager().getPlayerList()) {
+			if (ServerPlayNetworking.canSend(p, StatusPayload.ID)) {
+				ServerPlayNetworking.send(p, new StatusPayload(false, 0.0f, 0.0f,
+						false, false, false));
+			}
 		}
 	}
 

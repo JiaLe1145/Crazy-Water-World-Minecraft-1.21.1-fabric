@@ -12,6 +12,7 @@ import dev.nbw.net.NbwNetworking;
 import dev.nbw.rescue.RescueService;
 import dev.nbw.survival.SurvivalService;
 import dev.nbw.round.EventService;
+import dev.nbw.round.LobbyReadyService;
 import dev.nbw.round.RoundManager;
 import net.fabricmc.api.ModInitializer;
 import org.slf4j.Logger;
@@ -30,6 +31,7 @@ public class NBW implements ModInitializer {
 		NbwItemGroups.register();   // 创造模式「武器」页：近战/远程/设施武器/弹药
 		NbwNetworking.register();   // 长按输入：codec 必须先于接收器注册，否则服务端解不出包
 		RoundManager.register();
+		LobbyReadyService.register();   // 大厅自动准备 + K 键切换（2026-11-28）
 		BuildService.register();    // 建造规则（01 §4.2）：方块事件必须在阶段系统起来之后挂
 		RescueService.register();     // 落水与扒边（01 §8）：伤害打断要挂在实体事件上
 		WeaponService.register();     // PVP 近战（09 §4）：攻击事件挂在阶段系统之后，只在 PLAY 生效

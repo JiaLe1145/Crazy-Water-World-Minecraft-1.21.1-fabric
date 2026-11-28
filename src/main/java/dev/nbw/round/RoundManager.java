@@ -247,6 +247,7 @@ public final class RoundManager {
 		ArenaChunkLoader.tick(srv.getOverworld());
 		MapResetService.onEndTick();   // 模板复制：READY 期间逐 tick 推进，不能只放在 PLAY 块里
 		sweepLobbySeats();   // 报名期的幽灵席位清扫，同理不能塞进 PLAY-only 块里
+		LobbyReadyService.onEndTick(srv);   // 大厅内默认参加 / 出界取消（每 10 tick）
 		if (machine.phase() != Phase.PLAY) {
 			// 非对局阶段不该有人死着：死亡屏是客户端 UI，服务端不主动 respawn 就永远关不掉。
 			// 实测（2026-11-22）：SETTLE 里淹死一个人 → 之后一直卡在 "你死了"，连大厅都回不来。
@@ -255,6 +256,7 @@ public final class RoundManager {
 		if (machine.phase() == Phase.PLAY) {
 			sweepDeaths();
 			ZoneService.onEndTick(srv);   // 黑海圈层：收缩预告 + 圈外每秒伤害
+			MinimapService.onEndTick(srv);   // 小地图：每 10 tick 推队友/木筏/黑海位置
 			LootService.onEndTick(srv);   // 海面物资：按 respawnIntervalSec 定时补箱
 			SurvivalService.onEndTick(srv);   // 营养/水分：每秒衰减 + debuff + HUD
 			EventService.onEndTick(srv);   // 事件池：到点抽一发
@@ -506,6 +508,7 @@ public final class RoundManager {
 				announce("§e正在重置地图并生成木筏，" + seconds(machine.config().readyTicks()) + " 秒后开局");
 			}
 			case PLAY -> {
+				LobbyReadyService.hideAll(server);   // 开局后收起顶部"参加人数"面板
 				setParticipantsGameMode(GameMode.SURVIVAL);
 				// 入图已由 READY 闸门保证（人在自己筏的甲板上）。这里只做**兜底**：
 				// 闸门超时、或者客户端没跟上被判定在水里的，补一次落位。
@@ -515,6 +518,7 @@ public final class RoundManager {
 				WorldRules.apply(server);   // 每局再刷一遍，防管理员中途改规则
 				MetricsService.begin(server);   // 埋点：局时长/首战/生产参与率的起点
 				ZoneService.begin(server);   // 黑海圈层：抓半径/伤害表与圈心
+				MinimapService.begin(server);   // 小地图：给本局参赛者随机分配颜色
 				LootService.begin(server);   // 海面物资：按 loot.prefill 撒补给箱 + 定补箱间隔
 				SurvivalService.begin(server);   // 生存：参赛者满营养/满水分
 				EventService.begin(server);   // 事件池（M5-1）：排第一发
@@ -1162,8 +1166,11 @@ public final class RoundManager {
 		WeaponService.reset();   // 攻速闸门的"上次有效攻击"是局内的：残留=下一局开局被超频卡住
 		MapResetService.cancel();   // 未完成的模板复制不许跨局写到新图上
 		ZoneService.reset();   // 圈层模型与预告状态都是局内的：残留=下一局开局就按上一局的圈算
+		MinimapService.reset();   // 小地图颜色是局内的
+		LobbyReadyService.onMatchReset();   // 自动报名记录是局内的（"不参加"选择保留）
 		LootService.reset();   // 已撒箱子列表是局内的：残留=下一局把旧箱子当成本局的
 		MetricsService.reset();   // 本局计数清空（上一局的一行结论保留给 /cww metrics）
+		SurvivalService.hideAll(server);   // 未开局不显示营养/水分条（2026-11-28）
 		SurvivalService.reset();   // 营养/水分是局内的：残留=下一局开局直接是上一局的状态
 		dev.nbw.content.SeawaterFilterBlock.reset();   // 过滤器冷却表是局内的
 		dev.nbw.content.MedicalKitBlock.reset();   // 医疗箱冷却表是局内的
@@ -1283,6 +1290,7 @@ public final class RoundManager {
 	private static void resumePlayServices() {
 		MetricsService.begin(server);
 		ZoneService.begin(server);
+		MinimapService.begin(server);
 		LootService.resume(server);
 		SurvivalService.begin(server);
 		EventService.begin(server);
@@ -1508,6 +1516,7 @@ public final class RoundManager {
 
 	/** /cww join [team]：报名 + 可选直接选队（01 §2 自主分队）。 */
 	public static String join(ServerPlayerEntity player, Integer team) {
+		LobbyReadyService.markManualJoin(player.getUuid());
 		String err = machine.queue(player.getUuid(), player.getNameForScoreboard());
 		if (err != null) {
 			return err;
@@ -1516,6 +1525,7 @@ public final class RoundManager {
 	}
 
 	public static String quit(ServerPlayerEntity player) {
+		LobbyReadyService.markManualQuit(player.getUuid());
 		return machine.unqueue(player.getUuid());
 	}
 
@@ -1531,6 +1541,7 @@ public final class RoundManager {
 		if (target == null) {
 			return "找不到玩家 " + playerName + "（真实玩家与假玩家都查过，见 05 C23）";
 		}
+		LobbyReadyService.markManualJoin(target.getUuid());   // 管理员指定 = 明确参加，清掉"不参加"
 		String err = machine.queue(target.getUuid(), target.getNameForScoreboard());
 		if (err != null) {
 			return err;
@@ -1557,6 +1568,16 @@ public final class RoundManager {
 
 	private static ServerWorld lobbyWorld() {
 		return server == null ? null : server.getOverworld();
+	}
+
+	/** 大厅配置（自动准备的"大厅范围"从这里取；未加载时为 null）。 */
+	public static ConfigModels.Lobby lobbyOrNull() {
+		return lobby;
+	}
+
+	/** 大厅所在世界（MVP 固定 overworld）。 */
+	public static ServerWorld lobbyWorldPublic() {
+		return lobbyWorld();
 	}
 
 	private static void announce(String message) {

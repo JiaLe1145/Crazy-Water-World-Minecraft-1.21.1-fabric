@@ -164,6 +164,25 @@ public final class ZoneService {
 	}
 
 	/** 局后清理：圈层是局内状态，跨局不许残留。 */
+	/** 小地图用：黑海圈心 X（没有圈层模型时返回 0）。 */
+	public static int centerX() {
+		return centerX;
+	}
+
+	/** 小地图用：黑海圈心 Z（没有圈层模型时返回 0）。 */
+	public static int centerZ() {
+		return centerZ;
+	}
+
+	/** 小地图用：当前有效半径（含黑海倒流外扩）；没有圈层模型时返回 0。 */
+	public static double currentRadius() {
+		if (model == null || RoundManager.machine() == null) {
+			return 0.0;
+		}
+		int elapsed = RoundManager.machine().tickInPhase() / 20;
+		return model.radiusAt(elapsed) * EventService.zoneRadiusMultiplier();
+	}
+
 	public static void reset() {
 		model = null;
 		centerX = 0;

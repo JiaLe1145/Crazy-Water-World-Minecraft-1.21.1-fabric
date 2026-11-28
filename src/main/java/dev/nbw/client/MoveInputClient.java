@@ -6,6 +6,8 @@ import dev.nbw.net.MovePayload;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.text.Text;
+import net.minecraft.util.hit.BlockHitResult;
 
 /**
  * 遥控器输入的客户端一侧（问题③）：主手拿遥控器时按右键进入/退出"移动模式"，
@@ -54,12 +56,19 @@ public final class MoveInputClient {
 		final boolean holdingRemote = client.player.getMainHandStack().getItem() == NbwContent.remote;
 		final boolean usePressed = client.options.useKey.isPressed();
 
-		// 右键边沿：主手拿遥控器时按一下 = 切移动模式（进/出）
+		// 右键边沿：主手拿遥控器时按一下 = 切移动模式。
+		// 2026-11-28 用户要求：**必须对准筏心才能进入**；退出不要求瞄准，
+		// 否则第三人称木筏视角下准星不一定还在筏心上，会退不出去。
 		if (holdingRemote && usePressed && !useWasPressed) {
-			moveMode = !moveMode;
-			NBW.LOGGER.info("[remote] 移动模式 {}", moveMode ? "开启" : "关闭");
-			if (!moveMode) {
+			if (moveMode) {
+				moveMode = false;
+				NBW.LOGGER.info("[remote] 移动模式 关闭");
 				sendClear();
+			} else if (aimingAtRaftCore(client)) {
+				moveMode = true;
+				NBW.LOGGER.info("[remote] 移动模式 开启（对准筏心）");
+			} else {
+				client.player.sendMessage(Text.literal("§e[cww] 请对准本队筏心使用遥控器"), true);
 			}
 		}
 		useWasPressed = usePressed;
@@ -95,6 +104,14 @@ public final class MoveInputClient {
 			}
 			ClientPlayNetworking.send(new MovePayload(f, b, l, r));
 		}
+	}
+
+	/** 准星是否正对着筏心方块（Sable 的射线会给出 sub-level 方块，state 能读到）。 */
+	private static boolean aimingAtRaftCore(MinecraftClient client) {
+		if (client.world == null || !(client.crosshairTarget instanceof BlockHitResult hit)) {
+			return false;
+		}
+		return client.world.getBlockState(hit.getBlockPos()).isOf(NbwContent.raftCore);
 	}
 
 	private static void sendClear() {

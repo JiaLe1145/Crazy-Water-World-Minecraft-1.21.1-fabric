@@ -32,5 +32,8 @@
   "item.nbw.water_pistol": "Water Pistol",
   "item.nbw.stone_spear": "Stone Spear",
   "entity.nbw.floating_crate": "Floating Supply Crate",
-  "container.nbw.floating_crate": "Supply Crate"
+  "container.nbw.floating_crate": "Supply Crate",
+  "key.nbw.map": "Map",
+  "key.nbw.participate": "Join / Leave",
+  "key.categories.nbw": "Crazy Water World"
 }

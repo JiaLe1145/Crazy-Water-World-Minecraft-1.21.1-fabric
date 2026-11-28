@@ -400,6 +400,12 @@ public final class SurvivorService {
 		return out;
 	}
 
+	/** 本队所有幸存者实体 UUID（小地图画绿点用；含已死亡但尚未清理的，调用方自行过滤）。 */
+	public static List<UUID> survivorsOf(int team) {
+		List<UUID> list = villagerIds.get(team);
+		return list == null ? List.of() : List.copyOf(list);
+	}
+
 	/** 本队是否有该职业的幸存者（只算活着的：被杀掉的职业不能再提供加成）。 */
 	public static boolean hasJob(int team, SurvivorJob job) {
 		List<UUID> list = villagerIds.get(team);

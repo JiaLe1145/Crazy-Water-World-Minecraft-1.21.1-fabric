@@ -26,6 +26,10 @@ loom {
 			// 服务端已加载的 run/.fabric/processedMods/*.jar 文件锁（FileSystemException）。
 			// 两者并行开发必须分开运行目录。
 			runDir = "run-client"
+			// 固定开发用户名：Loom 默认每次启动随机生成（实测出现过 Player572 / Player672），
+			// 离线 UUID 跟着名字走，重启后服务端就认不出是同一个人（席位、调试命令、
+			// "/cww find" 全部对不上）。固定成 Tester，便于复现与连续测试。
+			programArgs "--username", "Tester", "--quickPlayMultiplayer", "127.0.0.1:25565"
 		}
 		// 第二个客户端（2026-11-21 加）：双客户端才测得了真 PvP、双队都有真人的对局、
 		// 以及"双方各自死亡→复活"这类只有真玩家才走得通的链路。

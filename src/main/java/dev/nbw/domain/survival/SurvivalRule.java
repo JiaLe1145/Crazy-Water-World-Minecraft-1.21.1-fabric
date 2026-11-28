@@ -3,7 +3,8 @@ package dev.nbw.domain.survival;
 /**
  * 营养/水分的纯规则（M4-1，02 §2）。零依赖、可单测。
  *
- * <p>数值来自 02 §2 的表：营养 100、1.0/min（战斗 1.6/min）；水分 100、3.5/min。
+ * <p>数值来自 02 §2 的表；2026-11-28 用户要求"降低太慢、加快一点"，
+ * 在文档值基础上整体 ×2：营养 100、2.0/min（战斗 3.2/min）；水分 100、7.0/min。
  * 两条都<b>不致命</b>——到 0 只是挂 debuff（Gate G4：状态不得单独致死满装备玩家）。
  */
 public final class SurvivalRule {
@@ -11,12 +12,12 @@ public final class SurvivalRule {
 	/** 满值。 */
 	public static final double MAX = 100.0;
 
-	/** 营养：平静 1.0/min，战斗/划桨 1.6/min。 */
-	public static final double NUTRITION_PER_MIN = 1.0;
-	public static final double NUTRITION_PER_MIN_COMBAT = 1.6;
+	/** 营养：平静 2.0/min，战斗/划桨 3.2/min（2026-11-28 从 1.0/1.6 加倍）。 */
+	public static final double NUTRITION_PER_MIN = 2.0;
+	public static final double NUTRITION_PER_MIN_COMBAT = 3.2;
 
-	/** 水分：3.5/min（缺水环境 6/min，本轮先只落基础档）。 */
-	public static final double HYDRATION_PER_MIN = 3.5;
+	/** 水分：7.0/min（2026-11-28 从 3.5 加倍）。 */
+	public static final double HYDRATION_PER_MIN = 7.0;
 
 	/** 低于这个值开始挂 debuff（02 §2 没给精确阈值，按"低营养/低水分"取 20）。 */
 	public static final double LOW_THRESHOLD = 20.0;

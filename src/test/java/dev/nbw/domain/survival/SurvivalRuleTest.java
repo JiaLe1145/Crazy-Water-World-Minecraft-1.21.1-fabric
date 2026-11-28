@@ -35,9 +35,10 @@ class SurvivalRuleTest {
 	@Test
 	void designNumbersAreStable() {
 		assertEquals(100.0, SurvivalRule.MAX);
-		assertEquals(1.0, SurvivalRule.NUTRITION_PER_MIN);
-		assertEquals(1.6, SurvivalRule.NUTRITION_PER_MIN_COMBAT);
-		assertEquals(3.5, SurvivalRule.HYDRATION_PER_MIN);
+		// 2026-11-28 用户要求加快消耗：文档值 1.0/1.6/3.5 整体 ×2
+		assertEquals(2.0, SurvivalRule.NUTRITION_PER_MIN);
+		assertEquals(3.2, SurvivalRule.NUTRITION_PER_MIN_COMBAT);
+		assertEquals(7.0, SurvivalRule.HYDRATION_PER_MIN);
 		assertEquals(20.0, SurvivalRule.LOW_THRESHOLD);
 	}
 }
